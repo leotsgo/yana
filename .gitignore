@@ -1,0 +1,8 @@
+/yana
+/bin/
+.env
+*.db
+*.db-wal
+*.db-shm
+node_modules/
+testdata/fuzz/

@@ -1,0 +1,12 @@
+{
+  "name": "yana-crdt-spike",
+  "private": true,
+  "type": "module",
+  "description": "Cross-language fixtures for the Phase 0 CRDT spike (JS Yjs <-> pure-Go port).",
+  "scripts": {
+    "fixtures": "node fixtures.mjs"
+  },
+  "dependencies": {
+    "yjs": "^13.6.0"
+  }
+}

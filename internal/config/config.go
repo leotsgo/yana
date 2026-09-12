@@ -1,0 +1,186 @@
+// Package config loads server configuration from the environment (prefix
+// YANA_) with an optional YAML file underneath it. Environment wins over the
+// file; the file wins over defaults.
+package config
+
+import (
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Config is the fully resolved server configuration.
+type Config struct {
+	// NotesRoot is the directory that holds spaces. It is the source of
+	// truth; everything under NotesRoot/.sync is derived from it.
+	NotesRoot string `yaml:"notes_root"`
+	// Listen is the address the HTTP server binds to.
+	Listen string `yaml:"listen"`
+	// LogLevel is one of debug, info, warn, error.
+	LogLevel string `yaml:"log_level"`
+
+	// MaxNoteSize is the largest note (bytes) the scanner will index or the
+	// API will accept.
+	MaxNoteSize int64 `yaml:"max_note_size"`
+	// MaxAssetSize is the largest file under _assets/ that is indexed.
+	MaxAssetSize int64 `yaml:"max_asset_size"`
+	// MaxNotesPerSpace caps how many notes one space may contain.
+	MaxNotesPerSpace int `yaml:"max_notes_per_space"`
+
+	// ScanSettleTime is how old a file's mtime must be before the scanner
+	// assigns it an id. Files younger than this are still being written.
+	ScanSettleTime time.Duration `yaml:"scan_settle_time"`
+
+	// Ripgrep enables the regex search passthrough when an `rg` binary is on
+	// PATH. Off means the endpoint reports that regex search is unavailable.
+	Ripgrep bool `yaml:"ripgrep"`
+	// RipgrepTimeout bounds one regex search.
+	RipgrepTimeout time.Duration `yaml:"ripgrep_timeout"`
+}
+
+// Defaults returns the configuration used when nothing is set. The notes
+// root defaults to ~/.yana on bare metal; the container image overrides it
+// to /notes through the environment.
+func Defaults() Config {
+	root := "/notes"
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		root = filepath.Join(home, ".yana")
+	}
+	return Config{
+		NotesRoot:        root,
+		Listen:           ":8080",
+		LogLevel:         "info",
+		MaxNoteSize:      10 << 20,
+		MaxAssetSize:     50 << 20,
+		MaxNotesPerSpace: 100_000,
+		ScanSettleTime:   2 * time.Second,
+		Ripgrep:          true,
+		RipgrepTimeout:   5 * time.Second,
+	}
+}
+
+// Load resolves the configuration from defaults, then the YAML file named
+// by YANA_CONFIG (if set), then YANA_* environment variables.
+func Load(getenv func(string) string) (Config, error) {
+	cfg := Defaults()
+	if path := getenv("YANA_CONFIG"); path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return cfg, fmt.Errorf("read config file: %w", err)
+		}
+		if err := yaml.Unmarshal(raw, &cfg); err != nil {
+			return cfg, fmt.Errorf("parse config file %s: %w", path, err)
+		}
+	}
+	if err := applyEnv(&cfg, getenv); err != nil {
+		return cfg, err
+	}
+	if cfg.NotesRoot == "" {
+		return cfg, fmt.Errorf("notes root is empty")
+	}
+	abs, err := filepath.Abs(cfg.NotesRoot)
+	if err != nil {
+		return cfg, fmt.Errorf("resolve notes root: %w", err)
+	}
+	cfg.NotesRoot = abs
+	if _, err := ParseLevel(cfg.LogLevel); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+func applyEnv(cfg *Config, getenv func(string) string) error {
+	str := func(key string, dst *string) {
+		if v := getenv("YANA_" + key); v != "" {
+			*dst = v
+		}
+	}
+	i64 := func(key string, dst *int64) error {
+		v := getenv("YANA_" + key)
+		if v == "" {
+			return nil
+		}
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("YANA_%s: %w", key, err)
+		}
+		*dst = n
+		return nil
+	}
+	dur := func(key string, dst *time.Duration) error {
+		v := getenv("YANA_" + key)
+		if v == "" {
+			return nil
+		}
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("YANA_%s: %w", key, err)
+		}
+		*dst = d
+		return nil
+	}
+	boolean := func(key string, dst *bool) error {
+		v := getenv("YANA_" + key)
+		if v == "" {
+			return nil
+		}
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("YANA_%s: %w", key, err)
+		}
+		*dst = b
+		return nil
+	}
+
+	str("NOTES_ROOT", &cfg.NotesRoot)
+	str("LISTEN", &cfg.Listen)
+	str("LOG_LEVEL", &cfg.LogLevel)
+	if err := i64("MAX_NOTE_SIZE", &cfg.MaxNoteSize); err != nil {
+		return err
+	}
+	if err := i64("MAX_ASSET_SIZE", &cfg.MaxAssetSize); err != nil {
+		return err
+	}
+	var perSpace int64 = int64(cfg.MaxNotesPerSpace)
+	if err := i64("MAX_NOTES_PER_SPACE", &perSpace); err != nil {
+		return err
+	}
+	cfg.MaxNotesPerSpace = int(perSpace)
+	if err := dur("SCAN_SETTLE_TIME", &cfg.ScanSettleTime); err != nil {
+		return err
+	}
+	if err := boolean("RIPGREP", &cfg.Ripgrep); err != nil {
+		return err
+	}
+	if err := dur("RIPGREP_TIMEOUT", &cfg.RipgrepTimeout); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ParseLevel maps a config string to a slog level.
+func ParseLevel(s string) (slog.Level, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info", "":
+		return slog.LevelInfo, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	}
+	return slog.LevelInfo, fmt.Errorf("unknown log level %q (use debug, info, warn, or error)", s)
+}
+
+// SyncDir returns the directory for derived state under the notes root.
+func (c Config) SyncDir() string { return filepath.Join(c.NotesRoot, ".sync") }
+
+// IndexPath returns the SQLite index location.
+func (c Config) IndexPath() string { return filepath.Join(c.SyncDir(), "index.db") }
