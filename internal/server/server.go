@@ -21,6 +21,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
+	"github.com/madeofpendletonwool/yana/internal/reconcile"
 	"github.com/madeofpendletonwool/yana/internal/render"
 	"github.com/madeofpendletonwool/yana/internal/search"
 )
@@ -33,6 +34,8 @@ type Deps struct {
 	Web     fs.FS // embedded client; nil serves a plain message at /
 	Log     *slog.Logger
 	Version string
+	// Sync is the reconciliation loop; nil when the server runs without one.
+	Sync *reconcile.Reconciler
 }
 
 // Server holds handler state.
@@ -117,14 +120,18 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	last, _ := s.DB.ScanState(r.Context(), "last_scan")
-	writeJSON(w, http.StatusOK, map[string]any{
+	status := map[string]any{
 		"version":      s.Version,
 		"ready":        s.ready.Load(),
 		"notes":        notes,
 		"assets":       assets,
 		"last_scan":    last,
 		"regex_search": s.Ripgrep != nil && s.Ripgrep.Available(),
-	})
+	}
+	if s.Sync != nil {
+		status["sync"] = s.Sync.Stats()
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 // --- api ---------------------------------------------------------------

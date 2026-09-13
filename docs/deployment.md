@@ -48,12 +48,19 @@ ripgrep: true
 | `YANA_MAX_NOTE_SIZE` | `10485760` | Largest note indexed, bytes |
 | `YANA_MAX_ASSET_SIZE` | `52428800` | Largest asset indexed, bytes |
 | `YANA_MAX_NOTES_PER_SPACE` | `100000` | Cap per space |
-| `YANA_SCAN_SETTLE_TIME` | `2s` | Minimum mtime age before a file is assigned an id |
+| `YANA_SCAN_SETTLE_TIME` | `2s` | Minimum mtime age before a file is assigned an id, or believed empty or gone |
+| `YANA_WRITEBACK_IDLE` | `2s` | Pause after the last edit before a document is written to its file |
+| `YANA_WATCH_DEBOUNCE` | `200ms` | Window for collapsing bursts of filesystem events |
+| `YANA_COMPACT_AFTER` | `500` | Per-note CRDT log length that triggers a snapshot |
+| `YANA_CRDT_RETENTION` | `720h` | How long a deleted note's document is kept |
 | `YANA_RIPGREP` | `true` | Enable regex search through `rg` |
 | `YANA_RIPGREP_TIMEOUT` | `5s` | Bound on one regex search |
 
 Logs are JSON on stderr, one object per line, with a `component` field and a
-`request_id` on HTTP lines.
+`request_id` on HTTP lines. The `reconcile` component logs every write-back,
+read-in, and suppressed echo with the note id and the file hashes involved;
+`YANA_LOG_LEVEL=debug` adds the echoes. If a note ever looks wrong, those
+lines say what the loop saw.
 
 ### The volume
 
@@ -64,10 +71,12 @@ Logs are JSON on stderr, one object per line, with a `component` field and a
     <folders...>/<note>.md
     <folders...>/_assets/<image>
   .trash/                  # soft-deleted notes (later phase)
-  .sync/                   # derived; safe to delete
-    index.db
+  .sync/                   # derived
+    index.db               # index, search, and the CRDT edit log
     index.db-wal
     index.db-shm
+    crdt/<id>.bin          # one document per note
+    crdt/retired/<id>.bin  # documents of deleted notes
 ```
 
 Everything you care about is the tree of `.md`, `.html`, and `_assets`
@@ -79,8 +88,16 @@ rm -rf notes/.sync
 docker compose start yana
 ```
 
-The result has the same note ids, tree, and search results, because ids live
-in the files, not the database.
+The result has the same note ids, tree, search results, and text, because
+ids and text live in the files, not the database. What you lose is
+`.sync/crdt/`: the edit history behind each note. Notes edited only through
+the file never had any. Deleting `index.db` alone keeps it.
+
+`.sync/crdt/retired/` holds the document of every note whose file was
+deleted, for `YANA_CRDT_RETENTION` (30 days). A file that comes back with
+the same id picks its document up again. It also holds edits that were
+typed but not yet written when the file disappeared, so an `rm` at the
+wrong moment is not the end of them.
 
 ### File ownership
 
@@ -101,8 +118,10 @@ by root. Once the directory is yours, you can drop root altogether with
 - `GET /readyz` returns 200 once the first scan has finished and 503 before
   that. Point load balancers and `depends_on: condition: service_healthy` at
   this one. The compose healthcheck already does.
-- `GET /api/status` returns the version, note count, and whether the index
-  is ready.
+- `GET /api/status` returns the version, note count, whether the index is
+  ready, and a `sync` object: documents loaded, notes waiting for a
+  write-back, counts of write-backs, read-ins and suppressed echoes, and
+  whether the filesystem watcher is running.
 
 ## Reverse proxy
 
@@ -155,8 +174,18 @@ private interface.
 
 ## inotify limits
 
-Phase 2 adds a filesystem watcher. It keeps one inotify watch per directory,
-so a large tree on Linux can run into the kernel defaults. On the host:
+The server watches the notes tree for edits made outside it. On Linux that
+is one inotify watch per directory, so a large tree can run into the kernel
+defaults (8192 watches on many distributions). When it does, the log says
+so once:
+
+```
+inotify watch limit reached; directories beyond it are not watched. Raise fs.inotify.max_user_watches on the host
+```
+
+and directories past the limit are not watched: edits in them are picked up
+when the note is next opened or on the next full scan, not live. On the
+host:
 
 ```sh
 sudo sysctl fs.inotify.max_user_watches=524288
@@ -164,7 +193,13 @@ sudo sysctl fs.inotify.max_user_instances=512
 ```
 
 Persist in `/etc/sysctl.d/90-yana.conf`. Containers share the host's
-inotify limits; setting them inside the container has no effect.
+inotify limits; setting them inside the container has no effect. The
+`watch_dirs` field of `/api/status` shows how many directories are watched.
+
+The watcher is also where the settle time matters: a file that shows up
+empty or disappears is looked at again after `YANA_SCAN_SETTLE_TIME` before
+the server believes it, because editors that save by truncate-and-write and
+tools that move files in two steps both look like data loss for a moment.
 
 ## Backups
 
@@ -174,10 +209,14 @@ Back up the notes directory. That is the whole procedure.
 rsync -a --delete --exclude .sync/ /srv/yana/notes/ backup:/srv/yana/notes/
 ```
 
-`.sync/` can be excluded; it is derived. When the CRDT log arrives in a
-later phase it will live under `.sync/crdt/` and losing it costs edit
-history, not content, so the exclude stays valid. Restoring is copying the
-directory back and starting the server.
+`.sync/` can be excluded; it is derived. Losing `.sync/crdt/` costs edit
+history, not content, so the exclude stays valid; include it if the
+history matters to you. Restoring is copying the directory back and
+starting the server.
+
+Snapshots taken while the server is writing are safe: every write to a
+note, and to its document, is a temp file and a rename, so a backup sees
+either the old file or the new one.
 
 Because the tree is plain files, `git init` inside a space is also a
 reasonable backup; Phase 7 does this for you.
