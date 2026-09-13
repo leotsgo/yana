@@ -141,10 +141,9 @@ clients see. From the file's point of view the rules are:
 - **A file without an id is a new note.** It gets one once its mtime is
   older than the settle time, and its content becomes the document.
 
-If you write to a file in the instant between the server reading it and
-renaming its own write over it, that write is lost; the window is the time
-it takes to hash a file. Editors and sync tools that save with rename never
-hit it.
+A write-back reads the file once more right before renaming over it, and
+keeps the old file open until the rename is done, so a write that lands in
+between is read back from the replaced file and merged rather than lost.
 
 Invalid UTF-8 in a note is replaced with U+FFFD when it enters the document
 and the file is rewritten that way on the next write-back.

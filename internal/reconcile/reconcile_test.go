@@ -597,6 +597,29 @@ func TestCopyGetsFreshID(t *testing.T) {
 	}
 }
 
+// A shell append that lands between the write-back's read of the file and
+// its rename would go to an inode nothing points at any more. It is
+// recovered from the handle the write-back kept open.
+func TestAppendRacingWriteBackIsRecovered(t *testing.T) {
+	h := newHarness(t, "", testOptions())
+	defer h.close()
+	id := h.newNote("n.md", "base\n")
+	a := h.newClient("a", id)
+	defer a.close()
+	h.converged(id, a)
+
+	h.rec.testBeforeWrite = func() { h.appendFile("n.md", "late\n") }
+	a.appendText("typed\n")
+	if err := h.rec.Flush(h.ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	h.rec.testBeforeWrite = nil
+	body := h.converged(id, a)
+	if !strings.Contains(body, "late\n") || !strings.Contains(body, "typed\n") {
+		t.Fatalf("late write lost: %q", body)
+	}
+}
+
 // Pinned notes stay loaded; unpinned idle ones are dropped and reload
 // cleanly.
 func TestUnloadIdle(t *testing.T) {

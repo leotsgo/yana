@@ -28,16 +28,19 @@
 package reconcile
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -168,6 +171,10 @@ type Reconciler struct {
 	subID int
 
 	watch *watcher
+
+	// testBeforeWrite, when set, runs between the pre-write read and the
+	// rename so tests can race a write into that window.
+	testBeforeWrite func()
 
 	writebacks, readins, echoes atomic.Int64
 
@@ -778,12 +785,20 @@ func (r *Reconciler) writeBack(ctx context.Context, n *note) error {
 		n.dirty = false
 		return nil
 	}
-	if r.absorbUnread(ctx, n) {
+	abs, _, err := r.root.Resolve(n.rel)
+	if err != nil {
+		return err
+	}
+	old, seen, wait := r.absorbUnread(ctx, n, abs)
+	if wait {
 		// The file is mid-change; try again after another idle window.
 		if n.timer != nil {
 			n.timer.Reset(r.opts.IdleTime)
 		}
 		return nil
+	}
+	if old != nil {
+		defer old.Close()
 	}
 	body := n.main.Text()
 	content := make([]byte, 0, len(n.head)+len(body))
@@ -795,9 +810,8 @@ func (r *Reconciler) writeBack(ctx context.Context, n *note) error {
 		r.log.Debug("write-back skipped; file already holds this text", "id", n.id, "path", n.rel, "hash", hash)
 		return r.compact(ctx, n)
 	}
-	abs, _, err := r.root.Resolve(n.rel)
-	if err != nil {
-		return err
+	if r.testBeforeWrite != nil {
+		r.testBeforeWrite()
 	}
 	if err := fsutil.WriteFileAtomic(abs, content, n.mode); err != nil {
 		n.dirty = true
@@ -808,6 +822,12 @@ func (r *Reconciler) writeBack(ctx context.Context, n *note) error {
 	if info, err := os.Stat(abs); err == nil {
 		n.lastMTime = info.ModTime()
 	}
+	var preSync []byte
+	if old != nil {
+		// What the file held before this write, as a document; the base
+		// for merging a write that raced the rename.
+		preSync = n.shadow.State()
+	}
 	r.syncShadow(n)
 	if err := r.writeSidecar(n); err != nil {
 		r.log.Error("sidecar write failed", "id", n.id, "err", err)
@@ -815,49 +835,119 @@ func (r *Reconciler) writeBack(ctx context.Context, n *note) error {
 	r.writebacks.Add(1)
 	r.log.Info("write-back", "id", n.id, "path", n.rel, "hash", hash, "prev_hash", prev, "bytes", len(content))
 	r.reindex(ctx, n.rel)
+	if r.recoverLateWrite(ctx, n, old, seen, preSync) {
+		r.markDirty(n)
+	}
 	return r.compact(ctx, n)
 }
 
 // absorbUnread looks at the file right before a write-back and reads in
 // any external change the watcher has not delivered yet, so the write
-// never overwrites an edit it has not seen. It reports true when the
-// write-back should wait: the file is missing (a move or a delete the
+// never overwrites an edit it has not seen. It reports wait=true when the
+// write-back should hold off: the file is missing (a move or a delete the
 // watcher will sort out), belongs to another note, or is in the transient
-// empty state a truncate+write editor leaves. n.mu is held.
-func (r *Reconciler) absorbUnread(ctx context.Context, n *note) bool {
-	abs, _, err := r.root.Resolve(n.rel)
-	if err != nil {
-		return true
-	}
-	content, err := os.ReadFile(abs)
+// empty state a truncate+write editor leaves.
+//
+// On success it returns the open file (the inode the rename is about to
+// replace) and the bytes it read, for recoverLateWrite. n.mu is held.
+func (r *Reconciler) absorbUnread(ctx context.Context, n *note, abs string) (old *os.File, seen []byte, wait bool) {
+	f, err := os.Open(abs)
 	if errors.Is(err, fs.ErrNotExist) {
 		if r.watch == nil {
 			// Nobody will report the deletion; recreate the file.
-			return false
+			return nil, nil, false
 		}
 		r.log.Debug("write-back deferred; file is missing", "id", n.id, "path", n.rel)
-		return true
+		return nil, nil, true
 	}
 	if err != nil {
 		r.log.Warn("write-back deferred; file unreadable", "id", n.id, "path", n.rel, "err", err)
-		return true
+		return nil, nil, true
+	}
+	content, err := io.ReadAll(f)
+	if err != nil {
+		f.Close()
+		r.log.Warn("write-back deferred; file unreadable", "id", n.id, "path", n.rel, "err", err)
+		return nil, nil, true
+	}
+	if runtime.GOOS == "windows" {
+		// An open handle blocks the rename there; give up the late-write
+		// check rather than the write.
+		f.Close()
+		f = nil
 	}
 	if hashOf(content) == n.lastHash {
-		return false
+		return f, content, false
 	}
 	fm := frontmatter.Parse(content)
 	if fm.Meta.ID != n.id {
+		if f != nil {
+			f.Close()
+		}
 		r.log.Debug("write-back deferred; file holds another id", "id", n.id, "path", n.rel, "found", fm.Meta.ID)
-		return true
+		return nil, nil, true
 	}
 	if len(fm.Body) == 0 && len(n.main.Text()) > 0 {
 		if info, err := os.Stat(abs); err == nil && r.opts.Now().Sub(info.ModTime()) < r.opts.SettleTime {
+			if f != nil {
+				f.Close()
+			}
 			r.log.Debug("write-back deferred; file momentarily empty", "id", n.id, "path", n.rel)
-			return true
+			return nil, nil, true
 		}
 	}
 	r.readIn(ctx, n, content, "writeback")
-	return false
+	return f, content, false
+}
+
+// recoverLateWrite closes the last gap in write-back: a writer that
+// appended to the old file between absorbUnread's read and the rename
+// wrote into an inode nothing else points at any more. The handle from
+// absorbUnread still does. Re-reading it and merging whatever appeared
+// keeps that write. The change is diffed from preSync, the shadow as it
+// was before the write (its text is what the writer saw), so only the
+// writer's edit is applied. It reports whether anything was recovered.
+// n.mu is held.
+func (r *Reconciler) recoverLateWrite(ctx context.Context, n *note, old *os.File, seen, preSync []byte) bool {
+	if old == nil {
+		return false
+	}
+	if _, err := old.Seek(0, io.SeekStart); err != nil {
+		return false
+	}
+	now, err := io.ReadAll(old)
+	if err != nil || bytes.Equal(now, seen) {
+		return false
+	}
+	fm := frontmatter.Parse(now)
+	if fm.Meta.ID != n.id {
+		return false
+	}
+	stale, err := ydoc.Load(preSync)
+	if err != nil {
+		return false
+	}
+	defer stale.Close()
+	u := stale.SetText(string(fm.Body), AuthorFilesystem)
+	if u == nil {
+		return false
+	}
+	re, err := n.main.Apply(u, AuthorFilesystem)
+	if err != nil {
+		r.log.Error("late write: applying diff failed", "id", n.id, "err", err)
+		return false
+	}
+	if re != nil {
+		if err := r.record(ctx, n, re, AuthorFilesystem); err != nil {
+			r.log.Error("late write: recording update failed", "id", n.id, "err", err)
+		}
+		r.emit(Event{NoteID: n.id, Kind: EventUpdate, Path: n.rel, Update: re, Author: AuthorFilesystem})
+	}
+	// The shadow stays as the file is; the next write-back brings the file
+	// up to the merged text and syncs it then.
+	r.readins.Add(1)
+	r.log.Info("recovered a write that raced the write-back", "id", n.id, "path", n.rel, "bytes", len(now)-len(seen))
+	return true
 }
 
 // --- read-in ---------------------------------------------------------------
