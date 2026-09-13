@@ -53,6 +53,17 @@ type Config struct {
 	Ripgrep bool `yaml:"ripgrep"`
 	// RipgrepTimeout bounds one regex search.
 	RipgrepTimeout time.Duration `yaml:"ripgrep_timeout"`
+
+	// Realtime relay bounds (GET /ws).
+	WSMaxConnections  int   `yaml:"ws_max_connections"`
+	WSMaxRoomsPerConn int   `yaml:"ws_max_rooms_per_conn"`
+	WSMaxMessageBytes int64 `yaml:"ws_max_message_bytes"`
+	// WSUserRate and WSAgentRate bound update and awareness messages per
+	// author per minute. A client that batches keystrokes on a 50ms timer
+	// peaks at 20 messages a second, so the user default is 1200/min.
+	WSUserRate     int           `yaml:"ws_user_rate"`
+	WSAgentRate    int           `yaml:"ws_agent_rate"`
+	WSPingInterval time.Duration `yaml:"ws_ping_interval"`
 }
 
 // Defaults returns the configuration used when nothing is set. The notes
@@ -64,19 +75,25 @@ func Defaults() Config {
 		root = filepath.Join(home, ".yana")
 	}
 	return Config{
-		NotesRoot:        root,
-		Listen:           ":8080",
-		LogLevel:         "info",
-		MaxNoteSize:      10 << 20,
-		MaxAssetSize:     50 << 20,
-		MaxNotesPerSpace: 100_000,
-		ScanSettleTime:   2 * time.Second,
-		WritebackIdle:    2 * time.Second,
-		WatchDebounce:    200 * time.Millisecond,
-		CompactAfter:     500,
-		CRDTRetention:    30 * 24 * time.Hour,
-		Ripgrep:          true,
-		RipgrepTimeout:   5 * time.Second,
+		NotesRoot:         root,
+		Listen:            ":8080",
+		LogLevel:          "info",
+		MaxNoteSize:       10 << 20,
+		MaxAssetSize:      50 << 20,
+		MaxNotesPerSpace:  100_000,
+		ScanSettleTime:    2 * time.Second,
+		WritebackIdle:     2 * time.Second,
+		WatchDebounce:     200 * time.Millisecond,
+		CompactAfter:      500,
+		CRDTRetention:     30 * 24 * time.Hour,
+		Ripgrep:           true,
+		RipgrepTimeout:    5 * time.Second,
+		WSMaxConnections:  256,
+		WSMaxRoomsPerConn: 16,
+		WSMaxMessageBytes: 1 << 20,
+		WSUserRate:        1200,
+		WSAgentRate:       300,
+		WSPingInterval:    30 * time.Second,
 	}
 }
 
@@ -188,6 +205,36 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		return err
 	}
 	if err := dur("RIPGREP_TIMEOUT", &cfg.RipgrepTimeout); err != nil {
+		return err
+	}
+	i := func(key string, dst *int) error {
+		v := getenv("YANA_" + key)
+		if v == "" {
+			return nil
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("YANA_%s: %w", key, err)
+		}
+		*dst = n
+		return nil
+	}
+	if err := i("WS_MAX_CONNECTIONS", &cfg.WSMaxConnections); err != nil {
+		return err
+	}
+	if err := i("WS_MAX_ROOMS_PER_CONN", &cfg.WSMaxRoomsPerConn); err != nil {
+		return err
+	}
+	if err := i64("WS_MAX_MESSAGE_BYTES", &cfg.WSMaxMessageBytes); err != nil {
+		return err
+	}
+	if err := i("WS_USER_RATE", &cfg.WSUserRate); err != nil {
+		return err
+	}
+	if err := i("WS_AGENT_RATE", &cfg.WSAgentRate); err != nil {
+		return err
+	}
+	if err := dur("WS_PING_INTERVAL", &cfg.WSPingInterval); err != nil {
 		return err
 	}
 	return nil

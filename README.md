@@ -30,13 +30,16 @@ These hold in every version. If a change would break one, the change is wrong.
 
 Early. What runs today: a single `yana` binary that scans a directory of
 markdown files, assigns each note an id, indexes it for full-text (and
-regex) search, renders it, and serves a browser UI for reading. Underneath,
-each note has a CRDT document that stays in step with its file in both
-directions: edits to the document are written to the file, and edits to the
-file (any editor, `echo >>`, `rsync`) are merged into the document. The
-browser cannot edit yet; the realtime relay that connects it to those
-documents is the next phase. Auth, links, git history, export, and the
-Android app are tracked as later phases.
+regex) search, renders it, and serves a browser UI. Underneath, each note
+has a CRDT document that stays in step with its file in both directions:
+edits to the document are written to the file, and edits to the file (any
+editor, `echo >>`, `rsync`) are merged into the document. Notes are editable
+in the browser over a realtime relay (`GET /ws`): two tabs on one note see
+each other's keystrokes as they type, with a presence bar showing who else
+is there and where their cursor is. Kill the server mid-session or edit
+offline for a while and everything merges on reconnect. The editing surface
+is a plain textarea; the real editor is a later phase. Auth, links, git
+history, export, and the Android app are tracked as later phases.
 
 ## Quick start
 
@@ -115,14 +118,17 @@ make docker     # build the image locally
 
 Layout: `cmd/yana` (entry point), `internal/` (server packages; `pathsafe` is
 the only way a string becomes a filesystem path, `reconcile` keeps documents,
-files, and the index in step, `ydoc` wraps the CRDT library), `web/`
-(TypeScript client, embedded into the binary), `spike/crdt/` (Phase 0 CRDT
-evaluation harness), `docs/` (`deployment.md`, `file-format.md`, and
+files, and the index in step, `rt` is the realtime relay, `ydoc` wraps the
+CRDT library), `web/` (TypeScript client, embedded into the binary),
+`spike/crdt/` (Phase 0 CRDT evaluation harness), `docs/` (`deployment.md`,
+`file-format.md`, `realtime.md` for the wire protocol, and
 `crdt-decision.md`, which records which CRDT library each client uses and
 why).
 
 The reconciliation tests include a 60 second oscillation check and a
-process-kill check; `go test -short ./...` shrinks them.
+process-kill check; the relay tests include a server-restart convergence
+check and a 20-connection load check; `go test -short ./...` shrinks the
+former.
 
 The CRDT spike's cross-language tests need `node` and `npm ci` in
 `spike/crdt/js`; without them those tests skip.

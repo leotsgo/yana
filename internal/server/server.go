@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -23,6 +25,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
 	"github.com/madeofpendletonwool/yana/internal/render"
+	"github.com/madeofpendletonwool/yana/internal/rt"
 	"github.com/madeofpendletonwool/yana/internal/search"
 )
 
@@ -36,6 +39,8 @@ type Deps struct {
 	Version string
 	// Sync is the reconciliation loop; nil when the server runs without one.
 	Sync *reconcile.Reconciler
+	// RT is the realtime relay mounted at GET /ws; nil disables the endpoint.
+	RT *rt.Hub
 }
 
 // Server holds handler state.
@@ -93,6 +98,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/notes/{id}", s.handleNote)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/files/{path...}", s.handleFile)
+	if s.RT != nil {
+		s.mux.Handle("GET /ws", s.RT)
+	}
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such endpoint")
 	})
@@ -130,6 +138,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Sync != nil {
 		status["sync"] = s.Sync.Stats()
+	}
+	if s.RT != nil {
+		status["realtime"] = s.RT.Stats()
 	}
 	writeJSON(w, http.StatusOK, status)
 }
@@ -461,6 +472,16 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(b)
 	w.bytes += n
 	return n, err
+}
+
+// Hijack forwards to the wrapped writer so WebSocket upgrades pass through
+// the logging middleware.
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("response writer does not support hijacking")
+	}
+	return h.Hijack()
 }
 
 type ctxKey struct{}
