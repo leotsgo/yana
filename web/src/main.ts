@@ -1,5 +1,7 @@
 import { api, ApiError } from './api'
+import type { Note } from './api'
 import { h } from './dom'
+import { createEditor, type EditorHandle } from './edit'
 import { createNoteView } from './note'
 import { createSearch } from './search'
 import { createTree } from './tree'
@@ -45,7 +47,7 @@ app.append(header, h('div', { class: 'body' }, sidebar, main))
 
 // --- state -------------------------------------------------------------
 
-const noteView = createNoteView(main)
+const noteView = createNoteView(main, (note) => startEdit(note))
 const tree = createTree(treeEl, (id) => navigate(id))
 createSearch(searchInput, regexToggle, resultsEl, (id) => navigate(id), (active) => {
   treeEl.hidden = active
@@ -53,6 +55,21 @@ createSearch(searchInput, regexToggle, resultsEl, (id) => navigate(id), (active)
 })
 
 let current: string | null = null
+let editor: EditorHandle | null = null
+
+function closeEditor(): void {
+  const e = editor
+  editor = null
+  e?.destroy()
+}
+
+function startEdit(note: Note): void {
+  closeEditor()
+  editor = createEditor(main, note, () => {
+    editor = null
+    void openNote(note.id)
+  })
+}
 
 async function loadTree(): Promise<void> {
   try {
@@ -65,6 +82,7 @@ async function loadTree(): Promise<void> {
 }
 
 async function openNote(id: string): Promise<void> {
+  closeEditor()
   current = id
   tree.select(id)
   try {
@@ -84,6 +102,7 @@ function navigate(id: string | null, push = true): void {
   if (id) {
     void openNote(id)
   } else {
+    closeEditor()
     current = null
     tree.select(null)
     document.title = 'YANA/'

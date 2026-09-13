@@ -55,6 +55,12 @@ ripgrep: true
 | `YANA_CRDT_RETENTION` | `720h` | How long a deleted note's document is kept |
 | `YANA_RIPGREP` | `true` | Enable regex search through `rg` |
 | `YANA_RIPGREP_TIMEOUT` | `5s` | Bound on one regex search |
+| `YANA_WS_MAX_CONNECTIONS` | `256` | Concurrent realtime connections (`GET /ws`) |
+| `YANA_WS_MAX_ROOMS_PER_CONN` | `16` | Note rooms one connection may join |
+| `YANA_WS_MAX_MESSAGE_BYTES` | `1048576` | Largest inbound WebSocket frame |
+| `YANA_WS_USER_RATE` | `1200` | Update and awareness messages per user per minute |
+| `YANA_WS_AGENT_RATE` | `300` | Same, per agent author |
+| `YANA_WS_PING_INTERVAL` | `30s` | Server ping interval for dead-peer detection |
 
 Logs are JSON on stderr, one object per line, with a `component` field and a
 `request_id` on HTTP lines. The `reconcile` component logs every write-back,
@@ -119,15 +125,16 @@ by root. Once the directory is yours, you can drop root altogether with
   that. Point load balancers and `depends_on: condition: service_healthy` at
   this one. The compose healthcheck already does.
 - `GET /api/status` returns the version, note count, whether the index is
-  ready, and a `sync` object: documents loaded, notes waiting for a
-  write-back, counts of write-backs, read-ins and suppressed echoes, and
-  whether the filesystem watcher is running.
+  ready, a `sync` object: documents loaded, notes waiting for a write-back,
+  counts of write-backs, read-ins and suppressed echoes, and whether the
+  filesystem watcher is running; and a `realtime` object: live editing
+  connections, rooms, updates relayed and dropped, and slow connections
+  closed.
 
 ## Reverse proxy
 
-YANA/ speaks plain HTTP on one port. Terminate TLS in front of it. Later
-phases add WebSockets on the same port, so enable upgrade passthrough now and
-you will not have to come back.
+YANA/ speaks plain HTTP on one port. Terminate TLS in front of it. Live
+editing uses WebSockets on the same port, so enable upgrade passthrough.
 
 ### Caddy
 

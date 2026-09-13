@@ -23,6 +23,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
+	"github.com/madeofpendletonwool/yana/internal/rt"
 	"github.com/madeofpendletonwool/yana/internal/scanner"
 	"github.com/madeofpendletonwool/yana/internal/search"
 	"github.com/madeofpendletonwool/yana/internal/server"
@@ -120,8 +121,18 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 	if err := rec.Start(); err != nil {
 		return fmt.Errorf("start reconciler: %w", err)
 	}
+	hub := rt.New(rec, nil, rt.Options{
+		MaxConnections:  cfg.WSMaxConnections,
+		MaxRoomsPerConn: cfg.WSMaxRoomsPerConn,
+		MaxMessageBytes: cfg.WSMaxMessageBytes,
+		PingInterval:    cfg.WSPingInterval,
+		Limiter: pathsafe.NewRateLimiter(
+			pathsafe.Rate{N: cfg.WSUserRate, Window: time.Minute},
+			pathsafe.Rate{N: cfg.WSAgentRate, Window: time.Minute},
+		),
+	}, base)
 	srv := server.New(server.Deps{
-		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec,
+		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub,
 	})
 
 	httpSrv := &http.Server{
@@ -165,6 +176,9 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	err = httpSrv.Shutdown(shutdownCtx)
+	// Live editing sessions end before the reconciliation loop flushes and
+	// closes.
+	hub.Close()
 	// Dirty notes are written before the index closes.
 	if cerr := rec.Close(); cerr != nil {
 		log.Warn("reconciler close", "err", cerr)

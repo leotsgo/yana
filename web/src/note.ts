@@ -7,7 +7,7 @@ export interface NoteView {
   showError(message: string): void
 }
 
-export function createNoteView(container: HTMLElement): NoteView {
+export function createNoteView(container: HTMLElement, onEdit?: (note: Note) => void): NoteView {
   function header(note: Note): HTMLElement {
     const crumbs = h('nav', { class: 'crumbs', 'aria-label': 'path' })
     const parts = note.path.split('/')
@@ -27,6 +27,20 @@ export function createNoteView(container: HTMLElement): NoteView {
       ...note.tags.map((t) => h('span', { class: 'tag' }, '#' + t)),
     )
     return h('header', { class: 'note-header' }, crumbs, meta)
+  }
+
+  function actions(note: Note): HTMLElement {
+    const row = h('div', { class: 'note-actions' })
+    if (note.kind === 'md' && onEdit) {
+      row.append(
+        h(
+          'button',
+          { class: 'btn', onClick: () => onEdit(note) },
+          'Edit',
+        ),
+      )
+    }
+    return row
   }
 
   // Relative image and link targets in a note resolve against the note's
@@ -52,7 +66,7 @@ export function createNoteView(container: HTMLElement): NoteView {
   return {
     show(note) {
       clear(container)
-      const article = h('article', { class: 'note' }, header(note))
+      const article = h('article', { class: 'note' }, header(note), actions(note))
       if (note.kind === 'md' && note.html !== undefined) {
         const body = h('div', { class: 'note-body markdown' })
         body.innerHTML = note.html

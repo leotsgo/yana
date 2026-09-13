@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Phase 3 — Realtime sync. Notes are editable in the browser. A relay at
+  `GET /ws` moves CRDT updates between the clients editing a note and the
+  reconciliation loop; the server still never looks inside a payload. Two
+  tabs see each other's keystrokes with a presence bar (name, colour,
+  cursor position), edits made offline or across a server restart merge in
+  both directions, and every connection is bounded by room, message-size,
+  and per-author rate limits. The wire protocol is documented in
+  `docs/realtime.md`. The editor is a plain textarea for now; the real
+  editor lands with a later phase.
 - Phase 2 — Reconciliation. Every note now has a CRDT document that follows
   its file and vice versa. Type into the document and the file is written
   two seconds after you stop; edit the file with anything and the change is
