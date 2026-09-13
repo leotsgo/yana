@@ -1,0 +1,27 @@
+services:
+  yana:
+    build:
+      context: .
+    image: ghcr.io/madeofpendletonwool/yana:latest
+    container_name: yana
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      YANA_NOTES_ROOT: /notes
+      YANA_LISTEN: ":8080"
+    # Drop root once the mounted directory is owned by this uid:gid.
+    #user: "1000:1000"
+    ports:
+      - "${YANA_PORT:-8080}:8080"
+    volumes:
+      # The only state. Notes, spaces, and the rebuildable .sync/ directory
+      # all live here. Point it at an existing folder of markdown if you have one.
+      - ${YANA_DATA:-./notes}:/notes
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 15s
+      retries: 3

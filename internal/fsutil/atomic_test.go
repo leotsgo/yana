@@ -28,3 +28,30 @@ func TestWriteFileAtomic(t *testing.T) {
 		t.Fatalf("temp file left behind: %v", entries)
 	}
 }
+
+func TestMkdirInherit(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "a", "b", ".sync")
+	for i := 0; i < 2; i++ {
+		if err := MkdirInherit(dir); err != nil {
+			t.Fatalf("pass %d: %v", i, err)
+		}
+	}
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
+		t.Fatalf("expected a directory at %s: %v", dir, err)
+	}
+}
+
+func TestWriteFileAtomicOverExisting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "n.md")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileAtomic(path, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "new" {
+		t.Fatalf("got %q", got)
+	}
+}

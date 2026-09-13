@@ -1,0 +1,11 @@
+.git
+.github
+.env
+/yana
+/bin
+web/node_modules
+web/dist
+spike/crdt/js/node_modules
+docs
+*.md
+!README.md

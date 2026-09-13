@@ -15,13 +15,13 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/madeofpendletonwool/yana/internal/fsutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -56,7 +56,7 @@ func Open(path string, log *slog.Logger) (*DB, error) {
 		log = slog.Default()
 	}
 	log = log.With("component", "index")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := fsutil.MkdirInherit(filepath.Dir(path)); err != nil {
 		return nil, fmt.Errorf("create index dir: %w", err)
 	}
 	pragmas := "_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)"

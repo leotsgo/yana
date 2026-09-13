@@ -6,3 +6,6 @@
 *.db-shm
 node_modules/
 testdata/fuzz/
+/notes/
+web/dist/*
+!web/dist/.gitkeep
