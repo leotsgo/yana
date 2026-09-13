@@ -37,9 +37,12 @@ editor, `echo >>`, `rsync`) are merged into the document. Notes are editable
 in the browser over a realtime relay (`GET /ws`): two tabs on one note see
 each other's keystrokes as they type, with a presence bar showing who else
 is there and where their cursor is. Kill the server mid-session or edit
-offline for a while and everything merges on reconnect. The editing surface
-is a plain textarea; the real editor is a later phase. Auth, links, git
-history, export, and the Android app are tracked as later phases.
+offline for a while and everything merges on reconnect. Wikilinks resolve
+between notes, every note shows its backlinks, unresolved links create
+their note on click, and moving or renaming a note rewrites every inbound
+link on disk and in open clients ([docs/links.md](docs/links.md)). The
+editing surface is a plain textarea; the real editor is a later phase.
+Auth, git history, export, and the Android app are tracked as later phases.
 
 ## Quick start
 

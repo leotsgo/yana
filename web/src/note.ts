@@ -1,4 +1,5 @@
-import type { Note } from './api'
+import { api, ApiError } from './api'
+import type { Backlink, Note } from './api'
 import { h, clear, fmtBytes, fmtDate } from './dom'
 
 export interface NoteView {
@@ -7,7 +8,25 @@ export interface NoteView {
   showError(message: string): void
 }
 
-export function createNoteView(container: HTMLElement, onEdit?: (note: Note) => void): NoteView {
+// The create affordance needs a path for the note it will make: the raw
+// target joined onto the linking note's directory, falling back to the
+// space root when that escapes the space (a root-style target like
+// docs/foo spelled from a nested note).
+function createPathFor(note: Note, raw: string): string {
+  let rel = raw
+  if (!/\.(md|markdown|html|htm)$/i.test(rel)) rel += '.md'
+  if (note.space) {
+    const joined = join(note.base, rel)
+    if (joined.startsWith(note.space + '/')) return joined
+    return note.space + '/' + rel
+  }
+  return join(note.base, rel)
+}
+
+export function createNoteView(
+  container: HTMLElement,
+  hooks: { onEdit?: (note: Note) => void; onOpen?: (id: string) => void },
+): NoteView {
   function header(note: Note): HTMLElement {
     const crumbs = h('nav', { class: 'crumbs', 'aria-label': 'path' })
     const parts = note.path.split('/')
@@ -31,11 +50,11 @@ export function createNoteView(container: HTMLElement, onEdit?: (note: Note) => 
 
   function actions(note: Note): HTMLElement {
     const row = h('div', { class: 'note-actions' })
-    if (note.kind === 'md' && onEdit) {
+    if (note.kind === 'md' && hooks.onEdit) {
       row.append(
         h(
           'button',
-          { class: 'btn', onClick: () => onEdit(note) },
+          { class: 'btn', onClick: () => hooks.onEdit?.(note) },
           'Edit',
         ),
       )
@@ -43,9 +62,96 @@ export function createNoteView(container: HTMLElement, onEdit?: (note: Note) => 
     return row
   }
 
+  // Wikilinks render as spans carrying the raw target. Resolution from the
+  // note payload turns them into note links; unresolved ones become the
+  // create affordance.
+  function wireWikiLinks(body: HTMLElement, note: Note): void {
+    const byRaw = new Map(note.links.map((l) => [l.raw_target, l]))
+    for (const span of [...body.querySelectorAll<HTMLSpanElement>('span.wikilink[data-target]')]) {
+      const raw = span.dataset['target'] ?? ''
+      const link = byRaw.get(raw)
+      if (link?.resolved && link.to_id) {
+        const id = link.to_id
+        const a = h(
+          'a',
+          {
+            class: 'wikilink resolved',
+            href: `/n/${id}`,
+            title: raw,
+            onClick: (ev) => {
+              ev.preventDefault()
+              hooks.onOpen?.(id)
+            },
+          },
+          span.textContent ?? raw,
+        )
+        span.replaceWith(a)
+        continue
+      }
+      const path = createPathFor(note, raw)
+      span.classList.add('unresolved')
+      span.title = `Create ${path}`
+      span.setAttribute('role', 'link')
+      span.setAttribute('tabindex', '0')
+      const create = () => {
+        span.classList.add('creating')
+        api
+          .createNote(path)
+          .then((res) => hooks.onOpen?.(res.id))
+          .catch((err: unknown) => {
+            span.classList.remove('creating')
+            window.alert(err instanceof ApiError ? err.message : 'Could not create the note.')
+          })
+      }
+      span.addEventListener('click', create)
+      span.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault()
+          create()
+        }
+      })
+    }
+  }
+
+  function backlinksPanel(note: Note): HTMLElement {
+    const panel = h('section', { class: 'backlinks', 'aria-label': 'linked from' }, h('h2', { class: 'backlinks-title' }, 'Linked from'))
+    const list = h('ul', { class: 'backlinks-list' })
+    panel.append(list)
+    api
+      .backlinks(note.id)
+      .then(({ backlinks }) => {
+        if (backlinks.length === 0) return
+        for (const b of backlinks) list.append(backlinkRow(b))
+      })
+      .catch(() => {
+        // A failed fetch leaves the panel empty; the note stays usable.
+      })
+    return panel
+  }
+
+  function backlinkRow(b: Backlink): HTMLElement {
+    return h(
+      'li',
+      { class: 'backlink' },
+      h(
+        'a',
+        {
+          class: 'backlink-note',
+          href: `/n/${b.note.id}`,
+          onClick: (ev) => {
+            ev.preventDefault()
+            hooks.onOpen?.(b.note.id)
+          },
+        },
+        b.note.title || b.note.path,
+      ),
+      b.context ? h('p', { class: 'backlink-context' }, b.context) : null,
+    )
+  }
+
   // Relative image and link targets in a note resolve against the note's
   // directory. Images come from the asset endpoint; other relative links
-  // are left alone until wikilink resolution lands.
+  // are left alone.
   function rewriteRelative(body: HTMLElement, base: string): void {
     for (const img of body.querySelectorAll<HTMLImageElement>('img[src]')) {
       const src = img.getAttribute('src') ?? ''
@@ -71,6 +177,7 @@ export function createNoteView(container: HTMLElement, onEdit?: (note: Note) => 
         const body = h('div', { class: 'note-body markdown' })
         body.innerHTML = note.html
         rewriteRelative(body, note.base)
+        wireWikiLinks(body, note)
         article.append(body)
       } else if (note.kind === 'html') {
         article.append(
@@ -82,6 +189,7 @@ export function createNoteView(container: HTMLElement, onEdit?: (note: Note) => 
           h('pre', { class: 'note-source' }, h('code', {}, note.source ?? '')),
         )
       }
+      article.append(backlinksPanel(note))
       container.append(article)
       container.scrollTop = 0
     },

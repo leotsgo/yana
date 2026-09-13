@@ -41,22 +41,9 @@ const noteColumns = "id, space, rel_path, title, preview, kind, content_hash, si
 
 func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 	var n Note
-	var mtime, created, updated int64
-	var order sql.NullInt64
-	var trusted int
-	err := row.Scan(&n.ID, &n.Space, &n.RelPath, &n.Title, &n.Preview, &n.Kind, &n.ContentHash,
-		&n.Size, &mtime, &created, &updated, &order, &trusted)
-	if err != nil {
+	if err := scanNoteInto(row, &n); err != nil {
 		return n, err
 	}
-	n.MTime = time.Unix(0, mtime).UTC()
-	n.Created = time.Unix(0, created).UTC()
-	n.UpdatedAt = time.Unix(0, updated).UTC()
-	if order.Valid {
-		o := int(order.Int64)
-		n.Order = &o
-	}
-	n.Trusted = trusted != 0
 	return n, nil
 }
 
@@ -192,6 +179,16 @@ func SetScanState(tx *sql.Tx, key, value string) error {
 // GetNote returns one note by id.
 func (db *DB) GetNote(ctx context.Context, id string) (Note, error) {
 	n, err := scanNote(db.readers.QueryRowContext(ctx, `SELECT `+noteColumns+` FROM notes WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return n, ErrNotFound
+	}
+	return n, err
+}
+
+// GetNoteTx returns one note by id inside a transaction, for callers that
+// need the pre-write state of a row they are about to change.
+func GetNoteTx(tx *sql.Tx, id string) (Note, error) {
+	n, err := scanNote(tx.QueryRow(`SELECT `+noteColumns+` FROM notes WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return n, ErrNotFound
 	}

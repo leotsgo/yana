@@ -99,9 +99,9 @@ dashes. Raw HTML inside a markdown note is dropped from the rendered output.
 [[projects/roadmap|the roadmap]]
 ```
 
-`[[target]]` and `[[target|display text]]` are parsed. Today they render as
-a marked span; resolution, backlinks, and rename propagation arrive with
-Phase 5. Write them now and they will start working then.
+`[[target]]` and `[[target|display text]]` are parsed and resolve to notes
+in the same space. Resolution, backlinks, rename propagation, and the
+unresolved-link report are covered in [links.md](links.md).
 
 ### HTML notes
 

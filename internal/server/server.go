@@ -26,6 +26,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
 	"github.com/madeofpendletonwool/yana/internal/render"
 	"github.com/madeofpendletonwool/yana/internal/rt"
+	"github.com/madeofpendletonwool/yana/internal/scanner"
 	"github.com/madeofpendletonwool/yana/internal/search"
 )
 
@@ -41,6 +42,12 @@ type Deps struct {
 	Sync *reconcile.Reconciler
 	// RT is the realtime relay mounted at GET /ws; nil disables the endpoint.
 	RT *rt.Hub
+	// Scanner indexes new files (note creation); nil skips the immediate
+	// index pass.
+	Scanner *scanner.Scanner
+	// CanWrite decides whether a request may change a space. nil allows
+	// everything, which is the state until Phase 4.
+	CanWrite func(r *http.Request, space string) error
 }
 
 // Server holds handler state.
@@ -98,6 +105,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/notes/{id}", s.handleNote)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/files/{path...}", s.handleFile)
+	s.mux.HandleFunc("GET /api/notes/{id}/backlinks", s.handleBacklinks)
+	s.mux.HandleFunc("GET /api/links/unresolved", s.handleUnresolvedLinks)
+	s.mux.HandleFunc("POST /api/notes/{id}/move", s.handleMove)
+	s.mux.HandleFunc("POST /api/notes", s.handleCreateNote)
 	if s.RT != nil {
 		s.mux.Handle("GET /ws", s.RT)
 	}
@@ -179,11 +190,12 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 // NoteResponse is the payload for one note.
 type NoteResponse struct {
 	index.Note
-	Tags     []string `json:"tags"`
-	Base     string   `json:"base"` // directory of the note, for relative links
-	HTML     string   `json:"html,omitempty"`
-	Markdown string   `json:"markdown,omitempty"`
-	Source   string   `json:"source,omitempty"` // html notes: raw source
+	Tags     []string             `json:"tags"`
+	Base     string               `json:"base"` // directory of the note, for relative links
+	Links    []index.OutboundLink `json:"links"`
+	HTML     string               `json:"html,omitempty"`
+	Markdown string               `json:"markdown,omitempty"`
+	Source   string               `json:"source,omitempty"` // html notes: raw source
 }
 
 func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
@@ -223,7 +235,15 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []string{}
 	}
-	resp := NoteResponse{Note: n, Tags: tags, Base: path.Dir(n.RelPath)}
+	links, err := s.DB.OutboundLinks(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if links == nil {
+		links = []index.OutboundLink{}
+	}
+	resp := NoteResponse{Note: n, Tags: tags, Links: links, Base: path.Dir(n.RelPath)}
 	if resp.Base == "." {
 		resp.Base = ""
 	}

@@ -2,6 +2,7 @@ import { api, ApiError } from './api'
 import type { Note } from './api'
 import { h } from './dom'
 import { createEditor, type EditorHandle } from './edit'
+import { renderUnresolvedReport } from './links'
 import { createNoteView } from './note'
 import { createSearch } from './search'
 import { createTree } from './tree'
@@ -40,14 +41,26 @@ const header = h(
 
 const treeEl = h('nav', { class: 'tree', 'aria-label': 'notes' })
 const resultsEl = h('div', { class: 'results', hidden: true })
-const sidebar = h('aside', { class: 'sidebar' }, treeEl, resultsEl)
+const unresolvedLink = h(
+  'a',
+  {
+    class: 'unresolved-nav',
+    href: '/links',
+    onClick: (ev) => {
+      ev.preventDefault()
+      openLinks()
+    },
+  },
+  'Unresolved links',
+)
+const sidebar = h('aside', { class: 'sidebar' }, treeEl, resultsEl, unresolvedLink)
 const main = h('main', { class: 'content' })
 
 app.append(header, h('div', { class: 'body' }, sidebar, main))
 
 // --- state -------------------------------------------------------------
 
-const noteView = createNoteView(main, (note) => startEdit(note))
+const noteView = createNoteView(main, { onEdit: (note) => startEdit(note), onOpen: (id) => navigate(id) })
 const tree = createTree(treeEl, (id) => navigate(id))
 createSearch(searchInput, regexToggle, resultsEl, (id) => navigate(id), (active) => {
   treeEl.hidden = active
@@ -110,9 +123,22 @@ function navigate(id: string | null, push = true): void {
   }
 }
 
+function openLinks(push = true): void {
+  if (push && location.pathname !== '/links') history.pushState(null, '', '/links')
+  closeEditor()
+  current = null
+  tree.select(null)
+  document.title = 'Unresolved links — YANA/'
+  renderUnresolvedReport(main, (id) => navigate(id), () => openLinks(false))
+}
+
 function route(): void {
+  if (location.pathname === '/links') {
+    openLinks(false)
+    return
+  }
   const m = location.pathname.match(/^\/n\/([0-9A-Za-z]{26})$/)
-  navigate(m ? m[1] ?? null : null, false)
+  navigate(m ? (m[1] ?? null) : null, false)
 }
 
 window.addEventListener('popstate', route)

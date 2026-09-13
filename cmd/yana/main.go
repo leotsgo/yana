@@ -132,7 +132,7 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		),
 	}, base)
 	srv := server.New(server.Deps{
-		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub,
+		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub, Scanner: sc,
 	})
 
 	httpSrv := &http.Server{

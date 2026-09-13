@@ -17,6 +17,23 @@ export interface SpaceTree {
   children: TreeNode[]
 }
 
+export interface LinkInfo {
+  raw_target: string
+  to_id?: string
+  resolved: boolean
+}
+
+export interface Backlink {
+  note: Note
+  raw_target: string
+  context: string
+}
+
+export interface UnresolvedLink {
+  note: Note
+  raw_target: string
+}
+
 export interface Note {
   id: string
   space: string
@@ -29,6 +46,7 @@ export interface Note {
   created: string
   tags: string[]
   base: string
+  links: LinkInfo[]
   html?: string
   markdown?: string
   source?: string
@@ -71,6 +89,19 @@ async function get<T>(path: string): Promise<T> {
   return body as T
 }
 
+async function post<T>(path: string, payload: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new ApiError(res.status, (body as { error?: string }).error ?? `request failed (${res.status})`)
+  }
+  return body as T
+}
+
 export const api = {
   tree: (space?: string) =>
     get<{ spaces: SpaceTree[] }>('/api/tree' + (space ? `?space=${encodeURIComponent(space)}` : '')),
@@ -84,4 +115,14 @@ export const api = {
       `/api/search?raw=${encodeURIComponent(raw)}` + (space ? `&space=${encodeURIComponent(space)}` : ''),
     ),
   status: () => get<Status>('/api/status'),
+  backlinks: (id: string) =>
+    get<{ backlinks: Backlink[] }>(`/api/notes/${encodeURIComponent(id)}/backlinks`),
+  unresolved: (space?: string) =>
+    get<{ unresolved: UnresolvedLink[] }>(
+      '/api/links/unresolved' + (space ? `?space=${encodeURIComponent(space)}` : ''),
+    ),
+  createNote: (path: string, content?: string) =>
+    post<{ id: string; path: string }>('/api/notes', { path, content }),
+  moveNote: (id: string, path: string) =>
+    post<{ note: Note; rewritten: number; broken: number }>(`/api/notes/${encodeURIComponent(id)}/move`, { path }),
 }
