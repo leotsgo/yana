@@ -175,7 +175,7 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 		}
 		space := spaceOf(cleanRel)
 
-		if isAsset(cleanRel) {
+		if IsAsset(cleanRel) {
 			if info.Size() > s.opts.MaxAssetSize {
 				s.log.Warn("asset over size limit", "path", rel, "size", info.Size(), "limit", s.opts.MaxAssetSize)
 				res.Skipped++
@@ -186,7 +186,7 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 			res.Assets++
 			return nil
 		}
-		kind := kindOf(cleanRel)
+		kind := KindOf(cleanRel)
 		if kind == "" {
 			return nil
 		}
@@ -235,7 +235,7 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 		if err != nil {
 			continue
 		}
-		it, _, _, err := s.indexFile(ctx, abs, cleanRel, spaceOf(cleanRel), kindOf(cleanRel), info, seenIDs)
+		it, _, _, err := s.indexFile(ctx, abs, cleanRel, spaceOf(cleanRel), KindOf(cleanRel), info, seenIDs)
 		if err != nil {
 			s.log.Warn("skipping reassigned note", "path", rel, "err", err)
 			continue
@@ -281,8 +281,8 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 	if err != nil {
 		return err
 	}
-	kind := kindOf(cleanRel)
-	if kind == "" || isAsset(cleanRel) || !info.Mode().IsRegular() {
+	kind := KindOf(cleanRel)
+	if kind == "" || IsAsset(cleanRel) || !info.Mode().IsRegular() {
 		return nil
 	}
 	if info.Size() > s.opts.MaxNoteSize {
@@ -404,6 +404,10 @@ func (s *Scanner) indexFile(ctx context.Context, abs, rel, space, kind string, i
 	return indexed{note: note, body: bodyText, tags: tags}, assigned, false, nil
 }
 
+// ReassignID gives the file at rel a fresh id on disk. The watcher uses it
+// when a copy of a known note appears at a second path.
+func (s *Scanner) ReassignID(rel string) error { return s.reassign(rel) }
+
 // reassign gives the file at rel a fresh id on disk.
 func (s *Scanner) reassign(rel string) error {
 	abs, _, err := s.root.Resolve(rel)
@@ -439,7 +443,8 @@ func spaceOf(rel string) string {
 	return ""
 }
 
-func isAsset(rel string) bool {
+// IsAsset reports whether rel sits under an _assets directory.
+func IsAsset(rel string) bool {
 	for _, seg := range strings.Split(filepath.ToSlash(filepath.Dir(rel)), "/") {
 		if seg == "_assets" {
 			return true
@@ -448,7 +453,8 @@ func isAsset(rel string) bool {
 	return false
 }
 
-func kindOf(rel string) string {
+// KindOf returns "md" or "html" for note files and "" for anything else.
+func KindOf(rel string) string {
 	switch strings.ToLower(filepath.Ext(rel)) {
 	case ".md", ".markdown":
 		return "md"

@@ -28,11 +28,15 @@ These hold in every version. If a change would break one, the change is wrong.
 
 ## Status
 
-Early. What runs today is the read-only core: a single `yana` binary that
-scans a directory of markdown files, assigns each note an id, indexes it for
-full-text (and regex) search, renders it, and serves a browser UI. Live
-editing, sync, auth, links, git history, export, and the Android app are
-tracked as phases in the build plan and are not built yet.
+Early. What runs today: a single `yana` binary that scans a directory of
+markdown files, assigns each note an id, indexes it for full-text (and
+regex) search, renders it, and serves a browser UI for reading. Underneath,
+each note has a CRDT document that stays in step with its file in both
+directions: edits to the document are written to the file, and edits to the
+file (any editor, `echo >>`, `rsync`) are merged into the document. The
+browser cannot edit yet; the realtime relay that connects it to those
+documents is the next phase. Auth, links, git history, export, and the
+Android app are tracked as later phases.
 
 ## Quick start
 
@@ -79,8 +83,10 @@ and the volume layout.
     <folders...>/<note>.md
     <folders...>/_assets/<image>
   .trash/                # soft-deleted notes (later phase)
-  .sync/                 # derived state; safe to delete
-    index.db
+  .sync/                 # derived state
+    index.db             # the index and the CRDT edit log; safe to delete
+    crdt/<id>.bin        # each note's document; keep it to keep edit history
+    crdt/retired/        # documents of deleted notes, for 30 days
 ```
 
 A note's frontmatter is minimal and is the only thing YANA/ ever writes into
@@ -108,10 +114,15 @@ make docker     # build the image locally
 ```
 
 Layout: `cmd/yana` (entry point), `internal/` (server packages; `pathsafe` is
-the only way a string becomes a filesystem path), `web/` (TypeScript client,
-embedded into the binary), `spike/crdt/` (Phase 0 CRDT evaluation harness),
-`docs/` (`deployment.md`, `file-format.md`, and `crdt-decision.md`, which
-records which CRDT library each client uses and why).
+the only way a string becomes a filesystem path, `reconcile` keeps documents,
+files, and the index in step, `ydoc` wraps the CRDT library), `web/`
+(TypeScript client, embedded into the binary), `spike/crdt/` (Phase 0 CRDT
+evaluation harness), `docs/` (`deployment.md`, `file-format.md`, and
+`crdt-decision.md`, which records which CRDT library each client uses and
+why).
+
+The reconciliation tests include a 60 second oscillation check and a
+process-kill check; `go test -short ./...` shrinks them.
 
 The CRDT spike's cross-language tests need `node` and `npm ci` in
 `spike/crdt/js`; without them those tests skip.

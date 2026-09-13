@@ -406,3 +406,14 @@ func escapeLike(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 	return r.Replace(s)
 }
+
+// Body returns the indexed body text of one note (what search sees).
+func (db *DB) Body(ctx context.Context, id string) (string, error) {
+	var body string
+	err := db.readers.QueryRowContext(ctx,
+		`SELECT b.body FROM note_bodies b JOIN notes n ON n.rowid = b.note_rowid WHERE n.id = ?`, id).Scan(&body)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return body, err
+}

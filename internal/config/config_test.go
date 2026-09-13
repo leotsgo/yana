@@ -19,6 +19,10 @@ func TestDefaults(t *testing.T) {
 	if cfg.Listen != ":8080" || cfg.MaxNoteSize != 10<<20 || cfg.LogLevel != "info" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
+	if cfg.WritebackIdle != 2*time.Second || cfg.WatchDebounce != 200*time.Millisecond ||
+		cfg.CompactAfter != 500 || cfg.CRDTRetention != 30*24*time.Hour {
+		t.Fatalf("unexpected sync defaults: %+v", cfg)
+	}
 	if !filepath.IsAbs(cfg.NotesRoot) {
 		t.Fatalf("notes root should be absolute: %q", cfg.NotesRoot)
 	}
@@ -27,14 +31,15 @@ func TestDefaults(t *testing.T) {
 func TestEnvOverridesFile(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "yana.yml")
-	if err := os.WriteFile(file, []byte("listen: \":9000\"\nlog_level: debug\nmax_note_size: 42\nscan_settle_time: 7s\n"), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte("listen: \":9000\"\nlog_level: debug\nmax_note_size: 42\nscan_settle_time: 7s\ncompact_after: 9\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(env(map[string]string{
-		"YANA_CONFIG":     file,
-		"YANA_LISTEN":     ":1234",
-		"YANA_NOTES_ROOT": dir,
-		"YANA_RIPGREP":    "false",
+		"YANA_CONFIG":         file,
+		"YANA_LISTEN":         ":1234",
+		"YANA_NOTES_ROOT":     dir,
+		"YANA_RIPGREP":        "false",
+		"YANA_WRITEBACK_IDLE": "500ms",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -47,6 +52,9 @@ func TestEnvOverridesFile(t *testing.T) {
 	}
 	if cfg.Ripgrep {
 		t.Error("YANA_RIPGREP=false not applied")
+	}
+	if cfg.WritebackIdle != 500*time.Millisecond || cfg.CompactAfter != 9 {
+		t.Errorf("sync settings not applied: %+v", cfg)
 	}
 	if cfg.NotesRoot != dir {
 		t.Errorf("notes root: %q", cfg.NotesRoot)

@@ -37,6 +37,17 @@ type Config struct {
 	// assigns it an id. Files younger than this are still being written.
 	ScanSettleTime time.Duration `yaml:"scan_settle_time"`
 
+	// WritebackIdle is how long a note must go without an edit before its
+	// document is written to its file.
+	WritebackIdle time.Duration `yaml:"writeback_idle"`
+	// WatchDebounce collapses bursts of filesystem events on one path.
+	WatchDebounce time.Duration `yaml:"watch_debounce"`
+	// CompactAfter is the per-note CRDT log length that triggers a snapshot.
+	CompactAfter int `yaml:"compact_after"`
+	// CRDTRetention is how long the document of a deleted note is kept
+	// under .sync/crdt/retired.
+	CRDTRetention time.Duration `yaml:"crdt_retention"`
+
 	// Ripgrep enables the regex search passthrough when an `rg` binary is on
 	// PATH. Off means the endpoint reports that regex search is unavailable.
 	Ripgrep bool `yaml:"ripgrep"`
@@ -60,6 +71,10 @@ func Defaults() Config {
 		MaxAssetSize:     50 << 20,
 		MaxNotesPerSpace: 100_000,
 		ScanSettleTime:   2 * time.Second,
+		WritebackIdle:    2 * time.Second,
+		WatchDebounce:    200 * time.Millisecond,
+		CompactAfter:     500,
+		CRDTRetention:    30 * 24 * time.Hour,
 		Ripgrep:          true,
 		RipgrepTimeout:   5 * time.Second,
 	}
@@ -153,6 +168,20 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	}
 	cfg.MaxNotesPerSpace = int(perSpace)
 	if err := dur("SCAN_SETTLE_TIME", &cfg.ScanSettleTime); err != nil {
+		return err
+	}
+	if err := dur("WRITEBACK_IDLE", &cfg.WritebackIdle); err != nil {
+		return err
+	}
+	if err := dur("WATCH_DEBOUNCE", &cfg.WatchDebounce); err != nil {
+		return err
+	}
+	var compact int64 = int64(cfg.CompactAfter)
+	if err := i64("COMPACT_AFTER", &compact); err != nil {
+		return err
+	}
+	cfg.CompactAfter = int(compact)
+	if err := dur("CRDT_RETENTION", &cfg.CRDTRetention); err != nil {
 		return err
 	}
 	if err := boolean("RIPGREP", &cfg.Ripgrep); err != nil {

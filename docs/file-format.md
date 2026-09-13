@@ -109,6 +109,46 @@ Phase 5. Write them now and they will start working then.
 The API returns their source; rendering them in the UI is Phase 9, which
 adds the sandboxing that makes that safe.
 
+## Editing files while the server runs
+
+The server watches the tree. You can edit any note with any tool at any time
+and the change is merged into the note's document, which is what connected
+clients see. From the file's point of view the rules are:
+
+- **Any change is merged, not replaced.** The server diffs the new file
+  text against what the file held before and applies that difference to the
+  document. Text someone was typing at the same moment survives next to
+  yours. The author recorded for your change is `filesystem`.
+- **The server writes with rename.** When a document changes, its file is
+  rewritten two seconds after the last edit (`YANA_WRITEBACK_IDLE`) as a
+  temp file in the same directory, `fsync`ed, then renamed over the
+  original. You never read a half-written note. The temp files start with
+  `.` and are ignored if one is left behind by a crash.
+- **The frontmatter is yours.** The server keeps the block exactly as it
+  found it and only rewrites the body below it. Add keys, change `order`,
+  reformat: the next write-back carries it through.
+- **Empty means "not yet".** Editors that save by truncating and rewriting
+  show an empty file for an instant. An empty file where a note had text is
+  looked at again after `YANA_SCAN_SETTLE_TIME` before it is believed.
+- **`mv` is a move.** The server matches files by `id`, updates the path,
+  and keeps the document. Move a note while someone is typing in it and
+  their next words are written to the new path.
+- **`cp` is a new note.** A second file with the same id is given a fresh
+  one (see Duplicate ids).
+- **`rm` is a delete, with a grace period.** The note leaves the index
+  and its document moves to `.sync/crdt/retired/` for 30 days. Put the file
+  back with the same id and the document comes with it.
+- **A file without an id is a new note.** It gets one once its mtime is
+  older than the settle time, and its content becomes the document.
+
+If you write to a file in the instant between the server reading it and
+renaming its own write over it, that write is lost; the window is the time
+it takes to hash a file. Editors and sync tools that save with rename never
+hit it.
+
+Invalid UTF-8 in a note is replaced with U+FFFD when it enters the document
+and the file is rewritten that way on the next write-back.
+
 ## Assets
 
 Any file under a directory named `_assets` is an asset. Images in a note are

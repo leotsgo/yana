@@ -5,6 +5,7 @@ go 1.26.5
 require (
 	github.com/Deln0r/ygo v1.19.0
 	github.com/alecthomas/chroma/v2 v2.27.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/reearth/ygo v1.50.0
 	github.com/sergi/go-diff v1.4.0

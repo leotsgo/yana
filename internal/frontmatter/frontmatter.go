@@ -34,6 +34,10 @@ type Doc struct {
 	HasBlock bool
 	// Body is the content after the block (or the whole file if none).
 	Body []byte
+	// Head is the block itself, opening and closing delimiter lines
+	// included, byte for byte. It is empty when there is no block. Head
+	// followed by Body is the original content.
+	Head []byte
 	// blockEnd is the byte offset just past the closing delimiter line.
 	blockEnd int
 	newline  string
@@ -62,6 +66,7 @@ func Parse(content []byte) Doc {
 		if bytes.Equal(trimmed, delim) || bytes.Equal(trimmed, []byte("...")) {
 			d.HasBlock = true
 			d.blockEnd = offset + consumed
+			d.Head = content[:d.blockEnd]
 			d.Body = content[d.blockEnd:]
 			break
 		}

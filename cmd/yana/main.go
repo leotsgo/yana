@@ -22,6 +22,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/config"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
+	"github.com/madeofpendletonwool/yana/internal/reconcile"
 	"github.com/madeofpendletonwool/yana/internal/scanner"
 	"github.com/madeofpendletonwool/yana/internal/search"
 	"github.com/madeofpendletonwool/yana/internal/server"
@@ -107,8 +108,20 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 	if cfg.Ripgrep && !rg.Available() {
 		log.Warn("ripgrep (rg) not found on PATH; regex search is unavailable")
 	}
+	// The watcher starts before the initial scan so nothing that changes
+	// during the scan is missed.
+	rec := reconcile.New(root, db, sc, reconcile.Options{
+		IdleTime:     cfg.WritebackIdle,
+		Debounce:     cfg.WatchDebounce,
+		SettleTime:   cfg.ScanSettleTime,
+		CompactAfter: cfg.CompactAfter,
+		Retention:    cfg.CRDTRetention,
+	}, base)
+	if err := rec.Start(); err != nil {
+		return fmt.Errorf("start reconciler: %w", err)
+	}
 	srv := server.New(server.Deps{
-		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version,
+		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec,
 	})
 
 	httpSrv := &http.Server{
@@ -137,6 +150,7 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 			return
 		}
 		srv.SetReady(true)
+		rec.SweepOrphans(ctx)
 		retryDeferred(ctx, sc, res.Deferred, cfg.ScanSettleTime, log)
 	}()
 
@@ -150,7 +164,12 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return httpSrv.Shutdown(shutdownCtx)
+	err = httpSrv.Shutdown(shutdownCtx)
+	// Dirty notes are written before the index closes.
+	if cerr := rec.Close(); cerr != nil {
+		log.Warn("reconciler close", "err", cerr)
+	}
+	return err
 }
 
 // retryDeferred re-indexes files the scan skipped because they were still
