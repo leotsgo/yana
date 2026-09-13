@@ -1101,6 +1101,29 @@ func (r *Reconciler) processPath(ctx context.Context, rel string) {
 		r.emit(Event{NoteID: id, Kind: EventMoved, Path: rel})
 	}
 	n.lastUsed = r.opts.Now()
+
+	// The file was read before this lock was taken, and a write-back may
+	// have replaced it while the lock was waited for. Applying that
+	// earlier copy would treat the loop's own newer write as an external
+	// edit and undo fresh local edits, so re-read under the lock and use
+	// what the file holds now.
+	if fresh, rerr := os.ReadFile(abs); rerr != nil {
+		r.log.Debug("cannot re-read at lock time; skipped", "id", id, "path", rel, "err", rerr)
+		return
+	} else if hashOf(fresh) != hashOf(content) {
+		r.log.Debug("file changed again before the lock; using the newer bytes", "id", id, "path", rel)
+		content = fresh
+		fm = frontmatter.Parse(content)
+		if info, err = os.Lstat(abs); err != nil {
+			return
+		}
+		if fm.Meta.ID != id {
+			// The path now holds a different note; the next watcher event
+			// handles it rather than merging the wrong file in here.
+			r.log.Warn("file replaced while waiting for the lock; leaving it for the next event", "id", id, "path", rel)
+			return
+		}
+	}
 	hash := hashOf(content)
 	if hash == n.lastHash {
 		r.echoes.Add(1)
