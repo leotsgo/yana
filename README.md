@@ -93,7 +93,11 @@ cd web && npm run typecheck   # client
 Layout: `cmd/yana` (entry point), `internal/` (server packages; `pathsafe` is
 the only way a string becomes a filesystem path), `web/` (TypeScript client,
 embedded into the binary), `spike/crdt/` (Phase 0 CRDT evaluation harness),
-`docs/`.
+`docs/` (`crdt-decision.md` records which CRDT library each client uses and
+why).
+
+The CRDT spike's cross-language tests need `node` and `npm ci` in
+`spike/crdt/js`; without them those tests skip.
 
 Work happens on short-lived branches off `main`, with Conventional Commit
 messages and a pull request per change.
