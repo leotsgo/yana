@@ -1,0 +1,159 @@
+# File format
+
+This is the contract between YANA/ and the files on disk. It is short on
+purpose. Anything you can do to these files with a text editor, `mv`, `cp`,
+`rsync`, or a shell script is allowed, and the server catches up on its next
+scan. This document doubles as the reference for agents that write notes
+directly.
+
+## Tree
+
+```
+<notes root>/
+  <space>/
+    .space.yml
+    <folders...>/<note>.md
+    <folders...>/<page>.html
+    <folders...>/_assets/<file>
+  .trash/
+  .sync/
+```
+
+- A **space** is a top-level directory. Files loose in the root belong to a
+  space with an empty name; put them in a directory.
+- **Folders are directories.** Nesting is unlimited within path limits. The
+  tree the UI shows is the tree on disk; there is no ordering file.
+- Names starting with `.` are ignored everywhere in the tree. `.sync/` and
+  `.trash/` are the server's; anything else dotted is yours.
+- Symlinks are not followed.
+
+## Notes
+
+A note is a file ending in `.md` or `.markdown` (kind `md`) or `.html` /
+`.htm` (kind `html`). Everything else outside `_assets/` is ignored.
+
+### Frontmatter
+
+The first time YANA/ sees a note it writes two keys into a YAML block at the
+top of the file:
+
+```yaml
+---
+id: 01JQ8X4K2M9P7R3T5V6W8Y0Z1A
+created: 2026-09-12T14:02:11Z
+---
+```
+
+- `id` is a ULID. It is assigned once and never changes. Moving or renaming
+  the file keeps the id; the server matches by id, not path.
+- `created` is the UTC time the id was assigned, RFC 3339.
+
+If the file already has a frontmatter block the two keys are inserted into
+it. If it has none, a block is added. In either case the rest of the file
+is preserved byte for byte: key order, quoting, comments, indentation, and
+the line ending style (`\n` or `\r\n`) all survive. The writer is not a YAML
+serializer; it edits lines.
+
+The write is atomic (temp file plus rename in the same directory). A file
+whose mtime is younger than `YANA_SCAN_SETTLE_TIME` (default 2s) is skipped
+and retried, so a copy in progress is not touched.
+
+Optional keys the server understands:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `order` | int | Sidebar sort within a folder |
+| `trusted` | bool | HTML notes only; render without sandbox (later phase) |
+| `template` | string | Reserved |
+
+Do not add keys beyond these for the application's benefit. Keys you add for
+your own reasons are carried through untouched.
+
+### Duplicate ids
+
+If two files carry the same `id` (you ran `cp`), the one at the path the
+server already knew keeps it and the other is given a fresh id. If neither
+path is known, the first one the scan reaches keeps it. Moving a file
+(`mv`) is a rename, not a duplicate; nothing is rewritten.
+
+### Title, tags, preview
+
+- The **title** is the first `# H1`, falling back to the filename without
+  extension. For HTML notes, the `<title>` or first `<h1>`.
+- **Tags** are inline `#tags` in the body: letters, digits, `_`, `-`, `/`,
+  case-folded. Purely numeric tokens (`#1`) and anything inside code are not
+  tags. Tags are never stored in frontmatter.
+- The **preview** is a short plain-text excerpt of the body after the
+  title, with code blocks and markdown punctuation removed.
+
+### Markdown
+
+GitHub Flavored Markdown: tables, task lists, strikethrough, autolinks,
+footnotes, fenced code with syntax highlighting, and typographic quotes and
+dashes. Raw HTML inside a markdown note is dropped from the rendered output.
+
+### Wikilinks
+
+```
+[[Meeting notes]]
+[[projects/roadmap|the roadmap]]
+```
+
+`[[target]]` and `[[target|display text]]` are parsed. Today they render as
+a marked span; resolution, backlinks, and rename propagation arrive with
+Phase 5. Write them now and they will start working then.
+
+### HTML notes
+
+`.html` files are indexed (title, text for search) and appear in the tree.
+The API returns their source; rendering them in the UI is Phase 9, which
+adds the sandboxing that makes that safe.
+
+## Assets
+
+Any file under a directory named `_assets` is an asset. Images in a note are
+referenced relatively, as in any markdown file:
+
+```markdown
+![diagram](_assets/diagram.png)
+![shared](../_assets/logo.svg)
+```
+
+The UI rewrites those `src` attributes to `/api/files/<space>/<path>`. Only
+paths inside an `_assets` directory are served, with `nosniff` and a
+sandboxing content security policy. Assets do not get ids or frontmatter.
+
+## Space config
+
+`<space>/.space.yml` will hold members and roles when Phase 4 lands. It is
+reserved now so that nothing else claims the name. Until then a space is a
+directory and nothing more.
+
+## Path rules
+
+Every string that becomes a path goes through one module, which rejects:
+
+- `..` segments, absolute paths, null bytes, control characters
+- Windows reserved names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`,
+  `LPT1`-`LPT9`), trailing dots and spaces
+- names that collide case-insensitively with an existing entry
+- symlinks that resolve outside the notes root
+
+Paths are normalized to Unicode NFC. Limits: 255 bytes per name, 1024 per
+path, 10 MB per note, 50 MB per asset, 100,000 notes per space (all
+configurable). A file that breaks a rule is logged and left alone; the rest
+of the scan continues.
+
+## Writing notes from scripts and agents
+
+1. Write the file somewhere in the tree with a `.md` extension.
+2. Do not invent an `id`. Leave the frontmatter out, or include only your
+   own keys; the server adds `id` and `created` on its next scan.
+3. Finish writing before the settle window passes, or write to a temp name
+   and `mv` into place.
+4. To move or rename, `mv` the file. To delete, `rm` it. Both are picked up
+   on the next scan; the id follows the file.
+
+Rebuilding the index (`yana scan`, or deleting `.sync/index.db` and
+restarting) produces the same ids, tree, and search results, because
+nothing that matters lives only in the database.
