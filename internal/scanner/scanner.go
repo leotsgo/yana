@@ -256,6 +256,9 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 		if err := index.DeleteAssetsExcept(tx, keepAssets); err != nil {
 			return err
 		}
+		if err := index.RecomputeAllLinks(tx); err != nil {
+			return err
+		}
 		return index.SetScanState(tx, "last_scan", s.opts.Now().UTC().Format(time.RFC3339Nano))
 	})
 	if err != nil {
@@ -268,7 +271,10 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 }
 
 // ScanOne re-indexes a single file (used for deferred files and, later, by
-// the watcher). A missing file retires its row.
+// the watcher). A missing file retires its row. Link rows follow: a plain
+// content change recomputes the note's own outbound links, a new note or a
+// path change recomputes the whole space's, because every raw target in
+// the space may resolve differently now.
 func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 	abs, cleanRel, err := s.root.Resolve(rel)
 	if err != nil {
@@ -276,7 +282,14 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 	}
 	info, err := os.Stat(abs)
 	if errors.Is(err, fs.ErrNotExist) {
-		return s.db.Write(ctx, func(tx *sql.Tx) error { return index.DeleteNoteByPath(tx, cleanRel) })
+		return s.db.Write(ctx, func(tx *sql.Tx) error {
+			if err := index.DeleteNoteByPath(tx, cleanRel); err != nil {
+				return err
+			}
+			// A removed note can free a basename (uniqueness flips) and
+			// breaks inbound links; recompute the space it lived in.
+			return index.RecomputeSpaceLinks(tx, spaceOf(cleanRel))
+		})
 	}
 	if err != nil {
 		return err
@@ -296,7 +309,29 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 		return errDeferred
 	}
 	return s.db.Write(ctx, func(tx *sql.Tx) error {
-		return index.UpsertNote(tx, it.note, it.body, it.tags)
+		old, err := index.GetNoteTx(tx, it.note.ID)
+		if err != nil && !errors.Is(err, index.ErrNotFound) {
+			return err
+		}
+		moved := err == nil && old.RelPath != it.note.RelPath
+		fresh := errors.Is(err, index.ErrNotFound)
+		if err := index.UpsertNote(tx, it.note, it.body, it.tags); err != nil {
+			return err
+		}
+		// A new note can resolve targets that were unresolved; a moved one
+		// changes how the whole space resolves. Both redo the space.
+		if moved {
+			if old.Space != it.note.Space {
+				if err := index.RecomputeSpaceLinks(tx, old.Space); err != nil {
+					return err
+				}
+			}
+			return index.RecomputeSpaceLinks(tx, it.note.Space)
+		}
+		if fresh {
+			return index.RecomputeSpaceLinks(tx, it.note.Space)
+		}
+		return index.ReplaceLinksForNote(tx, it.note.ID)
 	})
 }
 

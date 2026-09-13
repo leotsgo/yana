@@ -79,3 +79,23 @@ func TestStripHTML(t *testing.T) {
 		t.Errorf("%q", got)
 	}
 }
+
+func TestWikiLinks(t *testing.T) {
+	body := []byte("# Title\n\nSee [[target]] and [[docs/two.md|the other one]].\nAgain [[target]].\n\nCode ignores wikilinks:\n\n```md\n[[fenced]]\n```\n\nInline `[[spanned]]` too.\n")
+	got := WikiLinks(body)
+	want := []string{"target", "docs/two.md"}
+	if len(got) != len(want) {
+		t.Fatalf("WikiLinks = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("WikiLinks = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestWikiLinksEmpty(t *testing.T) {
+	if got := WikiLinks([]byte("plain text, no links")); len(got) != 0 {
+		t.Fatalf("WikiLinks = %q, want none", got)
+	}
+}

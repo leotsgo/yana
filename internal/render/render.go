@@ -130,11 +130,38 @@ func StripHTML(src []byte) string {
 	return spaces.ReplaceAllString(strings.TrimSpace(s), " ")
 }
 
+// WikiLinks returns the distinct raw targets of the wikilinks in body, in
+// first-seen order. The same parser that renders collects them, so links
+// inside code fences and code spans are skipped exactly as they are in the
+// rendered output.
+func WikiLinks(body []byte) []string {
+	pctx := parser.NewContext()
+	doc := engine().Parser().Parse(text.NewReader(body), parser.WithContext(pctx))
+	seen := map[string]struct{}{}
+	var out []string
+	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		if wl, ok := n.(*WikiLink); ok {
+			t := string(wl.Target)
+			if _, dup := seen[t]; !dup {
+				seen[t] = struct{}{}
+				out = append(out, t)
+			}
+			return ast.WalkSkipChildren, nil
+		}
+		return ast.WalkContinue, nil
+	})
+	return out
+}
+
 // --- wikilinks --------------------------------------------------------
 
-// WikiLink is the AST node for [[target]] and [[target|display]]. Until
-// Phase 5 wires resolution, it renders as a marked span rather than an
-// anchor.
+// WikiLink is the AST node for [[target]] and [[target|display]]. The
+// renderer emits a span carrying the raw target; the index resolves targets
+// and the client turns resolved spans into note links and unresolved ones
+// into a create affordance.
 type WikiLink struct {
 	ast.BaseInline
 	Target  []byte
