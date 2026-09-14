@@ -248,30 +248,6 @@ func (db *DB) Tags(ctx context.Context, noteID string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// Spaces returns the distinct space names with a note count each.
-func (db *DB) Spaces(ctx context.Context) ([]SpaceInfo, error) {
-	rows, err := db.readers.QueryContext(ctx, `SELECT space, COUNT(*) FROM notes GROUP BY space ORDER BY space`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []SpaceInfo
-	for rows.Next() {
-		var s SpaceInfo
-		if err := rows.Scan(&s.Name, &s.Notes); err != nil {
-			return nil, err
-		}
-		out = append(out, s)
-	}
-	return out, rows.Err()
-}
-
-// SpaceInfo summarises a space.
-type SpaceInfo struct {
-	Name  string `json:"name"`
-	Notes int    `json:"notes"`
-}
-
 // Counts returns totals for readiness and metrics.
 func (db *DB) Counts(ctx context.Context) (notes, assets int, err error) {
 	if err = db.readers.QueryRowContext(ctx, `SELECT COUNT(*) FROM notes`).Scan(&notes); err != nil {
@@ -300,13 +276,30 @@ type SearchHit struct {
 
 // Search runs a full-text query. The trigram tokenizer needs at least three
 // characters; shorter queries fall back to a title substring match.
-func (db *DB) Search(ctx context.Context, query, space string, limit int) ([]SearchHit, error) {
+// allowed, when not nil, restricts results to those spaces (an empty
+// list matches nothing); nil is unrestricted.
+func (db *DB) Search(ctx context.Context, query, space string, allowed []string, limit int) ([]SearchHit, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, nil
 	}
 	if limit <= 0 || limit > 200 {
 		limit = 50
+	}
+	allowClause := func(q string, args []any) (string, []any) {
+		if allowed == nil {
+			return q, args
+		}
+		// IN with placeholders; an empty allowed list matches nothing.
+		if len(allowed) == 0 {
+			allowed = []string{""}
+		}
+		ph := make([]string, len(allowed))
+		for i, sp := range allowed {
+			ph[i] = "?"
+			args = append(args, sp)
+		}
+		return q + " AND n.space IN (" + strings.Join(ph, ",") + ")", args
 	}
 	var (
 		rows *sql.Rows
@@ -319,6 +312,7 @@ func (db *DB) Search(ctx context.Context, query, space string, limit int) ([]Sea
 			q += ` AND n.space = ?`
 			args = append(args, space)
 		}
+		q, args = allowClause(q, args)
 		q += ` ORDER BY n.title LIMIT ?`
 		args = append(args, limit)
 		rows, err = db.readers.QueryContext(ctx, q, args...)
@@ -331,6 +325,7 @@ func (db *DB) Search(ctx context.Context, query, space string, limit int) ([]Sea
 			q += ` AND n.space = ?`
 			args = append(args, space)
 		}
+		q, args = allowClause(q, args)
 		q += ` ORDER BY bm25(notes_fts, 4.0, 1.0) LIMIT ?`
 		args = append(args, limit)
 		rows, err = db.readers.QueryContext(ctx, q, args...)

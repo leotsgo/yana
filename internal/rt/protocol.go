@@ -27,6 +27,7 @@ const (
 	errTooManyRooms  = "too_many_rooms"
 	errInvalid       = "invalid"
 	errInternal      = "internal"
+	errForbidden     = "forbidden"
 )
 
 // ClientMessage is one framed message from a client. Every field except

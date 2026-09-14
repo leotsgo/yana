@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/madeofpendletonwool/yana/internal/auth"
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/git"
 	"github.com/madeofpendletonwool/yana/internal/index"
@@ -29,6 +30,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/rt"
 	"github.com/madeofpendletonwool/yana/internal/scanner"
 	"github.com/madeofpendletonwool/yana/internal/search"
+	"github.com/madeofpendletonwool/yana/internal/spaces"
 )
 
 // Deps are everything the handlers need.
@@ -49,8 +51,13 @@ type Deps struct {
 	// Git is the history layer; nil (no git binary, git disabled) turns
 	// the history endpoints into 501s.
 	Git *git.Layer
+	// Auth is the accounts service. When set, every /api route except
+	// the sign-in endpoints requires a verified identity and answers
+	// only within the caller's spaces. nil runs the server without
+	// accounts (the pre-Phase-4 state, tests, or a private deployment).
+	Auth *auth.Service
 	// CanWrite decides whether a request may change a space. nil allows
-	// everything, which is the state until Phase 4.
+	// everything; when Auth is set the role check below runs instead.
 	CanWrite func(r *http.Request, space string) error
 }
 
@@ -103,20 +110,36 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("GET /readyz", s.handleReadyz)
-	s.mux.HandleFunc("GET /api/status", s.handleStatus)
-	s.mux.HandleFunc("GET /api/spaces", s.handleSpaces)
-	s.mux.HandleFunc("GET /api/tree", s.handleTree)
-	s.mux.HandleFunc("GET /api/notes/{id}", s.handleNote)
-	s.mux.HandleFunc("GET /api/search", s.handleSearch)
-	s.mux.HandleFunc("GET /api/files/{path...}", s.handleFile)
-	s.mux.HandleFunc("GET /api/notes/{id}/backlinks", s.handleBacklinks)
-	s.mux.HandleFunc("GET /api/links/unresolved", s.handleUnresolvedLinks)
-	s.mux.HandleFunc("POST /api/notes/{id}/move", s.handleMove)
-	s.mux.HandleFunc("POST /api/notes", s.handleCreateNote)
-	s.mux.HandleFunc("GET /api/notes/{id}/history", s.handleNoteHistory)
-	s.mux.HandleFunc("GET /api/notes/{id}/history/diff", s.handleNoteHistoryDiff)
-	s.mux.HandleFunc("POST /api/notes/{id}/history/restore", s.handleNoteHistoryRestore)
-	s.mux.HandleFunc("POST /api/git/snapshot", s.handleGitSnapshot)
+	// The sign-in endpoints stand outside the identity gate.
+	s.mux.HandleFunc("GET /api/auth/state", s.handleAuthState)
+	s.mux.HandleFunc("POST /api/auth/setup", s.handleSetup)
+	s.mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+	s.mux.HandleFunc("POST /api/auth/refresh", s.handleRefresh)
+	s.mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	s.mux.HandleFunc("GET /api/auth/sessions", s.authed(s.handleSessions))
+	s.mux.HandleFunc("DELETE /api/auth/sessions/{id}", s.authed(s.handleSessionRevoke))
+	s.mux.HandleFunc("GET /api/users", s.authed(s.handleUsers))
+	s.mux.HandleFunc("POST /api/users", s.authed(s.handleUserCreate))
+	s.mux.HandleFunc("DELETE /api/users/{id}", s.authed(s.handleUserDelete))
+	s.mux.HandleFunc("POST /api/users/{id}/password", s.authed(s.handleUserPassword))
+	s.mux.HandleFunc("GET /api/spaces", s.authed(s.handleSpaces))
+	s.mux.HandleFunc("POST /api/spaces", s.authed(s.handleSpaceCreate))
+	s.mux.HandleFunc("GET /api/spaces/{space}", s.authed(s.handleSpaceGet))
+	s.mux.HandleFunc("PATCH /api/spaces/{space}", s.authed(s.handleSpaceUpdate))
+	s.mux.HandleFunc("DELETE /api/spaces/{space}", s.authed(s.handleSpaceDelete))
+	s.mux.HandleFunc("GET /api/tree", s.authed(s.handleTree))
+	s.mux.HandleFunc("GET /api/notes/{id}", s.authed(s.handleNote))
+	s.mux.HandleFunc("GET /api/search", s.authed(s.handleSearch))
+	s.mux.HandleFunc("GET /api/files/{path...}", s.authed(s.handleFile))
+	s.mux.HandleFunc("GET /api/notes/{id}/backlinks", s.authed(s.handleBacklinks))
+	s.mux.HandleFunc("GET /api/links/unresolved", s.authed(s.handleUnresolvedLinks))
+	s.mux.HandleFunc("POST /api/notes/{id}/move", s.authed(s.handleMove))
+	s.mux.HandleFunc("POST /api/notes", s.authed(s.handleCreateNote))
+	s.mux.HandleFunc("GET /api/notes/{id}/history", s.authed(s.handleNoteHistory))
+	s.mux.HandleFunc("GET /api/notes/{id}/history/diff", s.authed(s.handleNoteHistoryDiff))
+	s.mux.HandleFunc("POST /api/notes/{id}/history/restore", s.authed(s.handleNoteHistoryRestore))
+	s.mux.HandleFunc("POST /api/git/snapshot", s.authed(s.handleGitSnapshot))
+	s.mux.HandleFunc("GET /api/status", s.authed(s.handleStatus))
 	if s.RT != nil {
 		s.mux.Handle("GET /ws", s.RT)
 	}
@@ -169,16 +192,63 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 // --- api ---------------------------------------------------------------
 
-func (s *Server) handleSpaces(w http.ResponseWriter, r *http.Request) {
-	spaces, err := s.DB.Spaces(r.Context())
+// noteAuthz checks the identity may see one note. A note the caller is
+// not a member of looks exactly like a missing one; errors are already
+// written and reported via ok=false.
+func (s *Server) noteAuthz(w http.ResponseWriter, r *http.Request, id string) (space string, ok bool) {
+	if !validID(id) {
+		writeError(w, http.StatusBadRequest, "note id must be a 26-character ULID")
+		return "", false
+	}
+	if s.open() {
+		return "", true
+	}
+	space, _, err := s.Auth.AuthorizeNote(r.Context(), s.ident(r), id)
+	if errors.Is(err, auth.ErrForbidden) || errors.Is(err, index.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no note with that id")
+		return "", false
+	}
 	if err != nil {
 		s.fail(w, r, err)
-		return
+		return "", false
 	}
-	if spaces == nil {
-		spaces = []index.SpaceInfo{}
+	return space, true
+}
+
+// spaceAuthz checks the identity's role in one space requested by
+// parameter. An unknown or non-member space reads as missing.
+func (s *Server) spaceAuthz(w http.ResponseWriter, r *http.Request, space string) (role string, ok bool) {
+	if s.open() {
+		return spaces.RoleOwner, true
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"spaces": spaces})
+	role, err := s.Auth.AuthorizeSpace(r.Context(), s.ident(r), space)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no such space")
+		return "", false
+	}
+	return role, true
+}
+
+// mayWrite reports whether the request may change a space.
+func (s *Server) mayWrite(w http.ResponseWriter, r *http.Request, space string) bool {
+	if s.Auth != nil {
+		if err := s.Auth.CanWriteSpace(r.Context(), s.ident(r), space); err != nil {
+			if errors.Is(err, auth.ErrForbidden) {
+				writeError(w, http.StatusNotFound, "no such space")
+			} else {
+				writeError(w, http.StatusForbidden, err.Error())
+			}
+			return false
+		}
+		return true
+	}
+	if s.CanWrite != nil {
+		if err := s.CanWrite(r, space); err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
@@ -186,16 +256,48 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if space != "" {
+		if _, ok := s.spaceAuthz(w, r, space); !ok {
+			return
+		}
+	}
 	notes, err := s.DB.ListNotes(r.Context(), space)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	notes = s.visibleNotes(r, notes)
 	tree := buildTree(notes)
 	if tree == nil {
 		tree = []SpaceTree{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"spaces": tree})
+}
+
+// visibleNotes drops notes outside the identity's spaces.
+func (s *Server) visibleNotes(r *http.Request, notes []index.Note) []index.Note {
+	if s.open() {
+		return notes
+	}
+	id := s.ident(r)
+	member, isAll, err := s.Auth.MemberSpaces(r.Context(), id)
+	if err != nil {
+		return nil
+	}
+	if isAll {
+		return notes
+	}
+	allowed := make(map[string]bool, len(member))
+	for _, sp := range member {
+		allowed[sp] = true
+	}
+	out := notes[:0]
+	for _, n := range notes {
+		if allowed[n.Space] {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // NoteResponse is the payload for one note.
@@ -211,8 +313,7 @@ type NoteResponse struct {
 
 func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !validID(id) {
-		writeError(w, http.StatusBadRequest, "note id must be a 26-character ULID")
+	if _, ok := s.noteAuthz(w, r, id); !ok {
 		return
 	}
 	n, err := s.DB.GetNote(r.Context(), id)
@@ -282,6 +383,34 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Search never crosses a space boundary the caller cannot see: the
+	// result set is restricted to the caller's member spaces (or the
+	// one requested space, after a membership check).
+	var allowed []string
+	if s.open() {
+		allowed = nil // unrestricted
+	} else {
+		if space != "" {
+			if _, ok := s.spaceAuthz(w, r, space); !ok {
+				return
+			}
+			allowed = []string{space}
+		} else {
+			member, isAll, err := s.Auth.MemberSpaces(r.Context(), s.ident(r))
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			if isAll {
+				allowed = nil
+			} else {
+				allowed = member
+				if len(allowed) == 0 {
+					allowed = []string{""} // matches nothing
+				}
+			}
+		}
+	}
 	limit := 50
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -296,7 +425,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "regex is longer than 512 characters")
 			return
 		}
-		matches, err := s.Ripgrep.Search(r.Context(), raw, space, limit)
+		matches, err := s.Ripgrep.SearchSpaces(r.Context(), raw, space, allowed, limit)
 		switch {
 		case errors.Is(err, search.ErrUnavailable):
 			writeError(w, http.StatusNotImplemented, err.Error())
@@ -318,6 +447,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		hits := make([]regexHit, 0, len(matches))
 		for _, m := range matches {
+			// The search itself already ran inside the allowed space
+			// directories; enrichment only adds ids and titles.
 			h := regexHit{RegexMatch: m}
 			if n, err := s.DB.GetNoteByPath(r.Context(), m.Path); err == nil {
 				h.ID, h.Title = n.ID, n.Title
@@ -336,7 +467,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "query is longer than 512 characters")
 		return
 	}
-	hits, err := s.DB.Search(r.Context(), query, space, limit)
+	hits, err := s.DB.Search(r.Context(), query, space, allowed, limit)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -362,6 +493,9 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if !isAssetPath(rel) {
 		writeError(w, http.StatusNotFound, "only files under an _assets directory are served")
+		return
+	}
+	if _, ok := s.spaceAuthz(w, r, spaceOfPath(rel)); !ok {
 		return
 	}
 	f, err := os.Open(abs)

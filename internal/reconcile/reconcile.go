@@ -51,6 +51,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/scanner"
+	"github.com/madeofpendletonwool/yana/internal/spaces"
 	"github.com/madeofpendletonwool/yana/internal/ydoc"
 )
 
@@ -82,6 +83,11 @@ type Options struct {
 	// Sync) reports, before any filtering, so the git history layer can
 	// track tree activity. It must not block.
 	OnTreeChange func(rel string)
+	// OnSpaceMembersChanged, when set, is invoked whenever a space's
+	// cached membership changes (a .space.yml edit, removal, or a
+	// vanished space directory). The realtime relay uses it to sever
+	// subscriptions that no longer pass. It must not block.
+	OnSpaceMembersChanged func(space string)
 	// Now is the clock.
 	Now func() time.Time
 }
@@ -1043,6 +1049,10 @@ func (r *Reconciler) compact(ctx context.Context, n *note) error {
 func (r *Reconciler) processPath(ctx context.Context, rel string) {
 	if r.opts.OnTreeChange != nil {
 		r.opts.OnTreeChange(rel)
+	}
+	if spaces.IsFile(rel) {
+		r.syncSpaceFile(ctx, rel)
+		return
 	}
 	abs, rel, err := r.root.Resolve(rel)
 	if err != nil {

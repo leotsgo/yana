@@ -65,3 +65,51 @@ func TestRipgrep(t *testing.T) {
 		t.Fatalf("disabled: %v", err)
 	}
 }
+
+func TestRipgrepSearchSpaces(t *testing.T) {
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("rg not installed")
+	}
+	dir := t.TempDir()
+	write := func(rel, s string) {
+		p := filepath.Join(dir, rel)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(s), 0o644)
+	}
+	write("home/a.md", "TODO: buy milk\n")
+	write("work/c.md", "TODO: ship it\n")
+	write("lab/d.md", "TODO: calibrate\n")
+
+	r := NewRipgrep(dir, true, 5*time.Second)
+
+	// Two member spaces: only theirs.
+	got, err := r.SearchSpaces(context.Background(), "TODO", "", []string{"home", "lab"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, m := range got {
+		seen[m.Path] = true
+	}
+	if !seen["home/a.md"] || !seen["lab/d.md"] || seen["work/c.md"] {
+		t.Fatalf("member search: %+v", got)
+	}
+
+	// Empty membership matches nothing.
+	got, err = r.SearchSpaces(context.Background(), "TODO", "", []string{}, 10)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("empty membership: %+v %v", got, err)
+	}
+
+	// nil is unrestricted.
+	got, err = r.SearchSpaces(context.Background(), "TODO", "", nil, 10)
+	if err != nil || len(got) != 3 {
+		t.Fatalf("unrestricted: %+v %v", got, err)
+	}
+
+	// A hostile space name cannot climb out of the root.
+	got, err = r.SearchSpaces(context.Background(), "TODO", "", []string{"../etc"}, 10)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("hostile space name searched: %+v %v", got, err)
+	}
+}

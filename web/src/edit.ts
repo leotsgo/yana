@@ -23,6 +23,9 @@ export function createEditor(
     onError(code) {
       if (code === 'rate_limited') {
         statusEl.textContent = 'Typing faster than the server allows; edits are kept and retried.'
+      } else if (code === 'forbidden') {
+        statusEl.textContent = 'This space is read-only for your account.'
+        doneBtn.disabled = false
       }
     },
     onGone() {

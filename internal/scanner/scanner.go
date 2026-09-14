@@ -25,6 +25,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/render"
+	"github.com/madeofpendletonwool/yana/internal/spaces"
 )
 
 // Options tune one scanner.
@@ -102,6 +103,7 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 	keepAssets := map[string]struct{}{}
 	seenIDs := map[string]string{} // id -> rel path
 	perSpace := map[string]int{}
+	spaceDirs := map[string]struct{}{}
 	var batch []indexed
 	var assets []index.Asset
 
@@ -150,6 +152,11 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 			return nil
 		}
 		if d.IsDir() {
+			// Top-level directories are the spaces; remember them so the
+			// scan can reload every .space.yml it finds.
+			if parent := filepath.Dir(abs); parent == rootDir && name != ".sync" {
+				spaceDirs[name] = struct{}{}
+			}
 			return nil
 		}
 		if !d.Type().IsRegular() {
@@ -264,6 +271,9 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 	if err != nil {
 		return res, err
 	}
+	if err := s.syncSpaces(ctx, spaceDirs); err != nil {
+		return res, err
+	}
 	res.Duration = s.opts.Now().Sub(start)
 	s.log.Info("scan complete", "notes", res.Notes, "assets", res.Assets, "assigned_ids", res.Assigned,
 		"retired", res.Retired, "skipped", res.Skipped, "deferred", len(res.Deferred), "duration", res.Duration)
@@ -333,6 +343,29 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 		}
 		return index.ReplaceLinksForNote(tx, it.note.ID)
 	})
+}
+
+// syncSpaces reloads every space's .space.yml into the membership
+// cache and retires rows for directories that are gone.
+func (s *Scanner) syncSpaces(ctx context.Context, dirs map[string]struct{}) error {
+	for space := range dirs {
+		abs := filepath.Join(s.root.Dir(), space, spaces.FileName)
+		data, err := os.ReadFile(abs)
+		var spec spaces.Spec
+		if err == nil {
+			if spec, err = spaces.Parse(data); err != nil {
+				s.log.Warn("space membership file is invalid; keeping the previous members", "space", space, "err", err)
+				continue
+			}
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			s.log.Warn("cannot read space membership", "space", space, "err", err)
+			continue
+		}
+		if _, err := s.db.SyncSpaceSpec(ctx, space, spec, s.log); err != nil {
+			s.log.Error("cannot cache space membership", "space", space, "err", err)
+		}
+	}
+	return s.db.RetireSpacesExcept(ctx, dirs, s.log)
 }
 
 var errDeferred = errors.New("file is still being written; try again later")

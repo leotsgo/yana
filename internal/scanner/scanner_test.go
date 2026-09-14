@@ -123,7 +123,7 @@ func TestScanAssignsIDsAndIndexes(t *testing.T) {
 	if h.Kind != "html" || h.Title != "Dashboard" {
 		t.Fatalf("html note: %+v", h)
 	}
-	hits, _ := f.db.Search(ctx, "numbers", "", 10)
+	hits, _ := f.db.Search(ctx, "numbers", "", nil, 10)
 	if len(hits) != 1 || hits[0].Note.ID != h.ID {
 		t.Fatalf("html body not indexed: %+v", hits)
 	}
@@ -148,8 +148,8 @@ func TestDatabaseIsDisposable(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := f.db.ListNotes(ctx, "")
-	hitsBefore, _ := f.db.Search(ctx, "body 7", "", 10)
-	spacesBefore, _ := f.db.Spaces(ctx)
+	hitsBefore, _ := f.db.Search(ctx, "body 7", "", nil, 10)
+	spacesBefore, _ := f.db.ListSpaces(ctx)
 
 	f.db.Close()
 	for _, name := range []string{"index.db", "index.db-wal", "index.db-shm"} {
@@ -173,11 +173,11 @@ func TestDatabaseIsDisposable(t *testing.T) {
 			t.Fatalf("note differs after rebuild:\n%+v\n%+v", b, a)
 		}
 	}
-	hitsAfter, _ := f.db.Search(ctx, "body 7", "", 10)
+	hitsAfter, _ := f.db.Search(ctx, "body 7", "", nil, 10)
 	if len(hitsAfter) != len(hitsBefore) || hitsAfter[0].Note.ID != hitsBefore[0].Note.ID {
 		t.Fatalf("search differs after rebuild: %+v vs %+v", hitsBefore, hitsAfter)
 	}
-	spacesAfter, _ := f.db.Spaces(ctx)
+	spacesAfter, _ := f.db.ListSpaces(ctx)
 	if fmt.Sprint(spacesAfter) != fmt.Sprint(spacesBefore) {
 		t.Fatalf("spaces differ: %v vs %v", spacesBefore, spacesAfter)
 	}

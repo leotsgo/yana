@@ -18,19 +18,30 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/scanner"
 )
 
-// canWrite adapts the request-scoped permission hook to the reconciler's
-// space check. nil (until Phase 4 wires real roles) allows everything.
-func (s *Server) canWrite(r *http.Request) reconcile.CanWrite {
-	if s.CanWrite == nil {
+// canWrite adapts the request-scoped permission checks (role lookup
+// against the accounts when Auth is wired, the legacy Deps.CanWrite
+// hook otherwise) to the reconciler's space check.
+func (s *Server) canWrite(w http.ResponseWriter, r *http.Request) reconcile.CanWrite {
+	if s.Auth == nil && s.CanWrite == nil {
 		return nil
 	}
-	return func(space string) error { return s.CanWrite(r, space) }
+	return func(space string) error {
+		if !s.mayWrite(w, r, space) {
+			// mayWrite already wrote the HTTP error; the reconciler
+			// just needs a refusal.
+			return &reconcile.SpaceDeniedError{Space: space, Err: errDenied}
+		}
+		return nil
+	}
 }
+
+// errDenied is the refusal reason attached to SpaceDeniedError when the
+// HTTP layer already answered the client.
+var errDenied = errors.New("no write access to this space")
 
 func (s *Server) handleBacklinks(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !validID(id) {
-		writeError(w, http.StatusBadRequest, "note id must be a 26-character ULID")
+	if _, ok := s.noteAuthz(w, r, id); !ok {
 		return
 	}
 	back, err := s.DB.Backlinks(r.Context(), id)
@@ -41,12 +52,42 @@ func (s *Server) handleBacklinks(w http.ResponseWriter, r *http.Request) {
 	if back == nil {
 		back = []index.Backlink{}
 	}
+	// Links resolve within one space; still, only show backlinks whose
+	// source note is visible.
+	back = s.visibleBacklinks(r, back)
 	writeJSON(w, http.StatusOK, map[string]any{"backlinks": back})
+}
+
+func (s *Server) visibleBacklinks(r *http.Request, back []index.Backlink) []index.Backlink {
+	if s.open() {
+		return back
+	}
+	member, isAll, err := s.Auth.MemberSpaces(r.Context(), s.ident(r))
+	if err != nil {
+		return nil
+	}
+	if isAll {
+		return back
+	}
+	allowed := make(map[string]bool, len(member))
+	for _, sp := range member {
+		allowed[sp] = true
+	}
+	out := back[:0]
+	for _, b := range back {
+		if allowed[b.Note.Space] {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 func (s *Server) handleUnresolvedLinks(w http.ResponseWriter, r *http.Request) {
 	space, ok := s.spaceParam(w, r)
 	if !ok {
+		return
+	}
+	if _, ok := s.spaceAuthz(w, r, space); !ok {
 		return
 	}
 	un, err := s.DB.UnresolvedLinks(r.Context(), space)
@@ -62,8 +103,7 @@ func (s *Server) handleUnresolvedLinks(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !validID(id) {
-		writeError(w, http.StatusBadRequest, "note id must be a 26-character ULID")
+	if _, ok := s.noteAuthz(w, r, id); !ok {
 		return
 	}
 	if s.Sync == nil {
@@ -81,7 +121,7 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path is required")
 		return
 	}
-	res, err := s.Sync.Move(r.Context(), id, body.Path, s.canWrite(r))
+	res, err := s.Sync.Move(r.Context(), id, body.Path, s.canWrite(w, r))
 	switch {
 	case err == nil:
 	case errors.Is(err, reconcile.ErrNotFound):
@@ -139,11 +179,8 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	space := spaceOfPath(clean)
-	if s.CanWrite != nil {
-		if err := s.CanWrite(r, space); err != nil {
-			writeError(w, http.StatusForbidden, err.Error())
-			return
-		}
+	if !s.mayWrite(w, r, space) {
+		return
 	}
 	if int64(len(body.Content)) > s.Root.Limits().MaxNoteSize {
 		writeError(w, http.StatusRequestEntityTooLarge, "content is over the note size limit")

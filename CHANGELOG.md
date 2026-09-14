@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Phase 4 — Accounts, sessions, and spaces. Every route now needs an
+  account: the first visit to a fresh server creates the owner account,
+  and there are no default credentials. Passwords hash with Argon2id;
+  sessions carry a device label, a hashed refresh token, and can be
+  revoked (which also closes their live sockets). Sharing is spaces, not
+  per-note ACLs: each top-level directory holds a hand-editable
+  `.space.yml` naming its members and their roles (owner, editor,
+  viewer), which the server reloads on every scan and filesystem change.
+  The tree, note reads, search (full-text and regex), assets, history,
+  and the realtime relay all stop at space boundaries; a space a member
+  cannot see answers as if it did not exist, and removing a user from
+  `.space.yml` severs their access — including open subscriptions —
+  within one watcher cycle.
 - Phase 7 — Git history. The notes root is now a git repository. It is
   initialised on first start and committed after the tree has been quiet
   for five minutes (an hour at most during continuous editing), so a day

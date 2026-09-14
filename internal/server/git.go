@@ -30,8 +30,7 @@ func (s *Server) handleNoteHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if !validID(id) {
-		writeError(w, http.StatusBadRequest, "note id must be a 26-character ULID")
+	if _, ok := s.noteAuthz(w, r, id); !ok {
 		return
 	}
 	n, err := s.DB.GetNote(r.Context(), id)
@@ -60,8 +59,7 @@ func (s *Server) handleNoteHistoryDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if !validID(id) {
-		writeError(w, http.StatusBadRequest, "note id must be a 26-character ULID")
+	if _, ok := s.noteAuthz(w, r, id); !ok {
 		return
 	}
 	q := r.URL.Query()
@@ -100,8 +98,7 @@ func (s *Server) handleNoteHistoryRestore(w http.ResponseWriter, r *http.Request
 		return
 	}
 	id := r.PathValue("id")
-	if !validID(id) {
-		writeError(w, http.StatusBadRequest, "note id must be a 26-character ULID")
+	if _, ok := s.noteAuthz(w, r, id); !ok {
 		return
 	}
 	var body struct {
@@ -148,6 +145,9 @@ func (s *Server) handleNoteHistoryRestore(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusConflict, "that revision holds a different note at that path")
 		return
 	}
+	if !s.mayWrite(w, r, n.Space) {
+		return
+	}
 	if err := s.Sync.SetText(r.Context(), id, string(fm.Body), restoreAuthor); err != nil {
 		s.fail(w, r, err)
 		return
@@ -156,8 +156,13 @@ func (s *Server) handleNoteHistoryRestore(w http.ResponseWriter, r *http.Request
 }
 
 // handleGitSnapshot commits now instead of waiting for the quiet window.
+// It touches every space's history, so it needs the global owner.
 func (s *Server) handleGitSnapshot(w http.ResponseWriter, r *http.Request) {
 	if s.gitUnavailable(w) {
+		return
+	}
+	if s.Auth != nil && !s.ident(r).Owner {
+		writeError(w, http.StatusForbidden, "snapshots are run by the owner account")
 		return
 	}
 	commits, err := s.Git.Snapshot(r.Context())

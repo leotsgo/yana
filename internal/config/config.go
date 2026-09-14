@@ -82,6 +82,12 @@ type Config struct {
 	// edits commit under their own label.
 	GitUserName  string `yaml:"git_user_name"`
 	GitUserEmail string `yaml:"git_user_email"`
+
+	// AccessTTL is how long an access token lives before the client
+	// must refresh it.
+	AccessTTL time.Duration `yaml:"access_ttl"`
+	// RefreshTTL is how long a session may go unused before it expires.
+	RefreshTTL time.Duration `yaml:"refresh_ttl"`
 }
 
 // Defaults returns the configuration used when nothing is set. The notes
@@ -119,6 +125,8 @@ func Defaults() Config {
 		GitPushHour:       2,
 		GitUserName:       "yana user",
 		GitUserEmail:      "user@yana.local",
+		AccessTTL:         15 * time.Minute,
+		RefreshTTL:        30 * 24 * time.Hour,
 	}
 }
 
@@ -277,7 +285,10 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	}
 	str("GIT_USER_NAME", &cfg.GitUserName)
 	str("GIT_USER_EMAIL", &cfg.GitUserEmail)
-	return nil
+	if err := dur("ACCESS_TTL", &cfg.AccessTTL); err != nil {
+		return err
+	}
+	return dur("REFRESH_TTL", &cfg.RefreshTTL)
 }
 
 // ParseLevel maps a config string to a slog level.
@@ -300,3 +311,6 @@ func (c Config) SyncDir() string { return filepath.Join(c.NotesRoot, ".sync") }
 
 // IndexPath returns the SQLite index location.
 func (c Config) IndexPath() string { return filepath.Join(c.SyncDir(), "index.db") }
+
+// AuthSecretPath returns the location of the token-signing secret.
+func (c Config) AuthSecretPath() string { return filepath.Join(c.SyncDir(), "auth_secret") }

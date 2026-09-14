@@ -8,6 +8,8 @@ import * as Y from 'yjs'
 import { encode, decode } from '@msgpack/msgpack'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
 
+import { tryRefresh, user, wsURL } from './auth'
+
 /** Client-to-server frame. Field names are the wire keys in docs/realtime.md. */
 interface ClientFrame {
   t: 'sub' | 'unsub' | 'upd' | 'aw' | 'ping'
@@ -59,7 +61,7 @@ const BACKOFF_MIN_MS = 500
 const BACKOFF_MAX_MS = 8000
 const KEEPALIVE_MS = 25_000
 
-/** A stable per-browser identity until accounts exist (Phase 4). */
+/** A stable per-browser identity when the server runs without accounts. */
 function localAuthor(): PresenceUser {
   const palette = ['#c65314', '#7a3fa8', '#2c7fb8', '#33812e', '#b03434', '#a07719', '#0e7c86', '#8a4b6d']
   let name = ''
@@ -76,6 +78,18 @@ function localAuthor(): PresenceUser {
   let hash = 0
   for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) | 0
   return { name, color: palette[Math.abs(hash) % palette.length] ?? '#666' }
+}
+
+/** Presence identity: the signed-in account, or the local fallback. */
+function presence(): PresenceUser {
+  const u = user()
+  if (u) {
+    const palette = ['#c65314', '#7a3fa8', '#2c7fb8', '#33812e', '#b03434', '#a07719', '#0e7c86', '#8a4b6d']
+    let hash = 0
+    for (const ch of u.username) hash = (hash * 31 + ch.charCodeAt(0)) | 0
+    return { name: u.username, color: palette[Math.abs(hash) % palette.length] ?? '#666' }
+  }
+  return localAuthor()
 }
 
 export class SyncClient {
@@ -95,6 +109,7 @@ export class SyncClient {
   private pendingAwareness: Uint8Array[] = []
   private lastSentAt = 0
   private synced = false
+  private everSynced = false
   private destroyed = false
   private composing = false
 
@@ -102,7 +117,7 @@ export class SyncClient {
     this.noteID = noteID
     this.events = events
     this.text = this.doc.getText('body')
-    this.author = `user:${localAuthor().name}`
+    this.author = `user:${presence().name}`
     this.awareness = new Awareness(this.doc)
 
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
@@ -132,10 +147,9 @@ export class SyncClient {
   private connect(): void {
     if (this.destroyed) return
     this.events.onStatus?.(this.attempts === 0 ? 'connecting' : 'offline')
-    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
     let ws: WebSocket
     try {
-      ws = new WebSocket(url)
+      ws = new WebSocket(wsURL())
     } catch {
       this.scheduleReconnect()
       return
@@ -158,6 +172,11 @@ export class SyncClient {
       this.stopKeepalive()
       this.synced = false
       this.ws = null
+      if (!this.destroyed && !this.everSynced) {
+        // A handshake rejection is often an expired token; renew it so
+        // the next attempt carries a fresh one.
+        void tryRefresh()
+      }
       this.scheduleReconnect()
     }
     ws.onerror = () => {
@@ -170,6 +189,7 @@ export class SyncClient {
       case 'subd':
         if (frame.u && frame.u.length > 0) Y.applyUpdate(this.doc, frame.u, 'remote')
         this.synced = true
+        this.everSynced = true
         this.attempts = 0
         this.events.onStatus?.('synced')
         // Push anything queued while offline; the server merges both ways.
