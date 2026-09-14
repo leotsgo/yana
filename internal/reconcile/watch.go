@@ -155,6 +155,9 @@ func (w *watcher) handle(ev fsnotify.Event) {
 	if rel == "." || hasDotSegment(rel) {
 		return
 	}
+	if w.r.opts.OnTreeChange != nil {
+		w.r.opts.OnTreeChange(rel)
+	}
 	// A rename or removal of a directory takes every note under it away
 	// (or, for a rename, brings them back elsewhere with a Create).
 	if ev.Has(fsnotify.Remove) || ev.Has(fsnotify.Rename) {

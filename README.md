@@ -41,8 +41,12 @@ offline for a while and everything merges on reconnect. Wikilinks resolve
 between notes, every note shows its backlinks, unresolved links create
 their note on click, and moving or renaming a note rewrites every inbound
 link on disk and in open clients ([docs/links.md](docs/links.md)). The
-editing surface is a plain textarea; the real editor is a later phase.
-Auth, git history, export, and the Android app are tracked as later phases.
+notes root is also a git repository: the server commits after the tree has
+been quiet, agent edits are distinguishable from human edits by commit
+author, and every note has a revision list, diffs, and restore in the UI
+([docs/deployment.md](docs/deployment.md), git history). The editing
+surface is a plain textarea; the real editor is a later phase.
+Auth, export, and the Android app are tracked as later phases.
 
 ## Quick start
 

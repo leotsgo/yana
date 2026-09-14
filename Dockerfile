@@ -18,11 +18,12 @@ COPY --from=web /src/web/dist ./web/dist
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/yana ./cmd/yana
 
-# Stage 3: runtime. Alpine so ripgrep is available for regex search. The
-# binary is static; a `FROM scratch` image works too and only loses the
-# `raw=` search endpoint (it answers 501 without rg).
+# Stage 3: runtime. Alpine so ripgrep is available for regex search and
+# git for the history layer. The binary is static; a `FROM scratch` image
+# works too and only loses the `raw=` search endpoint (501 without rg)
+# and git history (501s, no commits, no pushes).
 FROM alpine:3.21
-RUN apk add --no-cache ripgrep ca-certificates tzdata \
+RUN apk add --no-cache ripgrep git ca-certificates tzdata \
     && mkdir -p /notes
 COPY --from=build /out/yana /usr/local/bin/yana
 ENV YANA_NOTES_ROOT=/notes \

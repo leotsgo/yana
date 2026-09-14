@@ -72,6 +72,16 @@ export interface Status {
   assets: number
   last_scan: string
   regex_search: boolean
+  git?: { available: boolean; commits: number; last_commit: string; errors: number }
+}
+
+export interface HistoryEntry {
+  hash: string
+  name: string
+  email: string
+  date: string
+  subject: string
+  path: string
 }
 
 export class ApiError extends Error {
@@ -125,4 +135,13 @@ export const api = {
     post<{ id: string; path: string }>('/api/notes', { path, content }),
   moveNote: (id: string, path: string) =>
     post<{ note: Note; rewritten: number; broken: number }>(`/api/notes/${encodeURIComponent(id)}/move`, { path }),
+  history: (id: string) =>
+    get<{ entries: HistoryEntry[] }>(`/api/notes/${encodeURIComponent(id)}/history`),
+  historyDiff: (id: string, from: string, to: string) =>
+    get<{ diff: string }>(
+      `/api/notes/${encodeURIComponent(id)}/history/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    ),
+  restoreNote: (id: string, revision: string, path: string) =>
+    post<{ ok: boolean }>(`/api/notes/${encodeURIComponent(id)}/history/restore`, { revision, path }),
+  gitSnapshot: () => post<{ ok: boolean; commits: number }>('/api/git/snapshot', {}),
 }
