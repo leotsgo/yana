@@ -47,7 +47,7 @@ func TestUpsertGetSearch(t *testing.T) {
 	if _, err := db.GetNote(ctx, "nope"); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
-	hits, err := db.Search(ctx, "raspberry", "", 10)
+	hits, err := db.Search(ctx, "raspberry", "", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,29 +55,29 @@ func TestUpsertGetSearch(t *testing.T) {
 		t.Fatalf("search: %+v", hits)
 	}
 	// Trigram search is case-insensitive and substring-capable.
-	hits, _ = db.Search(ctx, "RASPBERR", "", 10)
+	hits, _ = db.Search(ctx, "RASPBERR", "", nil, 10)
 	if len(hits) != 1 {
 		t.Fatalf("case-insensitive search: %+v", hits)
 	}
 	// Space filter.
-	hits, _ = db.Search(ctx, "raspberry", "other", 10)
+	hits, _ = db.Search(ctx, "raspberry", "other", nil, 10)
 	if len(hits) != 0 {
 		t.Fatalf("space filter leaked: %+v", hits)
 	}
 	// Short query falls back to title match.
-	hits, _ = db.Search(ctx, "Gr", "", 10)
+	hits, _ = db.Search(ctx, "Gr", "", nil, 10)
 	if len(hits) != 1 || hits[0].Note.ID != "01A" {
 		t.Fatalf("short query: %+v", hits)
 	}
 	// Punctuation must not break the FTS expression.
-	if _, err := db.Search(ctx, `milk" OR (`, "", 10); err != nil {
+	if _, err := db.Search(ctx, `milk" OR (`, "", nil, 10); err != nil {
 		t.Fatalf("punctuation query errored: %v", err)
 	}
 	tags, _ := db.Tags(ctx, "01B")
 	if len(tags) != 1 || tags[0] != "homelab" {
 		t.Fatalf("tags: %v", tags)
 	}
-	spaces, _ := db.Spaces(ctx)
+	spaces, _ := db.ListSpaces(ctx)
 	if len(spaces) != 1 || spaces[0].Notes != 2 {
 		t.Fatalf("spaces: %+v", spaces)
 	}
@@ -124,7 +124,7 @@ func TestMoveAndRetire(t *testing.T) {
 	if gone != 1 {
 		t.Fatalf("retired %d, want 1", gone)
 	}
-	hits, _ := db.Search(ctx, "replacement", "", 10)
+	hits, _ := db.Search(ctx, "replacement", "", nil, 10)
 	if len(hits) != 0 {
 		t.Fatal("FTS row survived note deletion")
 	}

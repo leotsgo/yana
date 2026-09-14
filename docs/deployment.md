@@ -301,3 +301,25 @@ binary is static (`CGO_ENABLED=0`) and runs on any Linux, macOS, or
 Windows host without a runtime. A systemd unit is a `Type=simple` service
 with `Environment=YANA_NOTES_ROOT=...` and
 `ExecStart=/usr/local/bin/yana`.
+
+## Accounts and sessions
+
+Every `/api` route and the WebSocket require an account. The first visit
+to a fresh server shows the first-run screen, which creates the owner
+account; there is no default password. Passwords are hashed with
+Argon2id; sessions are device-labelled and revocable from
+`GET /api/auth/sessions`. Full reference, including `.space.yml` sharing:
+[auth.md](auth.md).
+
+Two files under `.sync/` matter to accounts:
+
+- `auth_secret` — signs access tokens. Losing it (or deleting `.sync/`)
+  invalidates every access token; clients refresh and carry on. Keep it
+  out of backups of the notes tree if you like; it is not content.
+- the `users` and `sessions` tables in `index.db` — real state, unlike
+  the rest of that database. If you back up nothing else, back these up,
+  or accept recreating accounts (spaces' `.space.yml` files survive;
+  member ids would need re-pointing).
+
+Token lifetimes are tunable: `YANA_ACCESS_TTL` (default `15m`) and
+`YANA_REFRESH_TTL` (default `720h`, 30 days).

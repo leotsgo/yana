@@ -44,9 +44,15 @@ link on disk and in open clients ([docs/links.md](docs/links.md)). The
 notes root is also a git repository: the server commits after the tree has
 been quiet, agent edits are distinguishable from human edits by commit
 author, and every note has a revision list, diffs, and restore in the UI
-([docs/deployment.md](docs/deployment.md), git history). The editing
-surface is a plain textarea; the real editor is a later phase.
-Auth, export, and the Android app are tracked as later phases.
+([docs/deployment.md](docs/deployment.md), git history). Accounts gate
+every route: the first run creates the owner account (no default
+credentials), sessions are device-labelled and revocable, and sharing is
+modeled as spaces — top-level directories whose `.space.yml` names their
+members — with the tree, search, exports, and live subscriptions never
+crossing a space boundary a member cannot see
+([docs/auth.md](docs/auth.md)). The editing surface is a plain textarea;
+the real editor is a later phase.
+Export and the Android app are tracked as later phases.
 
 ## Quick start
 
@@ -56,9 +62,12 @@ mkdir notes
 docker compose up -d
 ```
 
-Open <http://localhost:8080>. Notes live in `./notes` next to the compose
+Open <http://localhost:8080>. The first visit creates the owner account;
+there are no default credentials. Notes live in `./notes` next to the compose
 file; drop `.md` files into `./notes/<space>/` and they appear on the next
-scan. Files stay owned by you. Each top-level directory is a space. Copy `.env.example` to `.env` to
+scan. Files stay owned by you. Each top-level directory is a space; share
+it by listing members in its `.space.yml` ([docs/auth.md](docs/auth.md)).
+Copy `.env.example` to `.env` to
 change the port or point the volume at a folder of markdown you already have.
 
 Prebuilt images: `ghcr.io/madeofpendletonwool/yana` (`latest`, or a commit

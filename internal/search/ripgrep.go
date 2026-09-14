@@ -56,15 +56,44 @@ func (r *Ripgrep) Available() bool { return r.bin != "" }
 // up to limit matching lines. Dot-prefixed files and directories are never
 // searched, matching the scanner's view of the tree.
 func (r *Ripgrep) Search(ctx context.Context, pattern, space string, limit int) ([]RegexMatch, error) {
+	return r.SearchSpaces(ctx, pattern, space, nil, limit)
+}
+
+// SearchSpaces is Search with a membership filter: allowed nil searches
+// the whole root (or the one requested space), otherwise only the
+// listed spaces. Results never leave the allowed set.
+func (r *Ripgrep) SearchSpaces(ctx context.Context, pattern, space string, allowed []string, limit int) ([]RegexMatch, error) {
 	if !r.Available() {
 		return nil, ErrUnavailable
 	}
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	dir := r.root
+	// The search targets: "." when unrestricted, otherwise the allowed
+	// space directories. An empty allowed list matches nothing.
+	targets := []string{"."}
+	restricted := false
 	if space != "" {
-		dir = filepath.Join(r.root, filepath.FromSlash(space))
+		targets = []string{filepath.FromSlash(space)}
+		restricted = true
+	} else if allowed != nil {
+		if len(allowed) == 0 {
+			return nil, nil
+		}
+		targets = make([]string, 0, len(allowed))
+		for _, sp := range allowed {
+			targets = append(targets, filepath.FromSlash(sp))
+		}
+		restricted = true
+	}
+	if restricted {
+		// Path arguments are trusted directory names from the config or
+		// the membership cache; refuse anything that could climb out.
+		for _, t := range targets {
+			if t == "." || strings.HasPrefix(t, "..") || strings.Contains(t, "/../") || strings.Contains(t, "\\") {
+				return nil, nil
+			}
+		}
 	}
 	if r.timeout > 0 {
 		var cancel context.CancelFunc
@@ -76,10 +105,11 @@ func (r *Ripgrep) Search(ctx context.Context, pattern, space string, limit int) 
 		"--max-count", "50", // per file
 		"--glob", "*.md", "--glob", "*.markdown", "--glob", "*.html", "--glob", "*.htm",
 		"--glob", "!.*",
-		"-e", pattern, "--", ".",
+		"-e", pattern, "--",
 	}
+	args = append(args, targets...)
 	cmd := exec.CommandContext(ctx, r.bin, args...)
-	cmd.Dir = dir
+	cmd.Dir = r.root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()
@@ -97,10 +127,9 @@ func (r *Ripgrep) Search(ctx context.Context, pattern, space string, limit int) 
 		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil || ev.Type != "match" {
 			continue
 		}
+		// rg runs with the notes root as its working directory, so
+		// printed paths are already root-relative whatever the targets.
 		rel := filepath.ToSlash(filepath.Clean(ev.Data.Path.Text))
-		if space != "" {
-			rel = space + "/" + rel
-		}
 		matches = append(matches, RegexMatch{
 			Path: rel,
 			Line: ev.Data.LineNumber,

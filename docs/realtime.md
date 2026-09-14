@@ -47,11 +47,19 @@ update payload, `a` author, `p` awareness payload, `path`, `c` error code,
 
 Every `upd` carries an author identity: `user:<name>` or `agent:<label>`.
 The string feeds the CRDT log (`note_updates.author`), the write rate
-limiter, and later the git history layer. `filesystem` is reserved for the
-reconciliation loop and refused from clients. Until accounts exist
-(Phase 4), the browser generates a stable per-browser name and sends it as
-`user:<name>`; subscriptions are authorized by a permissive hook that Phase
-4 replaces with the spaces and sessions lookup.
+limiter, and the git history layer. `filesystem` is reserved for the
+reconciliation loop and refused from clients.
+
+The handshake authenticates the connection: pass the access token as
+`?token=` (or an `Authorization: Bearer` header) when dialing `/ws`. The
+server fixes the author from the token — a client's declared `a` is
+ignored — so one connection cannot claim another identity. Each `sub`
+does one lookup of the caller's membership and role in the note's space;
+`upd` is accepted only from rooms the connection subscribed to with the
+editor or owner role, and membership revoked through a space's
+`.space.yml` severs the subscription within one watcher cycle
+(`forbidden`). A server built without accounts accepts any connection
+and trusts the declared author.
 
 ## Sync model
 

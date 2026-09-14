@@ -1,4 +1,7 @@
-// Thin typed wrapper over the JSON API.
+// Thin typed wrapper over the JSON API. Every call carries the account's
+// access token and refreshes it once when it has expired.
+
+import { authFetch } from './auth'
 
 export interface TreeNode {
   type: 'dir' | 'note'
@@ -91,7 +94,7 @@ export class ApiError extends Error {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: { Accept: 'application/json' } })
+  const res = await authFetch(path, { headers: { Accept: 'application/json' } })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
     throw new ApiError(res.status, (body as { error?: string }).error ?? `request failed (${res.status})`)
@@ -99,9 +102,9 @@ async function get<T>(path: string): Promise<T> {
   return body as T
 }
 
-async function post<T>(path: string, payload: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method: 'POST',
+async function post<T>(path: string, payload: unknown, method = 'POST'): Promise<T> {
+  const res = await authFetch(path, {
+    method,
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(payload),
   })
@@ -144,4 +147,6 @@ export const api = {
   restoreNote: (id: string, revision: string, path: string) =>
     post<{ ok: boolean }>(`/api/notes/${encodeURIComponent(id)}/history/restore`, { revision, path }),
   gitSnapshot: () => post<{ ok: boolean; commits: number }>('/api/git/snapshot', {}),
+  spaces: () => get<{ spaces: { name: string; label: string; notes: number }[] }>('/api/spaces'),
+  createSpace: (name: string) => post<{ name: string }>('/api/spaces', { name }),
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/scanner"
+	"github.com/madeofpendletonwool/yana/internal/spaces"
 )
 
 // watcher turns fsnotify events into debounced batches of relative paths.
@@ -152,7 +153,24 @@ func (w *watcher) handle(ev fsnotify.Event) {
 		return
 	}
 	rel = filepath.ToSlash(rel)
-	if rel == "." || hasDotSegment(rel) {
+	if rel == "." {
+		return
+	}
+	// A space's membership file is a dotfile the note rules would skip;
+	// it gets its own path through the pipeline so hand edits reach the
+	// membership cache and open subscriptions.
+	if spaces.IsFile(rel) {
+		if w.r.opts.OnTreeChange != nil {
+			w.r.opts.OnTreeChange(rel)
+		}
+		if ev.Has(fsnotify.Remove) || ev.Has(fsnotify.Rename) {
+			w.enqueueSpaceGone(rel)
+			return
+		}
+		w.enqueue(rel)
+		return
+	}
+	if hasDotSegment(rel) {
 		return
 	}
 	if w.r.opts.OnTreeChange != nil {
@@ -162,6 +180,9 @@ func (w *watcher) handle(ev fsnotify.Event) {
 	// (or, for a rename, brings them back elsewhere with a Create).
 	if ev.Has(fsnotify.Remove) || ev.Has(fsnotify.Rename) {
 		if w.isDir(ev.Name) {
+			if spaces.ValidName(rel) && !strings.Contains(rel, "/") {
+				w.retireSpace(rel)
+			}
 			w.forgetDir(ev.Name)
 			w.enqueueUnder(rel)
 			return
@@ -180,6 +201,27 @@ func (w *watcher) handle(ev fsnotify.Event) {
 		return
 	}
 	w.enqueue(rel)
+}
+
+// enqueueSpaceGone queues the membership file of a space whose file (or
+// whole directory) vanished.
+func (w *watcher) enqueueSpaceGone(rel string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pending[rel] = struct{}{}
+	if w.timer == nil {
+		w.timer = time.AfterFunc(w.r.opts.Debounce, w.flush)
+		return
+	}
+	w.timer.Reset(w.r.opts.Debounce)
+}
+
+// retireSpace drops a vanished space directory's cached rows and fires
+// the membership-change hook.
+func (w *watcher) retireSpace(space string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	w.r.retireSpace(ctx, space)
 }
 
 func (w *watcher) isDir(p string) bool {

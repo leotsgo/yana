@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/madeofpendletonwool/yana/internal/auth"
 	"github.com/madeofpendletonwool/yana/internal/config"
 	"github.com/madeofpendletonwool/yana/internal/git"
 	"github.com/madeofpendletonwool/yana/internal/index"
@@ -149,18 +150,43 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		gl.Attach(rec)
 		gl.Start()
 	}
-	hub := rt.New(rec, nil, rt.Options{
+
+	// Accounts: the owner is created through the first-run flow on the
+	// web client or the API; there are no default credentials.
+	as, err := auth.Open(db, cfg.AuthSecretPath(), auth.Options{
+		AccessTTL:  cfg.AccessTTL,
+		RefreshTTL: cfg.RefreshTTL,
+	}, base)
+	if err != nil {
+		return fmt.Errorf("open auth: %w", err)
+	}
+
+	hub := rt.New(rec, as, rt.Options{
 		MaxConnections:  cfg.WSMaxConnections,
 		MaxRoomsPerConn: cfg.WSMaxRoomsPerConn,
 		MaxMessageBytes: cfg.WSMaxMessageBytes,
 		PingInterval:    cfg.WSPingInterval,
+		Verify: func(token string) (rt.Identity, error) {
+			id, err := as.VerifyAccess(token)
+			if err != nil {
+				return rt.Identity{}, err
+			}
+			return rt.Identity{UserID: id.UserID, Username: id.Username, Owner: id.Owner, SessionID: id.SessionID}, nil
+		},
 		Limiter: pathsafe.NewRateLimiter(
 			pathsafe.Rate{N: cfg.WSUserRate, Window: time.Minute},
 			pathsafe.Rate{N: cfg.WSAgentRate, Window: time.Minute},
 		),
 	}, base)
+	// A .space.yml edit or a vanished space severs open subscriptions
+	// within one watcher cycle; a revoked session closes its sockets.
+	rec.SetOnSpaceMembersChanged(func(space string) {
+		hub.RecheckSpace(context.Background(), space)
+	})
+	as.OnSessionRevoked(hub.KickSession)
+
 	srv := server.New(server.Deps{
-		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub, Scanner: sc, Git: gl,
+		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub, Scanner: sc, Git: gl, Auth: as,
 	})
 
 	httpSrv := &http.Server{

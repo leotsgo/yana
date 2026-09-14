@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
 )
@@ -47,6 +49,10 @@ type Options struct {
 	// 1200/min for users and 300/min for agents: a client that batches
 	// keystrokes on a 50ms timer peaks at 20 messages a second.
 	Limiter *pathsafe.RateLimiter
+	// Verify checks the access token carried by the WebSocket handshake
+	// (?token= or Authorization: Bearer). nil lets any connection in and
+	// trusts client-declared authors.
+	Verify TokenVerifier
 }
 
 func (o *Options) defaults() {
@@ -87,16 +93,45 @@ type Stats struct {
 	SlowClosed       int64 `json:"slow_closed"`
 }
 
-// Authorizer decides whether a connection's declared author may subscribe
-// to a note. The default allows everything; Phase 4 replaces it with the
-// spaces and sessions lookup so subscriptions can be refused per member.
+// Identity is the verified account behind a WebSocket connection. The
+// zero value means the relay runs without accounts (the pre-auth state
+// or a test).
+type Identity struct {
+	UserID    string
+	Username  string
+	Owner     bool
+	SessionID string
+}
+
+// TokenVerifier checks an access token presented at the WebSocket
+// handshake. nil disables connection authentication.
+type TokenVerifier func(token string) (Identity, error)
+
+// Role constants mirror the spaces package's roles.
+const (
+	RoleOwner  = "owner"
+	RoleEditor = "editor"
+	RoleViewer = "viewer"
+)
+
+// Authorizer decides whether a connection's declared author may
+// subscribe to a note, and with which role. The default allows
+// everything; Phase 4 replaces it with the spaces and sessions lookup
+// so subscriptions can be refused per member.
 type Authorizer interface {
-	AuthorizeSubscribe(ctx context.Context, author, noteID string) error
+	AuthorizeSubscribe(ctx context.Context, author, noteID string) (string, error)
+	// NoteSpace reports which space a note lives in, so a membership
+	// change can re-check the rooms it affects.
+	NoteSpace(ctx context.Context, noteID string) (string, error)
 }
 
 type allowAll struct{}
 
-func (allowAll) AuthorizeSubscribe(context.Context, string, string) error { return nil }
+func (allowAll) AuthorizeSubscribe(context.Context, string, string) (string, error) {
+	return RoleOwner, nil
+}
+
+func (allowAll) NoteSpace(context.Context, string) (string, error) { return "", nil }
 
 // AllowAll returns the permissive Authorizer used until Phase 4.
 func AllowAll() Authorizer { return allowAll{} }
@@ -113,6 +148,7 @@ type room struct {
 type Hub struct {
 	rec     *reconcile.Reconciler
 	authz   Authorizer
+	verify  TokenVerifier
 	opts    Options
 	limiter *pathsafe.RateLimiter
 	log     *slog.Logger
@@ -153,6 +189,7 @@ func New(rec *reconcile.Reconciler, authz Authorizer, opts Options, log *slog.Lo
 	h := &Hub{
 		rec:     rec,
 		authz:   authz,
+		verify:  opts.Verify,
 		opts:    opts,
 		limiter: opts.Limiter,
 		log:     log.With("component", "rt"),
@@ -264,7 +301,7 @@ func (h *Hub) fanout(ev reconcile.Event) {
 // join adds c to the note's room, pins the note while the room is live, and
 // returns the subscribed reply carrying everything the client's state
 // vector is missing. It runs on the connection's read loop.
-func (h *Hub) join(ctx context.Context, c *conn, noteID string, sv []byte) (ServerMessage, error) {
+func (h *Hub) join(ctx context.Context, c *conn, noteID string, sv []byte, role string) (ServerMessage, error) {
 	h.mu.Lock()
 	if len(c.rooms) >= h.opts.MaxRoomsPerConn {
 		h.mu.Unlock()
@@ -282,7 +319,7 @@ func (h *Hub) join(ctx context.Context, c *conn, noteID string, sv []byte) (Serv
 		h.rooms[noteID] = r
 	}
 	r.members[c] = struct{}{}
-	c.rooms[noteID] = struct{}{}
+	c.rooms[noteID] = roomRole{role: role}
 	h.mu.Unlock()
 
 	// The client may already receive live updates for this note before the
@@ -326,7 +363,7 @@ func (h *Hub) removeConn(c *conn) {
 			}
 		}
 	}
-	c.rooms = map[string]struct{}{}
+	c.rooms = map[string]roomRole{}
 	delete(h.conns, c)
 	h.mu.Unlock()
 	for _, r := range rooms {
@@ -359,6 +396,65 @@ func (h *Hub) broadcastAwareness(c *conn, noteID string, payload []byte) {
 }
 
 var errRoomLimit = errors.New("rt: too many rooms on this connection")
+
+// roomRole is a connection's standing in one room.
+type roomRole struct{ role string }
+
+// RecheckSpace re-runs the subscribe authorization for every connection
+// in the rooms of one space and severs the ones that no longer pass:
+// editing .space.yml takes effect on open subscriptions within one
+// watcher cycle.
+func (h *Hub) RecheckSpace(ctx context.Context, space string) {
+	if space == "" {
+		return
+	}
+	type target struct {
+		c    *conn
+		note string
+	}
+	h.mu.Lock()
+	var targets []target
+	for noteID, r := range h.rooms {
+		for c := range r.members {
+			targets = append(targets, target{c: c, note: noteID})
+		}
+	}
+	h.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	for _, t := range targets {
+		noteSpace, err := h.authz.NoteSpace(ctx, t.note)
+		if err != nil || noteSpace != space {
+			continue
+		}
+		if _, err := h.authz.AuthorizeSubscribe(ctx, t.c.author, t.note); err != nil {
+			h.log.Info("membership changed; severing subscription", "conn", t.c.author, "note", t.note, "space", space)
+			h.leave(t.c, t.note)
+			t.c.trySend(ServerMessage{
+				Type: msgError, Note: t.note, Code: errForbidden,
+				Reason: "access to this note's space was revoked",
+			})
+		}
+	}
+}
+
+// KickSession closes every connection authenticated with a session id,
+// after the session was revoked.
+func (h *Hub) KickSession(sessionID string) {
+	h.mu.Lock()
+	var kicked []*conn
+	for c := range h.conns {
+		if c.identity != nil && c.identity.SessionID == sessionID {
+			kicked = append(kicked, c)
+		}
+	}
+	h.mu.Unlock()
+	for _, c := range kicked {
+		h.log.Info("session revoked; closing connection", "conn", c.author)
+		c.shutdown(websocket.StatusPolicyViolation, "this session was revoked")
+	}
+}
 
 func mapRecErr(err error) error {
 	if errors.Is(err, reconcile.ErrNotFound) {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,10 +28,16 @@ type conn struct {
 	closed chan struct{}
 	once   sync.Once
 
-	// rooms is guarded by hub.mu.
-	rooms map[string]struct{}
-	// author is written only by the read loop and read by the same loop.
+	// rooms is guarded by hub.mu. Each entry carries the role the
+	// connection's single subscribe-time lookup granted.
+	rooms map[string]roomRole
+	// author is written only by the read loop and read by the same loop
+	// (and by RecheckSpace under hub.mu; reads race only with a write
+	// that replaces it with the same value).
 	author string
+	// identity is the verified account behind the connection, set once
+	// at the handshake; nil when the relay runs without accounts.
+	identity *Identity
 }
 
 // ServeHTTP upgrades to WebSocket and runs the connection until it drops.
@@ -40,6 +47,19 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
+	}
+	var identity *Identity
+	if h.verify != nil {
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			token = bearerToken(r.Header.Get("Authorization"))
+		}
+		id, err := h.verify(token)
+		if err != nil {
+			http.Error(w, "a valid access token is required (token query parameter or Authorization header)", http.StatusUnauthorized)
+			return
+		}
+		identity = &id
 	}
 	h.mu.Lock()
 	full := len(h.conns) >= h.opts.MaxConnections
@@ -55,12 +75,16 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ws.SetReadLimit(h.opts.MaxMessageBytes)
 
 	c := &conn{
-		hub:    h,
-		ws:     ws,
-		log:    h.log,
-		out:    make(chan ServerMessage, h.opts.OutBuffer),
-		closed: make(chan struct{}),
-		rooms:  map[string]struct{}{},
+		hub:      h,
+		ws:       ws,
+		log:      h.log,
+		out:      make(chan ServerMessage, h.opts.OutBuffer),
+		closed:   make(chan struct{}),
+		rooms:    map[string]roomRole{},
+		identity: identity,
+	}
+	if identity != nil {
+		c.author = "user:" + identity.Username
 	}
 	h.mu.Lock()
 	if len(h.conns) >= h.opts.MaxConnections {
@@ -79,6 +103,11 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer c.drop() // the reader is gone; stop the writer too
 		c.readLoop(h.ctx)
 	}()
+}
+
+// bearerToken strips the Bearer prefix, if any.
+func bearerToken(header string) string {
+	return strings.TrimPrefix(header, "Bearer ")
 }
 
 // readLoop decodes and dispatches client messages until the connection
@@ -122,18 +151,23 @@ func (c *conn) handle(ctx context.Context, msg ClientMessage) bool {
 			c.replyError(msgSubscribe, msg.Note, errInvalid, "note id must be a 26-character ULID")
 			return true
 		}
-		if msg.Author != "" {
+		if c.hub.verify != nil {
+			// The connection's identity is fixed at the handshake; the
+			// server names the author, the client does not.
+			msg.Author = c.author
+		} else if msg.Author != "" {
 			if !validAuthor(msg.Author) {
 				c.replyError(msgSubscribe, msg.Note, errInvalidAuthor, "author must be user:<name> or agent:<label>")
 				return true
 			}
 			c.author = msg.Author
 		}
-		if err := c.hub.authz.AuthorizeSubscribe(ctx, c.author, msg.Note); err != nil {
-			c.replyError(msgSubscribe, msg.Note, "forbidden", err.Error())
+		role, err := c.hub.authz.AuthorizeSubscribe(ctx, c.author, msg.Note)
+		if err != nil {
+			c.replyError(msgSubscribe, msg.Note, errForbidden, err.Error())
 			return true
 		}
-		subd, err := c.hub.join(ctx, c, msg.Note, msg.SV)
+		subd, err := c.hub.join(ctx, c, msg.Note, msg.SV, role)
 		if err != nil {
 			code, reason := errReply(err)
 			c.replyError(msgSubscribe, msg.Note, code, reason)
@@ -157,11 +191,27 @@ func (c *conn) handle(ctx context.Context, msg ClientMessage) bool {
 			c.replyError(msgUpdate, msg.Note, errInvalid, "update payload is empty")
 			return true
 		}
-		if !validAuthor(msg.Author) {
+		if c.hub.verify != nil {
+			// Only a subscribed room's writers may push updates; the
+			// role was fixed by the subscribe-time lookup.
+			c.hub.mu.Lock()
+			rr, member := c.rooms[msg.Note]
+			c.hub.mu.Unlock()
+			if !member {
+				c.replyError(msgUpdate, msg.Note, errForbidden, "subscribe before sending updates")
+				return true
+			}
+			if rr.role != RoleOwner && rr.role != RoleEditor {
+				c.replyError(msgUpdate, msg.Note, errForbidden, "this space is read-only for your account")
+				return true
+			}
+			msg.Author = c.author
+		} else if validAuthor(msg.Author) {
+			c.author = msg.Author
+		} else {
 			c.replyError(msgUpdate, msg.Note, errInvalidAuthor, "author must be user:<name> or agent:<label>")
 			return true
 		}
-		c.author = msg.Author
 		if !c.hub.limiter.Allow(msg.Author) {
 			c.hub.updDropped.Add(1)
 			c.replyError(msgUpdate, msg.Note, errRateLimited, "update rate exceeded; batch more per message")
