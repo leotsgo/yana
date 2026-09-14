@@ -209,6 +209,27 @@ button { font: inherit; color: inherit; }
 .backlink-note { font-weight: 500; }
 .backlink-context { margin: 2px 0 0; font-size: 13px; color: var(--ink-2); }
 
+/* History panel: the git repository under the tree, per note. */
+.history { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
+.history-head { display: flex; align-items: baseline; gap: 12px; }
+.history-title { font: 12px var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
+.history-head .btn-snapshot { margin-left: auto; font-size: 12px; padding: 2px 10px; }
+.history-notice { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); min-height: 1em; }
+.history-notice:empty { display: none; }
+.history-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.history-row { display: flex; align-items: baseline; gap: 8px; border-bottom: 1px solid var(--line); }
+.history-row:last-child { border-bottom: none; }
+.history-pick { display: flex; flex: 1; gap: 12px; align-items: baseline; padding: 6px 4px; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.history-pick:hover { background: var(--bg-2); }
+.history-row.selected .history-pick { background: var(--accent-soft); }
+.history-date { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.history-author { font-weight: 500; font-size: 13px; white-space: nowrap; }
+.history-subject { font-size: 13px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-restore { border: 0; background: none; font-size: 12px; color: var(--ink-3); cursor: pointer; padding: 6px 4px; white-space: nowrap; }
+.history-restore:hover { color: var(--accent); }
+.history-diff { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; background: var(--bg-2); font: 12px/1.5 var(--mono); overflow-x: auto; white-space: pre; max-height: 40vh; }
+.history.empty .history-list { display: none; }
+
 /* Sidebar link to the unresolved report. */
 .unresolved-nav { display: block; margin: 12px 16px; font-size: 12px; color: var(--ink-3); text-decoration: none; }
 .unresolved-nav:hover { color: var(--accent); }

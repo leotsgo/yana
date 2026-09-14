@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/config"
+	"github.com/madeofpendletonwool/yana/internal/git"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
@@ -109,6 +110,28 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 	if cfg.Ripgrep && !rg.Available() {
 		log.Warn("ripgrep (rg) not found on PATH; regex search is unavailable")
 	}
+	// The history layer exists before the reconciler so the reconciler
+	// can hand it tree activity as it happens.
+	var gl *git.Layer
+	if cfg.Git {
+		gl = git.New(cfg.NotesRoot, git.Options{
+			Quiet:      cfg.GitQuiet,
+			Interval:   cfg.GitInterval,
+			Remote:     cfg.GitRemote,
+			PushHour:   cfg.GitPushHour,
+			HumanName:  cfg.GitUserName,
+			HumanEmail: cfg.GitUserEmail,
+			DB:         db,
+		}, base)
+		if err := gl.Ensure(ctx); err != nil {
+			log.Warn("git history is unavailable", "err", err)
+			gl = nil
+		}
+	}
+	onTreeChange := func(string) {}
+	if gl != nil {
+		onTreeChange = gl.Notify
+	}
 	// The watcher starts before the initial scan so nothing that changes
 	// during the scan is missed.
 	rec := reconcile.New(root, db, sc, reconcile.Options{
@@ -117,9 +140,14 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		SettleTime:   cfg.ScanSettleTime,
 		CompactAfter: cfg.CompactAfter,
 		Retention:    cfg.CRDTRetention,
+		OnTreeChange: onTreeChange,
 	}, base)
 	if err := rec.Start(); err != nil {
 		return fmt.Errorf("start reconciler: %w", err)
+	}
+	if gl != nil {
+		gl.Attach(rec)
+		gl.Start()
 	}
 	hub := rt.New(rec, nil, rt.Options{
 		MaxConnections:  cfg.WSMaxConnections,
@@ -132,7 +160,7 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		),
 	}, base)
 	srv := server.New(server.Deps{
-		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub, Scanner: sc,
+		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub, Scanner: sc, Git: gl,
 	})
 
 	httpSrv := &http.Server{
@@ -182,6 +210,10 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 	// Dirty notes are written before the index closes.
 	if cerr := rec.Close(); cerr != nil {
 		log.Warn("reconciler close", "err", cerr)
+	}
+	// With the tree settled, the repository commits what it holds.
+	if gl != nil {
+		gl.Close()
 	}
 	return err
 }

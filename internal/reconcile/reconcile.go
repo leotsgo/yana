@@ -78,6 +78,10 @@ type Options struct {
 	// UnloadAfter drops an idle, clean, unpinned document from memory
 	// (15m). Negative disables unloading.
 	UnloadAfter time.Duration
+	// OnTreeChange, when set, is invoked for every path the watcher (or
+	// Sync) reports, before any filtering, so the git history layer can
+	// track tree activity. It must not block.
+	OnTreeChange func(rel string)
 	// Now is the clock.
 	Now func() time.Time
 }
@@ -610,8 +614,10 @@ func (r *Reconciler) load(ctx context.Context, id string) (n *note, needsWrite b
 		return nil, false, fmt.Errorf("%s holds id %q, index says %q; the index is stale", rel, fm.Meta.ID, id)
 	}
 	mode := os.FileMode(0o644)
+	var mtime time.Time
 	if info, err := os.Stat(abs); err == nil {
 		mode = info.Mode().Perm()
+		mtime = info.ModTime()
 	}
 	now := r.opts.Now()
 	n = &note{id: id, rel: rel, head: fm.Head, mode: mode, lastUsed: now}
@@ -665,13 +671,19 @@ func (r *Reconciler) load(ctx context.Context, id string) (n *note, needsWrite b
 	switch {
 	case fresh:
 		// First sight of this note as a document: the file is its whole
-		// history.
+		// history. The creation op is stamped with the file's mtime, not
+		// now: it says when that content was written, so a later
+		// attribution window does not mistake the load itself for an
+		// edit.
 		u := n.main.SetText(body, AuthorFilesystem)
 		if u != nil {
 			if _, err := n.shadow.Apply(u, "load"); err != nil {
 				return nil, false, err
 			}
-			if err := r.record(ctx, n, u, AuthorFilesystem); err != nil {
+			if mtime.IsZero() {
+				mtime = r.opts.Now()
+			}
+			if err := r.recordAt(ctx, n, u, AuthorFilesystem, mtime); err != nil {
 				return nil, false, err
 			}
 		}
@@ -987,9 +999,13 @@ func (r *Reconciler) readIn(ctx context.Context, n *note, content []byte, via st
 
 // record appends an update to the note's log. n.mu is held.
 func (r *Reconciler) record(ctx context.Context, n *note, update []byte, author string) error {
+	return r.recordAt(ctx, n, update, author, r.opts.Now())
+}
+
+// recordAt appends an update stamped with an explicit time. n.mu is held.
+func (r *Reconciler) recordAt(ctx context.Context, n *note, update []byte, author string, ts time.Time) error {
 	n.seq++
 	seq := n.seq
-	ts := r.opts.Now()
 	if err := r.db.Write(ctx, func(tx *sql.Tx) error {
 		return index.AppendUpdate(tx, n.id, seq, update, author, ts)
 	}); err != nil {
@@ -1025,6 +1041,9 @@ func (r *Reconciler) compact(ctx context.Context, n *note) error {
 
 // processPath handles one changed path from the watcher (or a retry).
 func (r *Reconciler) processPath(ctx context.Context, rel string) {
+	if r.opts.OnTreeChange != nil {
+		r.opts.OnTreeChange(rel)
+	}
 	abs, rel, err := r.root.Resolve(rel)
 	if err != nil {
 		r.log.Debug("ignoring path", "path", rel, "err", err)

@@ -61,6 +61,13 @@ ripgrep: true
 | `YANA_WS_USER_RATE` | `1200` | Update and awareness messages per user per minute |
 | `YANA_WS_AGENT_RATE` | `300` | Same, per agent author |
 | `YANA_WS_PING_INTERVAL` | `30s` | Server ping interval for dead-peer detection |
+| `YANA_GIT` | `true` | Keep a git history of the notes root |
+| `YANA_GIT_QUIET` | `5m` | How long the tree must be unchanged before the window commits |
+| `YANA_GIT_INTERVAL` | `1h` | Bound on how long a continuously edited tree goes uncommitted |
+| `YANA_GIT_REMOTE` | unset | Remote pushed nightly; unset disables push |
+| `YANA_GIT_PUSH_HOUR` | `2` | Local hour of the nightly push |
+| `YANA_GIT_USER_NAME` | `yana user` | Git identity human edits commit under |
+| `YANA_GIT_USER_EMAIL` | `user@yana.local` | Its email |
 
 Logs are JSON on stderr, one object per line, with a `component` field and a
 `request_id` on HTTP lines. The `reconcile` component logs every write-back,
@@ -76,6 +83,8 @@ lines say what the loop saw.
     .space.yml             # members and roles (later phase)
     <folders...>/<note>.md
     <folders...>/_assets/<image>
+  .git/                    # history of the tree (rebuilt if deleted)
+  .gitignore               # ignores .sync/ and the server's temp files
   .trash/                  # soft-deleted notes (later phase)
   .sync/                   # derived
     index.db               # index, search, and the CRDT edit log
@@ -83,6 +92,7 @@ lines say what the loop saw.
     index.db-shm
     crdt/<id>.bin          # one document per note
     crdt/retired/<id>.bin  # documents of deleted notes
+    git-state.json         # where the open commit window started
 ```
 
 Everything you care about is the tree of `.md`, `.html`, and `_assets`
@@ -129,7 +139,8 @@ by root. Once the directory is yours, you can drop root altogether with
   counts of write-backs, read-ins and suppressed echoes, and whether the
   filesystem watcher is running; and a `realtime` object: live editing
   connections, rooms, updates relayed and dropped, and slow connections
-  closed.
+  closed; and a `git` object: whether the history layer is available,
+  commits made, the last commit and push times, and errors.
 
 ## Reverse proxy
 
@@ -225,8 +236,57 @@ Snapshots taken while the server is writing are safe: every write to a
 note, and to its document, is a temp file and a rename, so a backup sees
 either the old file or the new one.
 
-Because the tree is plain files, `git init` inside a space is also a
-reasonable backup; Phase 7 does this for you.
+## Git history
+
+The notes root is a git repository. On first start the server runs
+`git init` there (when no `.git` exists) and writes a `.gitignore`
+covering `.sync/` and its own temp files. The repository is derived state
+like the index: delete it and the next start rebuilds it, minus the
+history.
+
+Commits happen after the tree has been quiet for `YANA_GIT_QUIET`
+(default 5 minutes), or at most `YANA_GIT_INTERVAL` (1 hour) apart during
+continuous editing, never per keystroke or per write-back. `POST
+/api/git/snapshot` commits now. On a clean shutdown the pending window
+commits too.
+
+Each commit's author is derived from the edits in its window. An agent's
+edits commit under the agent's label (`claude <agent@local>`); everything
+else — browser edits, edits made with any editor, scripts — commits under
+`YANA_GIT_USER_NAME`/`YANA_GIT_USER_EMAIL`. A window with edits from more
+than one author is split into one commit per author wherever the changed
+files allow it. `git log` therefore distinguishes human edits from agent
+edits, and reverting an agent commit with `git revert` from the shell
+works: the changed files are ordinary external edits, and the server
+merges the reverted text into every open client.
+
+The per-note history in the UI is this repository: the revision list,
+diffs between any two revisions, and restore. Restoring writes the old
+text back as an edit through the live sync layer, not as a stomp over the
+file, so other clients converge to it and the restore is itself an
+editable, revertible change.
+
+### Pushing to a remote
+
+Set `YANA_GIT_REMOTE` and the server pushes `HEAD` nightly at
+`YANA_GIT_PUSH_HOUR`. Use SSH or an embedded credential helper for
+authentication; the server never prompts (a push that needs a prompt
+fails and is retried the next night).
+
+Git in the same directory on the same disk protects against bad edits,
+not against a dead drive. For off-box backup, either point
+`YANA_GIT_REMOTE` at a remote on another machine, or skip git remotes
+entirely and use restic or rclone against the notes directory; both see a
+consistent tree because every write is a rename:
+
+```sh
+restic -r sftp:backup:/srv/restic-yana backup /srv/yana/notes
+rclone sync /srv/yana/notes remote:notes --exclude .sync/**
+```
+
+Either can run from cron or a timer next to the server; the server does
+not need to know. A plain `rsync -a --delete --exclude .sync/` also
+remains a complete backup (see above).
 
 ## Bare metal
 
@@ -235,7 +295,9 @@ make build                       # web client + static binary in ./yana
 YANA_NOTES_ROOT=~/notes ./yana   # or leave it unset for ~/.yana
 ```
 
-Install `ripgrep` for regex search. The binary is static (`CGO_ENABLED=0`)
-and runs on any Linux, macOS, or Windows host without a runtime. A systemd
-unit is a `Type=simple` service with `Environment=YANA_NOTES_ROOT=...` and
+Install `ripgrep` for regex search and `git` for the history layer;
+without git the history endpoints answer 501 and nothing commits. The
+binary is static (`CGO_ENABLED=0`) and runs on any Linux, macOS, or
+Windows host without a runtime. A systemd unit is a `Type=simple` service
+with `Environment=YANA_NOTES_ROOT=...` and
 `ExecStart=/usr/local/bin/yana`.

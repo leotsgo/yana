@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
+	"github.com/madeofpendletonwool/yana/internal/git"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
@@ -45,6 +46,9 @@ type Deps struct {
 	// Scanner indexes new files (note creation); nil skips the immediate
 	// index pass.
 	Scanner *scanner.Scanner
+	// Git is the history layer; nil (no git binary, git disabled) turns
+	// the history endpoints into 501s.
+	Git *git.Layer
 	// CanWrite decides whether a request may change a space. nil allows
 	// everything, which is the state until Phase 4.
 	CanWrite func(r *http.Request, space string) error
@@ -109,6 +113,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/links/unresolved", s.handleUnresolvedLinks)
 	s.mux.HandleFunc("POST /api/notes/{id}/move", s.handleMove)
 	s.mux.HandleFunc("POST /api/notes", s.handleCreateNote)
+	s.mux.HandleFunc("GET /api/notes/{id}/history", s.handleNoteHistory)
+	s.mux.HandleFunc("GET /api/notes/{id}/history/diff", s.handleNoteHistoryDiff)
+	s.mux.HandleFunc("POST /api/notes/{id}/history/restore", s.handleNoteHistoryRestore)
+	s.mux.HandleFunc("POST /api/git/snapshot", s.handleGitSnapshot)
 	if s.RT != nil {
 		s.mux.Handle("GET /ws", s.RT)
 	}
@@ -152,6 +160,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.RT != nil {
 		status["realtime"] = s.RT.Stats()
+	}
+	if s.Git != nil {
+		status["git"] = s.Git.Stats()
 	}
 	writeJSON(w, http.StatusOK, status)
 }

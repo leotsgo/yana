@@ -64,6 +64,24 @@ type Config struct {
 	WSUserRate     int           `yaml:"ws_user_rate"`
 	WSAgentRate    int           `yaml:"ws_agent_rate"`
 	WSPingInterval time.Duration `yaml:"ws_ping_interval"`
+
+	// Git turns the history layer on (true). The layer git-inits the
+	// notes root on first run and commits after the tree has been quiet.
+	Git bool `yaml:"git"`
+	// GitQuiet is how long the tree must go without a change before the
+	// open window commits.
+	GitQuiet time.Duration `yaml:"git_quiet"`
+	// GitInterval bounds how long a continuously edited tree can go
+	// uncommitted.
+	GitInterval time.Duration `yaml:"git_interval"`
+	// GitRemote is an optional URL pushed nightly. Empty disables push.
+	GitRemote string `yaml:"git_remote"`
+	// GitPushHour is the local hour of the nightly push.
+	GitPushHour int `yaml:"git_push_hour"`
+	// GitUserName and GitUserEmail identify human edits in git. Agent
+	// edits commit under their own label.
+	GitUserName  string `yaml:"git_user_name"`
+	GitUserEmail string `yaml:"git_user_email"`
 }
 
 // Defaults returns the configuration used when nothing is set. The notes
@@ -94,6 +112,13 @@ func Defaults() Config {
 		WSUserRate:        1200,
 		WSAgentRate:       300,
 		WSPingInterval:    30 * time.Second,
+		Git:               true,
+		GitQuiet:          5 * time.Minute,
+		GitInterval:       time.Hour,
+		GitRemote:         "",
+		GitPushHour:       2,
+		GitUserName:       "yana user",
+		GitUserEmail:      "user@yana.local",
 	}
 }
 
@@ -237,6 +262,21 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	if err := dur("WS_PING_INTERVAL", &cfg.WSPingInterval); err != nil {
 		return err
 	}
+	if err := boolean("GIT", &cfg.Git); err != nil {
+		return err
+	}
+	if err := dur("GIT_QUIET", &cfg.GitQuiet); err != nil {
+		return err
+	}
+	if err := dur("GIT_INTERVAL", &cfg.GitInterval); err != nil {
+		return err
+	}
+	str("GIT_REMOTE", &cfg.GitRemote)
+	if err := i("GIT_PUSH_HOUR", &cfg.GitPushHour); err != nil {
+		return err
+	}
+	str("GIT_USER_NAME", &cfg.GitUserName)
+	str("GIT_USER_EMAIL", &cfg.GitUserEmail)
 	return nil
 }
 

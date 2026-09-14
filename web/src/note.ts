@@ -1,5 +1,5 @@
 import { api, ApiError } from './api'
-import type { Backlink, Note } from './api'
+import type { Backlink, HistoryEntry, Note } from './api'
 import { h, clear, fmtBytes, fmtDate } from './dom'
 
 export interface NoteView {
@@ -149,6 +149,137 @@ export function createNoteView(
     )
   }
 
+  // The history panel is the git repository under the notes root: one row
+  // per revision of this note, renames followed. Selecting two revisions
+  // shows the diff between them; restoring writes the old text back as a
+  // live edit.
+  function historyPanel(note: Note): HTMLElement {
+    const panel = h('section', { class: 'history', 'aria-label': 'history' })
+    const list = h('ul', { class: 'history-list' })
+    const diffBox = h('pre', { class: 'history-diff', hidden: true })
+    const notice = h('p', { class: 'history-notice' })
+    const snapshotBtn = h('button', { class: 'btn btn-snapshot' }, 'Snapshot now')
+    snapshotBtn.addEventListener('click', () => {
+      snapshotBtn.disabled = true
+      api
+        .gitSnapshot()
+        .then(() => load())
+        .catch(() => {
+          notice.textContent = 'Could not commit now.'
+        })
+        .finally(() => {
+          snapshotBtn.disabled = false
+        })
+    })
+    panel.append(
+      h('div', { class: 'history-head' }, h('h2', { class: 'history-title' }, 'History'), snapshotBtn),
+      notice,
+      list,
+      diffBox,
+    )
+
+    let entries: HistoryEntry[] = []
+    const selected = new Map<string, HTMLLIElement>()
+
+    function load(): void {
+      selected.clear()
+      diffBox.hidden = true
+      notice.textContent = ''
+      api
+        .history(note.id)
+        .then(({ entries: es }) => {
+          entries = es
+          clear(list)
+          if (es.length === 0) {
+            panel.classList.add('empty')
+            return
+          }
+          panel.classList.remove('empty')
+          for (const e of es) list.append(row(e))
+        })
+        .catch((err: unknown) => {
+          if (err instanceof ApiError && err.status === 501) panel.remove()
+        })
+    }
+
+    function row(e: HistoryEntry): HTMLLIElement {
+      const li = h('li', { class: 'history-row' })
+      const pick = h(
+        'button',
+        { class: 'history-pick', title: 'Compare two revisions', onClick: () => toggle(e, li) },
+        h('span', { class: 'history-date' }, fmtDate(e.date)),
+        h('span', { class: 'history-author' }, e.name),
+        h('span', { class: 'history-subject' }, e.subject),
+      )
+      const restore = h(
+        'button',
+        {
+          class: 'history-restore',
+          title: 'Restore this revision',
+          onClick: () => restoreRevision(e),
+        },
+        'Restore',
+      )
+      li.append(pick, restore)
+      return li
+    }
+
+    function toggle(e: HistoryEntry, li: HTMLLIElement): void {
+      if (selected.has(e.hash)) {
+        selected.delete(e.hash)
+        li.classList.remove('selected')
+      } else {
+        if (selected.size >= 2) {
+          const [firstHash, firstLi] = [...selected.entries()][selected.size - 1] as [string, HTMLLIElement]
+          selected.delete(firstHash)
+          firstLi.classList.remove('selected')
+        }
+        selected.set(e.hash, li)
+        li.classList.add('selected')
+      }
+      if (selected.size === 2) {
+        // entries are newest first; the diff runs from the older to the
+        // newer.
+        const byIndex = new Map(entries.map((e2, i) => [e2.hash, i]))
+        const hashes = [...selected.keys()].sort((x, y) => (byIndex.get(y) ?? 0) - (byIndex.get(x) ?? 0))
+        const a = hashes[0]
+        const b = hashes[1]
+        if (a === undefined || b === undefined) return
+        diffBox.hidden = false
+        diffBox.textContent = 'Loading diff…'
+        api
+          .historyDiff(note.id, a, b)
+          .then(({ diff }) => {
+            diffBox.textContent = diff || 'No changes between these revisions.'
+          })
+          .catch((err: unknown) => {
+            diffBox.textContent = err instanceof ApiError ? err.message : 'Could not load the diff.'
+          })
+      } else {
+        diffBox.hidden = true
+      }
+    }
+
+    function restoreRevision(e: HistoryEntry): void {
+      if (!window.confirm(`Restore the version from ${fmtDate(e.date)}? The current text becomes a new edit in the history.`)) {
+        return
+      }
+      notice.textContent = 'Restoring…'
+      api
+        .restoreNote(note.id, e.hash, e.path)
+        .then(() => {
+          notice.textContent = 'Restored. The note reloads in a moment.'
+          window.setTimeout(() => hooks.onOpen?.(note.id), 2600)
+        })
+        .catch((err: unknown) => {
+          notice.textContent = err instanceof ApiError ? err.message : 'Could not restore.'
+        })
+    }
+
+    load()
+    return panel
+  }
+
   // Relative image and link targets in a note resolve against the note's
   // directory. Images come from the asset endpoint; other relative links
   // are left alone.
@@ -189,7 +320,7 @@ export function createNoteView(
           h('pre', { class: 'note-source' }, h('code', {}, note.source ?? '')),
         )
       }
-      article.append(backlinksPanel(note))
+      article.append(backlinksPanel(note), historyPanel(note))
       container.append(article)
       container.scrollTop = 0
     },

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Phase 7 — Git history. The notes root is now a git repository. It is
+  initialised on first start and committed after the tree has been quiet
+  for five minutes (an hour at most during continuous editing), so a day
+  of typing is a small number of commits rather than thousands. Each
+  commit names its author: agent edits commit under the agent's label,
+  everything else under yours, and mixed windows split where the files
+  allow it. Every note has a history panel with revisions, diffs, and
+  restore; restoring is an edit, not a file stomp, so it reaches every
+  open client. An optional remote pushes nightly. Reverting an agent
+  commit with plain `git revert` works too.
 - Phase 3 — Realtime sync. Notes are editable in the browser. A relay at
   `GET /ws` moves CRDT updates between the clients editing a note and the
   reconciliation loop; the server still never looks inside a payload. Two

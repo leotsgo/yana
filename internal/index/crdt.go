@@ -92,6 +92,37 @@ func (db *DB) Updates(ctx context.Context, noteID string, after int64) ([]Update
 	return out, rows.Err()
 }
 
+// AuthorPathsSince returns, for each note with recorded ops after ts, the
+// set of authors behind those ops and the note's current path. It is the
+// durable half of git commit attribution; the live half is the
+// reconciliation event feed.
+func (db *DB) AuthorPathsSince(ctx context.Context, after time.Time) (map[string]map[string]struct{}, error) {
+	rows, err := db.readers.QueryContext(ctx,
+		`SELECT DISTINCT u.note_id, u.author, n.rel_path
+		 FROM note_updates u LEFT JOIN notes n ON n.id = u.note_id
+		 WHERE u.ts > ?`, after.UnixNano())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]map[string]struct{}{}
+	for rows.Next() {
+		var noteID, author string
+		var rel sql.NullString
+		if err := rows.Scan(&noteID, &author, &rel); err != nil {
+			return nil, err
+		}
+		if !rel.Valid || rel.String == "" {
+			continue
+		}
+		if out[rel.String] == nil {
+			out[rel.String] = map[string]struct{}{}
+		}
+		out[rel.String][author] = struct{}{}
+	}
+	return out, rows.Err()
+}
+
 // LogStats returns the highest seq recorded for a note (0 when none) and
 // how many log rows it currently has.
 func (db *DB) LogStats(ctx context.Context, noteID string) (maxSeq int64, rows int, err error) {
