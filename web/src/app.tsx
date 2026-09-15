@@ -7,18 +7,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { api, ApiError, baseOf, dirOf } from './api'
 import type { Note, SpaceTree, Status } from './api'
 import * as auth from './auth'
+import { Confirm } from './confirm'
+import type { ConfirmSpec } from './confirm'
 import { isEditable, keys, label, matches } from './hotkeys'
 import { renderUnresolvedReport } from './links'
 import { NotePage } from './note'
 import { Palette } from './palette'
 import type { PaletteItem, PaletteSpec } from './palette'
 import { SearchResults } from './search'
+import { TrashPage } from './trash'
 import { Tree, flatten } from './tree'
 
-type Route = { kind: 'home' } | { kind: 'note'; id: string } | { kind: 'links' }
+type Route = { kind: 'home' } | { kind: 'note'; id: string } | { kind: 'links' } | { kind: 'trash' }
 
 function parseRoute(): Route {
   if (location.pathname === '/links') return { kind: 'links' }
+  if (location.pathname === '/trash') return { kind: 'trash' }
   const m = location.pathname.match(/^\/n\/([0-9A-Za-z]{26})$/)
   return m && m[1] ? { kind: 'note', id: m[1] } : { kind: 'home' }
 }
@@ -33,6 +37,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const [query, setQuery] = useState('')
   const [regex, setRegex] = useState(false)
   const [palette, setPalette] = useState<PaletteSpec | null>(null)
+  const [confirmSpec, setConfirmSpec] = useState<ConfirmSpec | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [preview, setPreview] = useState(() => localStorage.getItem(PREVIEW_KEY) !== '0')
   const [fresh, setFresh] = useState<string | null>(null)
@@ -54,6 +59,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     if (push && location.pathname !== '/links') history.pushState(null, '', '/links')
     setRoute({ kind: 'links' })
     document.title = 'Unresolved links — YANA/'
+  }, [])
+
+  const openTrash = useCallback((push = true) => {
+    if (push && location.pathname !== '/trash') history.pushState(null, '', '/trash')
+    setRoute({ kind: 'trash' })
+    document.title = 'Trash — YANA/'
   }, [])
 
   useEffect(() => {
@@ -196,6 +207,43 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     })
   }
 
+  // Deleting shows the note's inbound links first: whoever points at it
+  // is about to hold an unresolved link until it comes back.
+  const deleteNotePrompt = useCallback(() => {
+    const n = current.current
+    if (!n) return
+    const ask = (rows: Array<{ label: string; detail?: string }>) => {
+      setConfirmSpec({
+        title:
+          rows.length > 0
+            ? `Delete ${n.title}? ${rows.length} ${rows.length === 1 ? 'note links' : 'notes link'} here.`
+            : `Delete ${n.title}?`,
+        body: 'The file moves to the trash and its links go unresolved. Restore it from the trash any time in the next 30 days.',
+        rows,
+        confirmLabel: 'Delete',
+        danger: true,
+        onConfirm: () => {
+          api
+            .deleteNote(n.id)
+            .then(() => {
+              if (route.kind === 'note' && route.id === n.id) navigate(null)
+              void loadTree()
+              say(`Deleted ${n.title}. It is in the trash.`)
+            })
+            .catch((err: unknown) => {
+              say(err instanceof ApiError ? err.message : `Could not delete ${n.title}.`)
+            })
+        },
+      })
+    }
+    api
+      .backlinks(n.id)
+      .then(({ backlinks }) =>
+        ask(backlinks.map((b) => ({ label: b.note.title || b.note.path, detail: b.note.path }))),
+      )
+      .catch(() => ask([]))
+  }, [navigate, loadTree, say, route])
+
   const togglePreview = useCallback(() => {
     setPreview((p) => {
       localStorage.setItem(PREVIEW_KEY, p ? '0' : '1')
@@ -232,8 +280,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     ]
     if (current.current) {
       items.push({ id: 'rename', label: 'Rename or move this note', detail: current.current.path, run: renamePrompt })
+      items.push({ id: 'delete', label: 'Delete this note', detail: 'moves it to the trash', run: deleteNotePrompt })
     }
     items.push({ id: 'links', label: 'Unresolved links', detail: 'every wikilink that points nowhere', run: () => openLinks() })
+    items.push({ id: 'trash', label: 'Trash', detail: 'deleted notes, kept for 30 days', run: () => openTrash() })
     if (status?.git?.available) {
       items.push({
         id: 'snapshot',
@@ -355,9 +405,14 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
             </nav>
           )}
           {!searching && (
-            <a class="unresolved-nav" href="/links" onClick={(ev) => { ev.preventDefault(); openLinks() }}>
-              Unresolved links
-            </a>
+            <div class="sidebar-nav">
+              <a class="unresolved-nav" href="/links" onClick={(ev) => { ev.preventDefault(); openLinks() }}>
+                Unresolved links
+              </a>
+              <a class="unresolved-nav" href="/trash" onClick={(ev) => { ev.preventDefault(); openTrash() }}>
+                Trash
+              </a>
+            </div>
           )}
         </aside>
         <main class="content">
@@ -371,9 +426,13 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               onNote={onNote}
               onToast={say}
               fresh={fresh === route.id}
+              onDelete={deleteNotePrompt}
             />
           )}
           {route.kind === 'links' && <LinksReport onOpen={navigate} />}
+          {route.kind === 'trash' && (
+            <TrashPage onOpen={navigate} onToast={say} confirm={setConfirmSpec} onChanged={() => void loadTree()} />
+          )}
           {route.kind === 'home' && (
             <div class="placeholder">
               <p class="wordmark large">YANA/</p>
@@ -398,6 +457,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         </main>
       </div>
       {palette && <Palette spec={palette} onClose={() => setPalette(null)} />}
+      {confirmSpec && <Confirm spec={confirmSpec} onClose={() => setConfirmSpec(null)} />}
       {toast && (
         <div class="toast" role="status">
           {toast}

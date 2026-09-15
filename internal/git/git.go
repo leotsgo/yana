@@ -196,7 +196,7 @@ func (l *Layer) Ensure(ctx context.Context) error {
 		l.log.Info("initialised repository", "root", l.root)
 	}
 	ignore := filepath.Join(l.root, ".gitignore")
-	want := []string{".sync/", "*.yana-tmp-*"}
+	want := []string{".sync/", ".trash/", "*.yana-tmp-*"}
 	cur, err := os.ReadFile(ignore)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

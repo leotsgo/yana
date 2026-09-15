@@ -62,7 +62,13 @@ limited, live for open clients, and committed to git under its label
  render on a second origin in a sandboxed frame — sanitized by default,
  runnable as written only after you mark the note trusted — with
  source-only editing that keeps a `name.conflict-<ts>.html` copy when
- saves collide ([docs/html-notes.md](docs/html-notes.md)).
+ saves collide ([docs/html-notes.md](docs/html-notes.md)). Deleting a
+ note is soft: the file moves to `.trash/` and its edit history is
+ retained, both for a 30-day window; the trash lists every deleted note
+ with its original path, restore returns it (a note `rm`'d from a shell
+ comes back from its history with everything intact), and emptying the
+ trash is the only permanent destruction
+ ([docs/trash.md](docs/trash.md)).
  Export and the Android app are tracked as later phases.
 
 ## Quick start
@@ -112,11 +118,11 @@ and the volume layout.
     .space.yml           # members and roles (later phase)
     <folders...>/<note>.md
     <folders...>/_assets/<image>
-  .trash/                # soft-deleted notes (later phase)
+  .trash/                # soft-deleted notes, in their own structure
   .sync/                 # derived state
     index.db             # the index and the CRDT edit log; safe to delete
     crdt/<id>.bin        # each note's document; keep it to keep edit history
-    crdt/retired/        # documents of deleted notes, for 30 days
+    crdt/retired/        # documents of deleted notes, for the retention window
 ```
 
 A note's frontmatter is minimal and is the only thing YANA/ ever writes into
@@ -150,8 +156,9 @@ tool endpoint, `ydoc` wraps the CRDT library), `web/` (Preact and CodeMirror
 client, embedded into the binary), `spike/crdt/` (Phase 0 CRDT evaluation
 harness), `docs/` (`deployment.md`, `file-format.md`, `agents.md`,
 `realtime.md` for the wire protocol, `editor.md` for the client,
-`html-notes.md` for the sandbox and trust model, and
-`crdt-decision.md`, which records which CRDT library each client uses and why).
+`html-notes.md` for the sandbox and trust model, `trash.md` for deletion
+and recovery, and `crdt-decision.md`, which records which CRDT library
+each client uses and why).
 
 The reconciliation tests include a 60 second oscillation check and a
 process-kill check; the relay tests include a server-restart convergence

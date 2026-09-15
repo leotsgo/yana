@@ -256,7 +256,7 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 		return res, err
 	}
 	err = s.db.Write(ctx, func(tx *sql.Tx) error {
-		n, err := index.DeleteNotesExcept(tx, keepNotes)
+		n, err := index.DeleteNotesExcept(tx, keepNotes, s.opts.Now())
 		if err != nil {
 			return err
 		}
@@ -294,7 +294,7 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 	info, err := os.Stat(abs)
 	if errors.Is(err, fs.ErrNotExist) {
 		return s.db.Write(ctx, func(tx *sql.Tx) error {
-			if err := index.DeleteNoteByPath(tx, cleanRel); err != nil {
+			if err := index.DeleteNoteByPath(tx, cleanRel, s.opts.Now()); err != nil {
 				return err
 			}
 			// A removed note can free a basename (uniqueness flips) and

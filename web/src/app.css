@@ -166,6 +166,8 @@ button { font: inherit; color: inherit; }
 .btn:hover { background: var(--accent-soft); border-color: var(--accent); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.btn.danger { color: #9a3412; }
+.btn.danger:hover { background: #f7e5dc; border-color: #9a3412; color: #9a3412; }
 .topbar .btn { padding: 3px 9px; }
 .topbar .btn-new { color: var(--accent); }
 
@@ -267,6 +269,37 @@ button { font: inherit; color: inherit; }
   border-radius: 3px; box-shadow: 0 6px 20px rgba(29, 27, 24, 0.2);
 }
 
+/* --- confirm dialog --- */
+.confirm {
+  width: min(520px, calc(100vw - 32px)); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 4px; padding: 20px 22px 16px; box-shadow: 0 12px 40px rgba(29, 27, 24, 0.18);
+}
+.confirm-title { margin: 0; font-size: 16px; line-height: 1.35; }
+.confirm-body { margin: 8px 0 0; font-size: 13px; color: var(--ink-2); }
+.confirm-rows { list-style: none; margin: 12px 0 0; padding: 8px 10px; display: grid; gap: 4px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 3px; max-height: 200px; overflow-y: auto; }
+.confirm-rows li { display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; }
+.confirm-row-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.confirm-row-detail { flex: 1; min-width: 0; font: 11px var(--mono); color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* --- trash --- */
+.trash { max-width: 860px; }
+.trash-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; padding-top: 20px; }
+.trash-title { margin: 0; font-size: 22px; }
+.trash-sub { margin: 0; flex: 1; font-size: 13px; color: var(--ink-2); }
+.trash-empty { margin-top: 24px; font-size: 13px; }
+.trash-list { list-style: none; margin: 16px 0 0; padding: 0; }
+.trash-row { display: flex; align-items: baseline; gap: 12px; padding: 8px 2px; border-bottom: 1px solid var(--line); }
+.trash-row:last-child { border-bottom: none; }
+.trash-main { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.trash-name { font-weight: 500; }
+.trash-path { font: 11.5px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trash-flag { font: 10px var(--mono); color: var(--ink-3); border: 1px solid var(--line); padding: 0 3px; border-radius: 2px; }
+.trash-side { display: flex; align-items: baseline; gap: 8px; }
+.trash-date { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+
 /* --- home --- */
 .hints { list-style: none; margin: 16px 0; padding: 0; display: grid; gap: 6px; }
 .hints kbd { display: inline-block; min-width: 52px; margin-right: 8px; text-align: center; }
@@ -312,8 +345,9 @@ button { font: inherit; color: inherit; }
 .history-diff { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; background: var(--bg-2); font: 12px/1.5 var(--mono); overflow-x: auto; white-space: pre; max-height: 40vh; }
 .history.empty .history-list { display: none; }
 
-/* Sidebar link to the unresolved report. */
-.unresolved-nav { display: block; margin: 12px 16px; font-size: 12px; color: var(--ink-3); text-decoration: none; }
+/* Sidebar links: the unresolved report and the trash. */
+.sidebar-nav { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 4px; }
+.unresolved-nav { display: block; margin: 6px 16px; font-size: 12px; color: var(--ink-3); text-decoration: none; }
 .unresolved-nav:hover { color: var(--accent); }
 
 /* Unresolved-link report. */
