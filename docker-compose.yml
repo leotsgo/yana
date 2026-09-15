@@ -11,10 +11,14 @@ services:
     environment:
       YANA_NOTES_ROOT: /notes
       YANA_LISTEN: ":8080"
+      YANA_CONTENT_LISTEN: ":8081"
     # Drop root once the mounted directory is owned by this uid:gid.
     #user: "1000:1000"
     ports:
       - "${YANA_PORT:-8080}:8080"
+      # The content origin HTML notes render from. Behind a proxy that
+      # maps a subdomain onto it, set YANA_CONTENT_ORIGIN in .env.
+      - "${YANA_CONTENT_PORT:-8081}:8081"
     volumes:
       # The only state. Notes, spaces, and the rebuildable .sync/ directory
       # all live here. Point it at an existing folder of markdown if you have one.

@@ -43,6 +43,8 @@ ripgrep: true
 |---|---|---|
 | `YANA_NOTES_ROOT` | `/notes` (container), `~/.yana` (bare metal) | Directory that holds spaces |
 | `YANA_LISTEN` | `:8080` | Bind address |
+| `YANA_CONTENT_LISTEN` | `:8081` | Content origin bind address; `off` disables HTML rendering |
+| `YANA_CONTENT_ORIGIN` | derived | Public base URL of the content origin when a proxy maps a subdomain onto it |
 | `YANA_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `YANA_CONFIG` | unset | Path to a YAML file |
 | `YANA_MAX_NOTE_SIZE` | `10485760` | Largest note indexed, bytes |
@@ -188,6 +190,28 @@ labels:
   traefik.http.routers.yana.tls.certresolver: letsencrypt
   traefik.http.services.yana.loadbalancer.server.port: "8080"
 ```
+
+### The content origin
+
+HTML notes render on a second listener (`:8081` by default), which must
+stay a separate origin from the app — that separation is the sandbox. Two
+ways to expose it:
+
+- **Second port** (the default, zero config): publish 8081 the way 8080
+  is published. The app derives view URLs from each request's host with
+  the content port appended.
+- **Subdomain**: route `content.example.com` to the container's 8081 and
+  set `YANA_CONTENT_ORIGIN=https://content.example.com`. Caddy:
+
+  ```
+  content.example.com {
+      reverse_proxy yana:8081
+  }
+  ```
+
+Do not merge the two origins onto one hostname; the sandbox's guarantees
+rest on them being different. `YANA_CONTENT_LISTEN=off` disables HTML
+rendering entirely (notes still index and edit as source).
 
 There is no authentication yet. Until Phase 4 lands, put the proxy's own
 auth (basic auth, forward auth, a VPN) in front of it or bind it to a

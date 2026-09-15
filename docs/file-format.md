@@ -63,7 +63,7 @@ Optional keys the server understands:
 | Key | Type | Meaning |
 |---|---|---|
 | `order` | int | Sidebar sort within a folder |
-| `trusted` | bool | HTML notes only; render without sandbox (later phase) |
+| `trusted` | bool | HTML notes only; render without the sanitizer (still sandboxed — see [html-notes.md](html-notes.md)) |
 | `template` | string | Reserved |
 
 Do not add keys beyond these for the application's benefit. Keys you add for
@@ -101,13 +101,22 @@ dashes. Raw HTML inside a markdown note is dropped from the rendered output.
 
 `[[target]]` and `[[target|display text]]` are parsed and resolve to notes
 in the same space. Resolution, backlinks, rename propagation, and the
-unresolved-link report are covered in [links.md](links.md).
+unresolved-link report are covered in [links.md](links.md). HTML notes use
+the same resolution through a `data-wikilink` attribute:
+
+```html
+<a data-wikilink="Meeting notes">the meeting</a>
+```
 
 ### HTML notes
 
 `.html` files are indexed (title, text for search) and appear in the tree.
-The API returns their source; rendering them in the UI is Phase 9, which
-adds the sandboxing that makes that safe.
+They render on the content origin in a sandboxed frame, sanitized unless
+their frontmatter carries `trusted: true`. Editing is source-only with
+save-based last-write-wins; a save that lands on a changed file keeps the
+overwritten version as `name.conflict-<ts>.html` beside the note. The
+full contract — sandbox, CSP, view tokens, the wikilink attribute — is in
+[html-notes.md](html-notes.md).
 
 ## Editing files while the server runs
 

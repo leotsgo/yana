@@ -9,6 +9,7 @@ import { api, ApiError } from './api'
 import type { Note } from './api'
 import { fmtBytes, fmtDate } from './dom'
 import { Editor } from './editor'
+import { HtmlNote } from './htmlnote'
 import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
 import { SyncClient, presence as localPresence } from './sync'
 import type { PresenceState, PresenceUser, SyncStatus } from './sync'
@@ -35,7 +36,9 @@ export function NotePage({ id, preview, onTogglePreview, onOpen, onNote, onToast
   const [notice, setNotice] = useState<string | null>(null)
   const [details, setDetails] = useState(false)
 
-  // Fetch the note's metadata and open the realtime session in parallel.
+  // Fetch the note's metadata, then open the realtime session for
+  // markdown notes. HTML notes do not merge — no session, no CRDT — so
+  // their page never waits for one.
   useEffect(() => {
     let live = true
     setNote(null)
@@ -45,6 +48,7 @@ export function NotePage({ id, preview, onTogglePreview, onOpen, onNote, onToast
     setSynced(false)
     setOthers([])
     setStatus('connecting')
+    let client: SyncClient | null = null
     api
       .note(id)
       .then((n) => {
@@ -52,46 +56,47 @@ export function NotePage({ id, preview, onTogglePreview, onOpen, onNote, onToast
         setNote(n)
         onNote(n)
         document.title = `${n.title} — YANA/`
+        if (n.kind !== 'md') return
+        client = new SyncClient(id, {
+          onStatus(s) {
+            if (!live) return
+            setStatus(s)
+            if (s === 'synced') setSynced(true)
+          },
+          onError(code) {
+            if (!live) return
+            if (code === 'rate_limited') setNotice('Typing faster than the server allows; edits are kept and retried.')
+            else if (code === 'forbidden') {
+              setReadOnly(true)
+              setNotice('This space is read-only for your account.')
+            }
+          },
+          onGone(kind, path) {
+            if (!live) return
+            setNotice(kind === 'moved' ? `This note moved to ${path ?? 'another path'}.` : 'This note was deleted on disk.')
+          },
+          onPresence() {
+            if (!live || !client) return
+            const out: PresenceUser[] = []
+            for (const [clientID, raw] of client.awareness.getStates()) {
+              if (clientID === client.awareness.clientID) continue
+              const st = raw as Partial<PresenceState>
+              if (st.user) out.push(st.user)
+            }
+            setOthers(out)
+          },
+        })
+        setSync(client)
       })
       .catch((err: unknown) => {
         if (!live) return
         setError(err instanceof ApiError ? err.message : 'Could not load the note.')
       })
-    const client = new SyncClient(id, {
-      onStatus(s) {
-        if (!live) return
-        setStatus(s)
-        if (s === 'synced') setSynced(true)
-      },
-      onError(code) {
-        if (!live) return
-        if (code === 'rate_limited') setNotice('Typing faster than the server allows; edits are kept and retried.')
-        else if (code === 'forbidden') {
-          setReadOnly(true)
-          setNotice('This space is read-only for your account.')
-        }
-      },
-      onGone(kind, path) {
-        if (!live) return
-        setNotice(kind === 'moved' ? `This note moved to ${path ?? 'another path'}.` : 'This note was deleted on disk.')
-      },
-      onPresence() {
-        if (!live) return
-        const out: PresenceUser[] = []
-        for (const [clientID, raw] of client.awareness.getStates()) {
-          if (clientID === client.awareness.clientID) continue
-          const st = raw as Partial<PresenceState>
-          if (st.user) out.push(st.user)
-        }
-        setOthers(out)
-      },
-    })
-    setSync(client)
     return () => {
       live = false
       onNote(null)
       setSync(null)
-      client.destroy()
+      client?.destroy()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
@@ -105,20 +110,22 @@ export function NotePage({ id, preview, onTogglePreview, onOpen, onNote, onToast
       </div>
     )
   }
-  if (!note || !sync) {
+  if (!note) {
     return <div class="placeholder muted">Opening…</div>
   }
-
   if (note.kind === 'html') {
     return (
-      <article class="page">
+      <article class="page html-page">
         <NoteHeader note={note} />
-        <div class="page-scroll">
-          <p class="notice">HTML notes render in a sandboxed frame once that part is built. The source is shown as text for now.</p>
-          <pre class="note-source"><code>{note.source ?? ''}</code></pre>
+        <div class="page-body html-body">
+          <HtmlNote note={note} onOpen={onOpen} onToast={onToast} />
         </div>
       </article>
     )
+  }
+
+  if (!sync) {
+    return <div class="placeholder muted">Opening…</div>
   }
 
   return (

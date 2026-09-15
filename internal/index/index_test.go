@@ -32,10 +32,10 @@ func TestUpsertGetSearch(t *testing.T) {
 	n1, b1 := sample("01A", "home/one.md", "Grocery list", "milk eggs #food bread")
 	n2, b2 := sample("01B", "home/two.md", "Server notes", "the raspberry pi runs the dns #homelab")
 	err := db.Write(ctx, func(tx *sql.Tx) error {
-		if err := UpsertNote(tx, n1, b1, []string{"food"}); err != nil {
+		if err := UpsertNote(tx, n1, b1, b1, []string{"food"}); err != nil {
 			return err
 		}
-		return UpsertNote(tx, n2, b2, []string{"homelab"})
+		return UpsertNote(tx, n2, b2, b2, []string{"homelab"})
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,16 +89,16 @@ func TestMoveAndRetire(t *testing.T) {
 	n1, b1 := sample("01A", "home/one.md", "One", "one body")
 	n2, b2 := sample("01B", "home/two.md", "Two", "two body")
 	if err := db.Write(ctx, func(tx *sql.Tx) error {
-		if err := UpsertNote(tx, n1, b1, nil); err != nil {
+		if err := UpsertNote(tx, n1, b1, b1, nil); err != nil {
 			return err
 		}
-		return UpsertNote(tx, n2, b2, nil)
+		return UpsertNote(tx, n2, b2, b2, nil)
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// Move by id: same id, new path.
 	n1.RelPath = "home/sub/one.md"
-	if err := db.Write(ctx, func(tx *sql.Tx) error { return UpsertNote(tx, n1, b1, nil) }); err != nil {
+	if err := db.Write(ctx, func(tx *sql.Tx) error { return UpsertNote(tx, n1, b1, b1, nil) }); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := db.GetNote(ctx, "01A"); got.RelPath != "home/sub/one.md" {
@@ -106,7 +106,7 @@ func TestMoveAndRetire(t *testing.T) {
 	}
 	// A different id landing on an existing path replaces that row.
 	n3, b3 := sample("01C", "home/two.md", "Two again", "replacement")
-	if err := db.Write(ctx, func(tx *sql.Tx) error { return UpsertNote(tx, n3, b3, nil) }); err != nil {
+	if err := db.Write(ctx, func(tx *sql.Tx) error { return UpsertNote(tx, n3, b3, b3, nil) }); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.GetNote(ctx, "01B"); err != ErrNotFound {
@@ -141,7 +141,7 @@ func TestWriterSerialises(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		go func(i int) {
 			n, b := sample(string(rune('A'+i)), "home/"+string(rune('a'+i))+".md", "T", "body")
-			done <- db.Write(ctx, func(tx *sql.Tx) error { return UpsertNote(tx, n, b, nil) })
+			done <- db.Write(ctx, func(tx *sql.Tx) error { return UpsertNote(tx, n, b, b, nil) })
 		}(i)
 	}
 	for i := 0; i < 20; i++ {

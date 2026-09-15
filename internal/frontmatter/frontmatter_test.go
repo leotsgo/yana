@@ -108,3 +108,80 @@ func TestReplaceID(t *testing.T) {
 		t.Fatalf("crlf: %q", out)
 	}
 }
+
+func TestSetKey(t *testing.T) {
+	// Replace in place, other bytes untouched.
+	in := []byte("---\nid: ABC\norder: 3\n---\nbody\n")
+	out, changed := SetKey(in, "trusted", "true")
+	if !changed {
+		t.Fatal("expected a change")
+	}
+	// Insert lands at the top of the block, the same slot EnsureID uses;
+	// existing keys keep their bytes.
+	want := "---\ntrusted: true\nid: ABC\norder: 3\n---\nbody\n"
+	if string(out) != want {
+		t.Fatalf("insert = %q, want %q", out, want)
+	}
+	if p := Parse(out); !p.Meta.Trusted || p.Meta.ID != "ABC" {
+		t.Fatalf("parse of %q = %+v", out, p.Meta)
+	}
+
+	out, changed = SetKey(out, "trusted", "false")
+	if !changed {
+		t.Fatal("expected a change on flip")
+	}
+	want = "---\ntrusted: false\nid: ABC\norder: 3\n---\nbody\n"
+	if string(out) != want {
+		t.Fatalf("replace = %q, want %q", out, want)
+	}
+	if p := Parse(out); p.Meta.Trusted {
+		t.Fatalf("still trusted: %+v", p.Meta)
+	}
+
+	// Same value twice is a no-op.
+	out2, changed := SetKey(out, "trusted", "false")
+	if changed || string(out2) != string(out) {
+		t.Fatalf("no-op rewrite: %q changed=%v", out2, changed)
+	}
+
+	// A file without a block gets one.
+	out, changed = SetKey([]byte("<p>hi</p>\n"), "trusted", "true")
+	if !changed || string(out) != "---\ntrusted: true\n---\n<p>hi</p>\n" {
+		t.Fatalf("new block = %q changed=%v", out, changed)
+	}
+	if p := Parse(out); !p.Meta.Trusted {
+		t.Fatalf("parse of %q = %+v", out, p.Meta)
+	}
+
+	// CRLF files keep their line endings.
+	out, _ = SetKey([]byte("---\r\nid: ABC\r\n---\r\nbody\r\n"), "trusted", "true")
+	want = "---\r\ntrusted: true\r\nid: ABC\r\n---\r\nbody\r\n"
+	if string(out) != want {
+		t.Fatalf("crlf = %q, want %q", out, want)
+	}
+}
+
+func TestRemoveKey(t *testing.T) {
+	in := []byte("---\nid: ABC\norder: 3\n---\nid in body stays\n")
+	out, changed := RemoveKey(in, "id")
+	if !changed {
+		t.Fatal("expected change")
+	}
+	want := "---\norder: 3\n---\nid in body stays\n"
+	if string(out) != want {
+		t.Fatalf("remove = %q, want %q", out, want)
+	}
+	if p := Parse(out); p.Meta.ID != "" || p.Meta.Order == nil || *p.Meta.Order != 3 {
+		t.Fatalf("parse of %q = %+v", out, p.Meta)
+	}
+	// Missing key: untouched.
+	out2, changed := RemoveKey(in, "trusted")
+	if changed || string(out2) != string(in) {
+		t.Fatalf("no-op remove: %q %v", out2, changed)
+	}
+	// No block: untouched.
+	out3, changed := RemoveKey([]byte("plain\n"), "id")
+	if changed || string(out3) != "plain\n" {
+		t.Fatalf("no block: %q %v", out3, changed)
+	}
+}

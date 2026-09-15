@@ -22,6 +22,15 @@ type Config struct {
 	NotesRoot string `yaml:"notes_root"`
 	// Listen is the address the HTTP server binds to.
 	Listen string `yaml:"listen"`
+	// ContentListen is the address the content origin (where HTML notes
+	// render) binds to. "off" disables the second listener and the view
+	// endpoint.
+	ContentListen string `yaml:"content_listen"`
+	// ContentOrigin is the public base URL of the content origin when a
+	// proxy maps a subdomain onto it (for example
+	// https://content.notes.example.com). Empty derives the URL from each
+	// request's host plus the content listener's port.
+	ContentOrigin string `yaml:"content_origin"`
 	// LogLevel is one of debug, info, warn, error.
 	LogLevel string `yaml:"log_level"`
 
@@ -114,6 +123,8 @@ func Defaults() Config {
 	return Config{
 		NotesRoot:         root,
 		Listen:            ":8080",
+		ContentListen:     ":8081",
+		ContentOrigin:     "",
 		LogLevel:          "info",
 		MaxNoteSize:       10 << 20,
 		MaxAssetSize:      50 << 20,
@@ -221,6 +232,8 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 
 	str("NOTES_ROOT", &cfg.NotesRoot)
 	str("LISTEN", &cfg.Listen)
+	str("CONTENT_LISTEN", &cfg.ContentListen)
+	str("CONTENT_ORIGIN", &cfg.ContentOrigin)
 	str("LOG_LEVEL", &cfg.LogLevel)
 	if err := i64("MAX_NOTE_SIZE", &cfg.MaxNoteSize); err != nil {
 		return err

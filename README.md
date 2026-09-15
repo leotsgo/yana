@@ -55,11 +55,15 @@ writing files (bind-mount the tree, follow the space's
 `CONVENTIONS.md`), or through the MCP endpoint at `/mcp` with a
 space-scoped, revocable agent token; every agent write is authored, rate
 limited, live for open clients, and committed to git under its label
-([docs/agents.md](docs/agents.md)). The editor is CodeMirror with a live
-preview, per-user undo, drag-and-drop and paste for images, and drag to
-move notes in the tree. New note, daily note, quick switcher, and command
-palette are one key away ([docs/editor.md](docs/editor.md)).
-Export and the Android app are tracked as later phases.
+ ([docs/agents.md](docs/agents.md)). The editor is CodeMirror with a live
+ preview, per-user undo, drag-and-drop and paste for images, and drag to
+ move notes in the tree. New note, daily note, quick switcher, and command
+ palette are one key away ([docs/editor.md](docs/editor.md)). HTML notes
+ render on a second origin in a sandboxed frame — sanitized by default,
+ runnable as written only after you mark the note trusted — with
+ source-only editing that keeps a `name.conflict-<ts>.html` copy when
+ saves collide ([docs/html-notes.md](docs/html-notes.md)).
+ Export and the Android app are tracked as later phases.
 
 ## Quick start
 
@@ -145,7 +149,8 @@ files, and the index in step, `rt` is the realtime relay, `mcp` is the agent
 tool endpoint, `ydoc` wraps the CRDT library), `web/` (Preact and CodeMirror
 client, embedded into the binary), `spike/crdt/` (Phase 0 CRDT evaluation
 harness), `docs/` (`deployment.md`, `file-format.md`, `agents.md`,
-`realtime.md` for the wire protocol, and `editor.md` for the client, and
+`realtime.md` for the wire protocol, `editor.md` for the client,
+`html-notes.md` for the sandbox and trust model, and
 `crdt-decision.md`, which records which CRDT library each client uses and why).
 
 The reconciliation tests include a 60 second oscillation check and a

@@ -59,6 +59,15 @@ type Deps struct {
 	// MCP is the agent tool endpoint (POST /mcp). nil leaves it
 	// unmounted; the handler itself decides what it needs.
 	MCP http.Handler
+	// Content is the handler for the separate origin HTML notes render
+	// on. nil disables the view endpoint (501) and the second listener.
+	Content *Content
+	// ContentOrigin overrides the public base URL of the content origin
+	// (set it when a proxy maps a subdomain onto the content listener).
+	ContentOrigin string
+	// ContentAddr is the content listener's address; its port feeds the
+	// derived view URLs when ContentOrigin is empty.
+	ContentAddr string
 	// CanWrite decides whether a request may change a space. nil allows
 	// everything; when Auth is set the role check below runs instead.
 	CanWrite func(r *http.Request, space string) error
@@ -144,6 +153,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/links/unresolved", s.authed(s.handleUnresolvedLinks))
 	s.mux.HandleFunc("POST /api/notes/{id}/move", s.authed(s.handleMove))
 	s.mux.HandleFunc("POST /api/notes", s.authed(s.handleCreateNote))
+	s.mux.HandleFunc("GET /api/notes/{id}/view", s.authed(s.handleNoteView))
+	s.mux.HandleFunc("PUT /api/notes/{id}/source", s.authed(s.handleNoteSource))
+	s.mux.HandleFunc("POST /api/notes/{id}/trust", s.authed(s.handleNoteTrust))
 	s.mux.HandleFunc("POST /api/spaces/{space}/conventions", s.authed(s.handleConventions))
 	s.mux.HandleFunc("GET /api/notes/{id}/history", s.authed(s.handleNoteHistory))
 	s.mux.HandleFunc("GET /api/notes/{id}/history/diff", s.authed(s.handleNoteHistoryDiff))
@@ -392,8 +404,8 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 		resp.HTML = string(html)
 		resp.Markdown = string(raw)
 	case "html":
-		// Rendering HTML notes needs the separate content origin from
-		// Phase 9. Until then the client shows the source.
+		// Rendering happens on the separate content origin (see
+		// content.go); the API hands the editor the raw source.
 		resp.Source = string(bodyOf(raw))
 	}
 	writeJSON(w, http.StatusOK, resp)

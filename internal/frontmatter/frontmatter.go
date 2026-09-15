@@ -173,6 +173,118 @@ func EnsureID(content []byte, id string, now time.Time) (out []byte, meta Meta, 
 	return out, d.Meta, true
 }
 
+// SetKey writes key: value into the frontmatter block, replacing the
+// existing line in place or inserting a new one right after the opening
+// delimiter. Every other byte of the file is preserved. A file without a
+// block gets one. changed reports whether any bytes differ.
+func SetKey(content []byte, key, value string) (out []byte, changed bool) {
+	d := Parse(content)
+	nl := d.newline
+	if d.HasBlock {
+		if v, ok := d.Meta.rawValue(key); ok {
+			if v == value {
+				return content, false
+			}
+			return replaceLine(content, key, key+": "+value)
+		}
+		// Insert after the opening delimiter line.
+		_, rest, _ := cutLine(content)
+		head := content[:len(content)-len(rest)]
+		out = make([]byte, 0, len(content)+len(key)+len(value)+4)
+		out = append(out, head...)
+		out = append(out, key...)
+		out = append(out, ": "...)
+		out = append(out, value...)
+		out = append(out, nl...)
+		out = append(out, rest...)
+		return out, true
+	}
+	out = make([]byte, 0, len(content)+len(key)+len(value)+10)
+	out = append(out, "---"+nl...)
+	out = append(out, key...)
+	out = append(out, ": "...)
+	out = append(out, value...)
+	out = append(out, nl...)
+	out = append(out, "---"+nl...)
+	out = append(out, content...)
+	return out, true
+}
+
+// rawValue returns the current value of key in the parsed block.
+func (m Meta) rawValue(key string) (string, bool) {
+	for _, kv := range m.Raw {
+		if kv[0] == key {
+			return kv[1], true
+		}
+	}
+	return "", false
+}
+
+// replaceLine rewrites the line holding key: old with key: new, keeping
+// every other byte (including a trailing \r) intact.
+func replaceLine(content []byte, key, newLine string) ([]byte, bool) {
+	d := Parse(content)
+	if !d.HasBlock {
+		return content, false
+	}
+	_, rest, _ := cutLine(content)
+	offset := len(content) - len(rest)
+	for {
+		line, next, more := cutLine(rest)
+		trimmed := bytes.TrimRight(line, "\r")
+		if bytes.Equal(trimmed, delim) || bytes.Equal(trimmed, []byte("...")) {
+			return content, false
+		}
+		if k, _, ok := splitKV(string(trimmed)); ok && k == key {
+			out := make([]byte, 0, len(content)+len(newLine))
+			out = append(out, content[:offset]...)
+			out = append(out, newLine...)
+			out = append(out, line[len(trimmed):]...) // keep a trailing \r
+			out = append(out, '\n')
+			out = append(out, next...)
+			return out, true
+		}
+		offset += len(rest) - len(next)
+		rest = next
+		if !more {
+			return content, false
+		}
+	}
+}
+
+// RemoveKey drops every `key:` line from the frontmatter block, keeping
+// all other bytes. It returns the input unchanged when the block has no
+// such key.
+func RemoveKey(content []byte, key string) ([]byte, bool) {
+	d := Parse(content)
+	if !d.HasBlock {
+		return content, false
+	}
+	if _, ok := d.Meta.rawValue(key); !ok {
+		return content, false
+	}
+	_, rest, _ := cutLine(content) // past the opening delimiter
+	var out []byte
+	out = append(out, content[:len(content)-len(rest)]...)
+	for {
+		line, next, more := cutLine(rest)
+		trimmed := bytes.TrimRight(line, "\r")
+		if bytes.Equal(trimmed, delim) || bytes.Equal(trimmed, []byte("...")) {
+			out = append(out, rest...) // closing delimiter and the body
+			break
+		}
+		if k, _, ok := splitKV(string(trimmed)); !ok || k != key {
+			out = append(out, line...)
+			out = append(out, '\n')
+		}
+		rest = next
+		if !more {
+			break
+		}
+	}
+	return out, true
+}
+
 // ReplaceID rewrites the value of an existing id line in place, keeping
 // every other byte. It returns the input unchanged when there is no block
 // or no id key (use EnsureID for that case).

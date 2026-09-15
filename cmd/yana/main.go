@@ -198,8 +198,13 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 
 	srv := server.New(server.Deps{
 		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub, Scanner: sc, Git: gl, Auth: as, MCP: agents,
-		Daily: server.DailyConfig{Pattern: cfg.DailyPattern, Template: cfg.DailyTemplate},
+		Daily:         server.DailyConfig{Pattern: cfg.DailyPattern, Template: cfg.DailyTemplate},
+		ContentAddr:   cfg.ContentListen,
+		ContentOrigin: cfg.ContentOrigin,
 	})
+	if cfg.ContentListen != "" && cfg.ContentListen != "off" {
+		srv.Deps.Content = server.NewContent(db, root, nil, base)
+	}
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
@@ -207,7 +212,7 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
 		err := httpSrv.ListenAndServe()
 		if errors.Is(err, http.ErrServerClosed) {
@@ -215,6 +220,27 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		}
 		errCh <- err
 	}()
+
+	// The content origin: a second listener, its own port, none of the
+	// app's routes. That separation is what makes the sandboxed frame
+	// holding note markup harmless.
+	var contentSrv *http.Server
+	if srv.Deps.Content != nil {
+		contentSrv = &http.Server{
+			Addr:              cfg.ContentListen,
+			Handler:           srv.Deps.Content,
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
+		go func() {
+			err := contentSrv.ListenAndServe()
+			if errors.Is(err, http.ErrServerClosed) {
+				err = nil
+			}
+			errCh <- err
+		}()
+		log.Info("content origin listening", "addr", cfg.ContentListen, "public_origin", cfg.ContentOrigin)
+	}
 
 	// The initial scan runs while the listener is already up so /healthz
 	// answers immediately; /readyz turns 200 when the index is complete.
@@ -242,6 +268,11 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	err = httpSrv.Shutdown(shutdownCtx)
+	if contentSrv != nil {
+		if cerr := contentSrv.Shutdown(shutdownCtx); cerr != nil {
+			log.Warn("content origin shutdown", "err", cerr)
+		}
+	}
 	// Live editing sessions end before the reconciliation loop flushes and
 	// closes.
 	hub.Close()
