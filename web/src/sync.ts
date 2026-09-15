@@ -37,12 +37,14 @@ export type SyncStatus = 'connecting' | 'synced' | 'offline'
 export interface PresenceUser {
   name: string
   color: string
+  colorLight: string
 }
 
-/** What each editor puts in the awareness state. */
+/** What each editor puts in the awareness state. The cursor is what the
+ * editor binding writes: relative positions in the document. */
 export interface PresenceState {
   user: PresenceUser
-  cursor: { line: number; col: number; index: number; length: number } | null
+  cursor: { anchor: unknown; head: unknown } | null
 }
 
 export interface SyncEvents {
@@ -57,13 +59,13 @@ export interface SyncEvents {
 }
 
 const FLUSH_MS = 50 // keystroke batching window
+const AWARENESS_MS = 120 // cursor moves are batched more coarsely than edits
 const BACKOFF_MIN_MS = 500
 const BACKOFF_MAX_MS = 8000
 const KEEPALIVE_MS = 25_000
 
 /** A stable per-browser identity when the server runs without accounts. */
 function localAuthor(): PresenceUser {
-  const palette = ['#c65314', '#7a3fa8', '#2c7fb8', '#33812e', '#b03434', '#a07719', '#0e7c86', '#8a4b6d']
   let name = ''
   try {
     name = localStorage.getItem('yana.author') ?? ''
@@ -75,21 +77,22 @@ function localAuthor(): PresenceUser {
   } catch {
     name = 'guest'
   }
+  return withColor(name)
+}
+
+const palette = ['#c65314', '#7a3fa8', '#2c7fb8', '#33812e', '#b03434', '#a07719', '#0e7c86', '#8a4b6d']
+
+function withColor(name: string): PresenceUser {
   let hash = 0
   for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) | 0
-  return { name, color: palette[Math.abs(hash) % palette.length] ?? '#666' }
+  const color = palette[Math.abs(hash) % palette.length] ?? '#666666'
+  return { name, color, colorLight: color + '33' }
 }
 
 /** Presence identity: the signed-in account, or the local fallback. */
-function presence(): PresenceUser {
+export function presence(): PresenceUser {
   const u = user()
-  if (u) {
-    const palette = ['#c65314', '#7a3fa8', '#2c7fb8', '#33812e', '#b03434', '#a07719', '#0e7c86', '#8a4b6d']
-    let hash = 0
-    for (const ch of u.username) hash = (hash * 31 + ch.charCodeAt(0)) | 0
-    return { name: u.username, color: palette[Math.abs(hash) % palette.length] ?? '#666' }
-  }
-  return localAuthor()
+  return u ? withColor(u.username) : localAuthor()
 }
 
 export class SyncClient {
@@ -106,7 +109,8 @@ export class SyncClient {
   private flushTimer: number | undefined
   private keepaliveTimer: number | undefined
   private pending: Uint8Array[] = []
-  private pendingAwareness: Uint8Array[] = []
+  private awarenessDirty = false
+  private awarenessTimer: number | undefined
   private lastSentAt = 0
   private synced = false
   private everSynced = false
@@ -117,20 +121,24 @@ export class SyncClient {
     this.noteID = noteID
     this.events = events
     this.text = this.doc.getText('body')
-    this.author = `user:${presence().name}`
+    const me = presence()
+    this.author = `user:${me.name}`
     this.awareness = new Awareness(this.doc)
+    this.awareness.setLocalStateField('user', me)
 
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
       if (origin === 'remote') return
       this.pending.push(update)
       this.scheduleFlush()
     })
-    this.awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }) => {
-      const clients = [...added, ...updated, ...removed]
-      if (clients.length === 0) return
-      this.pendingAwareness.push(encodeAwarenessUpdate(this.awareness, clients))
-      this.scheduleFlush()
+    // Only this client's own state goes out; remote states arrive
+    // through the relay and must not be echoed back.
+    this.awareness.on('update', (_changes: unknown, origin: unknown) => {
+      if (origin === 'remote') return
+      this.awarenessDirty = true
+      this.scheduleAwareness()
     })
+    this.awareness.on('change', () => this.events.onPresence?.())
     this.connect()
   }
 
@@ -193,16 +201,15 @@ export class SyncClient {
         this.attempts = 0
         this.events.onStatus?.('synced')
         // Push anything queued while offline; the server merges both ways.
+        // Presence is re-announced since a new connection starts blank.
+        this.awarenessDirty = true
         this.flush()
         break
       case 'upd':
         if (frame.u && frame.u.length > 0) Y.applyUpdate(this.doc, frame.u, 'remote')
         break
       case 'aw':
-        if (frame.p && frame.p.length > 0) {
-          applyAwarenessUpdate(this.awareness, frame.p, 'remote')
-          this.events.onPresence?.()
-        }
+        if (frame.p && frame.p.length > 0) applyAwarenessUpdate(this.awareness, frame.p, 'remote')
         break
       case 'pong':
         break
@@ -233,7 +240,15 @@ export class SyncClient {
     }, FLUSH_MS)
   }
 
-  /** Send queued updates and awareness payloads, merged per batch. */
+  private scheduleAwareness(): void {
+    if (this.awarenessTimer !== undefined || !this.synced) return
+    this.awarenessTimer = window.setTimeout(() => {
+      this.awarenessTimer = undefined
+      this.flushAwareness()
+    }, AWARENESS_MS)
+  }
+
+  /** Send queued updates, merged into one payload per batch. */
   private flush(): void {
     this.flushTimer = undefined
     if (!this.synced) return
@@ -241,12 +256,14 @@ export class SyncClient {
       this.send({ t: 'upd', n: this.noteID, u: Y.mergeUpdates(this.pending), a: this.author })
       this.pending = []
     }
-    if (this.pendingAwareness.length > 0) {
-      for (const p of this.pendingAwareness) {
-        this.send({ t: 'aw', n: this.noteID, p })
-      }
-      this.pendingAwareness = []
-    }
+    this.flushAwareness()
+  }
+
+  /** Send this client's current awareness state once, if it changed. */
+  private flushAwareness(): void {
+    if (!this.synced || !this.awarenessDirty) return
+    this.awarenessDirty = false
+    this.send({ t: 'aw', n: this.noteID, p: encodeAwarenessUpdate(this.awareness, [this.awareness.clientID]) })
   }
 
   private scheduleReconnect(): void {
@@ -283,6 +300,7 @@ export class SyncClient {
     this.destroyed = true
     if (this.retryTimer !== undefined) window.clearTimeout(this.retryTimer)
     if (this.flushTimer !== undefined) window.clearTimeout(this.flushTimer)
+    if (this.awarenessTimer !== undefined) window.clearTimeout(this.awarenessTimer)
     this.stopKeepalive()
     const ws = this.ws
     this.ws = null

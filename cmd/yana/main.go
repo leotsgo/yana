@@ -187,6 +187,7 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 
 	srv := server.New(server.Deps{
 		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub, Scanner: sc, Git: gl, Auth: as,
+		Daily: server.DailyConfig{Pattern: cfg.DailyPattern, Template: cfg.DailyTemplate},
 	})
 
 	httpSrv := &http.Server{

@@ -33,6 +33,8 @@ Unauthenticated: `GET /healthz`, `GET /readyz`, `GET /api/auth/state`,
 
 Everything else requires the bearer token, including `GET /ws` (pass the
 access token as `?token=`; browsers cannot set headers on a WebSocket).
+`GET /api/files/...` accepts `?token=` for the same reason: an `<img>` in a
+rendered note cannot set a header either.
 
 | Route | Notes |
 | --- | --- |

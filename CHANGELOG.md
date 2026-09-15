@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Phase 6 — The editor. Opening a note opens CodeMirror, bound to the
+  note's CRDT document, with a live preview beside it rendered by the same
+  code as everywhere else. Undo is yours alone: it never reverts what
+  someone else typed. Drop or paste an image and it lands in the note's
+  `_assets/` directory with the link inserted; drag a note in the sidebar
+  to move it, links and all. `Alt+N` makes a note, `Alt+D` opens today's,
+  `Ctrl+P` finds one, `Ctrl+K` does the rest. The client is Preact now;
+  the bundle carries a content hash so a new release is not served from
+  an old cache. Images in rendered notes load again when accounts are on;
+  they had been asking for a header an `<img>` cannot send.
 - Phase 4 — Accounts, sessions, and spaces. Every route now needs an
   account: the first visit to a fresh server creates the owner account,
   and there are no default credentials. Passwords hash with Argon2id;

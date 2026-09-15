@@ -75,7 +75,15 @@ export interface Status {
   assets: number
   last_scan: string
   regex_search: boolean
+  daily: { pattern: string; template: string }
   git?: { available: boolean; commits: number; last_commit: string; errors: number }
+}
+
+export interface Upload {
+  path: string
+  name: string
+  size: number
+  url: string
 }
 
 export interface HistoryEntry {
@@ -149,4 +157,48 @@ export const api = {
   gitSnapshot: () => post<{ ok: boolean; commits: number }>('/api/git/snapshot', {}),
   spaces: () => get<{ spaces: { name: string; label: string; notes: number }[] }>('/api/spaces'),
   createSpace: (name: string) => post<{ name: string }>('/api/spaces', { name }),
+  daily: (space: string, date: string) =>
+    post<{ id: string; path: string; created: boolean }>('/api/notes/daily', { space, date }),
+  render: (markdown: string) => post<{ html: string }>('/api/render', { markdown }),
+  upload: (path: string, file: Blob) => upload(path, file),
+}
+
+/** PUT one file under an _assets directory; the server picks a free name. */
+async function upload(path: string, file: Blob): Promise<Upload> {
+  const res = await authFetch('/api/files/' + path.split('/').map(encodeURIComponent).join('/'), {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream', Accept: 'application/json' },
+    body: file,
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new ApiError(res.status, (body as { error?: string }).error ?? `upload failed (${res.status})`)
+  }
+  return body as Upload
+}
+
+/** Path helpers shared by the editor, the tree, and the palette. */
+export function join(base: string, rel: string): string {
+  const parts = base ? base.split('/') : []
+  for (const seg of rel.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') parts.pop()
+    else parts.push(seg)
+  }
+  return parts.join('/')
+}
+
+export function dirOf(path: string): string {
+  const i = path.lastIndexOf('/')
+  return i < 0 ? '' : path.slice(0, i)
+}
+
+export function baseOf(path: string): string {
+  const i = path.lastIndexOf('/')
+  return i < 0 ? path : path.slice(i + 1)
+}
+
+export function spaceOf(path: string): string {
+  const i = path.indexOf('/')
+  return i < 0 ? '' : path.slice(0, i)
 }

@@ -21,6 +21,12 @@ export function token(): string | null {
   return accessToken
 }
 
+/** URL for a file under _assets, with the access token when accounts are on. */
+export function assetURL(rel: string): string {
+  const path = '/api/files/' + rel.split('/').map(encodeURIComponent).join('/')
+  return accessToken ? `${path}?token=${encodeURIComponent(accessToken)}` : path
+}
+
 export function wsURL(): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const t = accessToken ? `?token=${encodeURIComponent(accessToken)}` : ''

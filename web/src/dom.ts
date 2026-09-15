@@ -33,14 +33,6 @@ export function clear(el: Element): void {
   while (el.firstChild) el.removeChild(el.firstChild)
 }
 
-export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number): (...args: A) => void {
-  let t: number | undefined
-  return (...args: A) => {
-    window.clearTimeout(t)
-    t = window.setTimeout(() => fn(...args), ms)
-  }
-}
-
 export function fmtDate(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso

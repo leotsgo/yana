@@ -59,6 +59,9 @@ type Deps struct {
 	// CanWrite decides whether a request may change a space. nil allows
 	// everything; when Auth is set the role check below runs instead.
 	CanWrite func(r *http.Request, space string) error
+	// Daily is the daily note's path pattern and template; zero values
+	// fall back to DefaultDaily.
+	Daily DailyConfig
 }
 
 // Server holds handler state.
@@ -131,6 +134,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/notes/{id}", s.authed(s.handleNote))
 	s.mux.HandleFunc("GET /api/search", s.authed(s.handleSearch))
 	s.mux.HandleFunc("GET /api/files/{path...}", s.authed(s.handleFile))
+	s.mux.HandleFunc("PUT /api/files/{path...}", s.authed(s.handleFileUpload))
+	s.mux.HandleFunc("POST /api/notes/daily", s.authed(s.handleDailyNote))
+	s.mux.HandleFunc("POST /api/render", s.authed(s.handleRender))
 	s.mux.HandleFunc("GET /api/notes/{id}/backlinks", s.authed(s.handleBacklinks))
 	s.mux.HandleFunc("GET /api/links/unresolved", s.authed(s.handleUnresolvedLinks))
 	s.mux.HandleFunc("POST /api/notes/{id}/move", s.authed(s.handleMove))
@@ -170,6 +176,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	last, _ := s.DB.ScanState(r.Context(), "last_scan")
+	daily := s.daily()
 	status := map[string]any{
 		"version":      s.Version,
 		"ready":        s.ready.Load(),
@@ -177,6 +184,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"assets":       assets,
 		"last_scan":    last,
 		"regex_search": s.Ripgrep != nil && s.Ripgrep.Available(),
+		"daily":        map[string]string{"pattern": daily.Pattern, "template": daily.Template},
 	}
 	if s.Sync != nil {
 		status["sync"] = s.Sync.Stats()
