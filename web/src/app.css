@@ -158,41 +158,123 @@ button { font: inherit; color: inherit; }
 .chroma .nf, .chroma .nx { color: #1f4e79; }
 .chroma .m, .chroma .mi, .chroma .mf { color: #7a4d9a; }
 
-/* --- editing (realtime sync) --- */
-.note-actions { margin: 0 0 10px; }
+/* --- buttons --- */
 .btn {
   font: 12px var(--mono); color: var(--ink); background: var(--bg-2);
   border: 1px solid var(--line); border-radius: 3px; padding: 4px 10px; cursor: pointer;
 }
 .btn:hover { background: var(--accent-soft); border-color: var(--accent); }
 .btn:disabled { opacity: 0.5; cursor: default; }
+.btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.topbar .btn { padding: 3px 9px; }
+.topbar .btn-new { color: var(--accent); }
 
-.editor-wrap { display: flex; flex-direction: column; gap: 8px; height: calc(100% - 8px); }
-.editor-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.editor-title { font-family: var(--mono); font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* --- note page: header, toolbar, editor + preview + details --- */
+.content { display: flex; flex-direction: column; }
+.page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.page > .note-header { margin: 0; padding: 14px 28px 8px; border-bottom: 0; }
+.page-scroll { flex: 1; overflow-y: auto; padding: 0 28px 40px; }
+.page-scroll .note-source { margin-top: 12px; }
+.editor-toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 4px 28px 8px; border-bottom: 1px solid var(--line);
+}
 .editor-toolbar .spacer { flex: 1; }
+.editor-notice { font-size: 12px; color: #9a3412; }
 .sync-status { font: 12px var(--mono); color: var(--ink-3); }
-.sync-status.ok { color: #3d6b2e; }
+.sync-status.synced { color: #3d6b2e; }
 .sync-status.offline { color: #9a3412; }
 
 .presence { display: flex; gap: 6px; flex-wrap: wrap; }
 .presence-chip {
   display: inline-flex; align-items: center; gap: 5px; font: 12px var(--mono);
   color: var(--ink-2); background: var(--bg-2); border: 1px solid var(--line);
-  border-radius: 999px; padding: 2px 8px;
+  border-radius: 999px; padding: 1px 8px;
 }
 .presence-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.presence-you { color: var(--ink-3); font-size: 10px; }
 
-.editor {
-  flex: 1; width: 100%; resize: none; border: 1px solid var(--line); border-radius: 3px;
-  background: var(--bg-2); color: var(--ink); padding: 14px;
-  font: 14px/1.6 var(--mono); tab-size: 4;
+.page-body { display: flex; flex: 1; min-height: 0; }
+.editor { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.editor > .cm-editor { flex: 1; min-height: 0; }
+.editor-wait { padding: 18px 28px; }
+.preview {
+  flex: 1; min-width: 0; overflow-y: auto; padding: 18px 28px 40vh;
+  border-left: 1px solid var(--line); background: var(--bg-2);
 }
-.editor:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.preview > :first-child { margin-top: 0; }
+.details {
+  width: 320px; flex: none; overflow-y: auto; padding: 0 20px 40px;
+  border-left: 1px solid var(--line); font-size: 13px;
+}
+.details .backlinks, .details .history { margin-top: 16px; padding-top: 12px; }
+.details .backlinks:first-child { border-top: 0; }
+@media (max-width: 1100px) {
+  .page.split .page-body { flex-direction: column; }
+  .page.split .preview { border-left: 0; border-top: 1px solid var(--line); max-height: 45%; }
+  .page.with-details .details { width: 260px; }
+}
+
+/* Remote carets from the collaboration binding. */
+.cm-ySelectionInfo { font-family: var(--mono); }
+
+/* --- tree extras: new-note button, drop targets --- */
+.tree-add {
+  margin-left: auto; width: 18px; height: 18px; line-height: 16px; padding: 0;
+  font: 14px var(--mono); color: var(--ink-3); background: none; border: 1px solid transparent;
+  border-radius: 3px; cursor: pointer; text-align: center;
+}
+.tree-add:hover { color: var(--accent); border-color: var(--line); background: var(--bg); }
+.empty .tree-add { display: inline-block; margin-left: 6px; vertical-align: middle; }
+.space-name { display: flex; align-items: center; }
+.space.drop > .space-name, .tree-dir.drop, .tree-note.drop { box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.tree-note[draggable] { cursor: grab; }
+.tree-note[draggable]:active { cursor: grabbing; }
+
+/* --- palette and prompts --- */
+.overlay {
+  position: fixed; inset: 0; z-index: 20; background: rgba(29, 27, 24, 0.18);
+  display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh;
+}
+.palette {
+  width: min(640px, calc(100vw - 32px)); max-height: 70vh; display: flex; flex-direction: column;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+  box-shadow: 0 12px 40px rgba(29, 27, 24, 0.18);
+}
+.palette-input {
+  height: 44px; padding: 0 16px; font: 15px var(--sans); color: var(--ink);
+  background: transparent; border: 0; border-bottom: 1px solid var(--line); outline: none;
+}
+.palette-hint { margin: 0; padding: 10px 16px 12px; font-size: 12.5px; color: var(--ink-2); }
+.palette-list { list-style: none; margin: 0; padding: 6px 0; overflow-y: auto; }
+.palette-empty { padding: 10px 16px; color: var(--ink-3); font-size: 13px; }
+.palette-row {
+  display: flex; align-items: baseline; gap: 10px; padding: 6px 16px; cursor: pointer;
+}
+.palette-row.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.palette-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.palette-detail { flex: 1; min-width: 0; font: 11.5px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.palette-key, kbd {
+  font: 11px var(--mono); color: var(--ink-2); background: var(--bg-2);
+  border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 5px; white-space: nowrap;
+}
+.palette-key { margin-left: auto; }
+
+/* --- toast --- */
+.toast {
+  position: fixed; right: 16px; bottom: 16px; z-index: 30; max-width: 420px;
+  padding: 8px 12px; font-size: 13px; color: var(--bg); background: var(--ink);
+  border-radius: 3px; box-shadow: 0 6px 20px rgba(29, 27, 24, 0.2);
+}
+
+/* --- home --- */
+.hints { list-style: none; margin: 16px 0; padding: 0; display: grid; gap: 6px; }
+.hints kbd { display: inline-block; min-width: 52px; margin-right: 8px; text-align: center; }
 
 @media (max-width: 720px) {
   .sidebar { width: 200px; }
   .note { padding: 16px; }
+  .topbar .status { display: none; }
 }
 
 /* Wikilinks: resolved links open notes; unresolved ones create them. */

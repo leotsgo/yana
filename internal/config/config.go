@@ -88,6 +88,15 @@ type Config struct {
 	AccessTTL time.Duration `yaml:"access_ttl"`
 	// RefreshTTL is how long a session may go unused before it expires.
 	RefreshTTL time.Duration `yaml:"refresh_ttl"`
+
+	// DailyPattern is the path of the daily note inside a space. The
+	// tokens {YYYY}, {MM}, {DD} and {date} (YYYY-MM-DD) expand from the
+	// client's local date.
+	DailyPattern string `yaml:"daily_pattern"`
+	// DailyTemplate is the path, inside the same space, of a note whose
+	// body seeds a new daily note. The same tokens expand in the body.
+	// A missing template falls back to a heading with the date.
+	DailyTemplate string `yaml:"daily_template"`
 }
 
 // Defaults returns the configuration used when nothing is set. The notes
@@ -127,6 +136,8 @@ func Defaults() Config {
 		GitUserEmail:      "user@yana.local",
 		AccessTTL:         15 * time.Minute,
 		RefreshTTL:        30 * 24 * time.Hour,
+		DailyPattern:      "journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md",
+		DailyTemplate:     "templates/daily.md",
 	}
 }
 
@@ -288,7 +299,12 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	if err := dur("ACCESS_TTL", &cfg.AccessTTL); err != nil {
 		return err
 	}
-	return dur("REFRESH_TTL", &cfg.RefreshTTL)
+	if err := dur("REFRESH_TTL", &cfg.RefreshTTL); err != nil {
+		return err
+	}
+	str("DAILY_PATTERN", &cfg.DailyPattern)
+	str("DAILY_TEMPLATE", &cfg.DailyTemplate)
+	return nil
 }
 
 // ParseLevel maps a config string to a slog level.

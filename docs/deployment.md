@@ -323,3 +323,10 @@ Two files under `.sync/` matter to accounts:
 
 Token lifetimes are tunable: `YANA_ACCESS_TTL` (default `15m`) and
 `YANA_REFRESH_TTL` (default `720h`, 30 days).
+
+## Daily note
+
+`YANA_DAILY_PATTERN` (default `journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md`)
+says where today's note goes inside a space, and `YANA_DAILY_TEMPLATE`
+(default `templates/daily.md`) names a note in that space whose body seeds
+it. See [editor.md](editor.md).

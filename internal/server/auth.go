@@ -34,9 +34,17 @@ func (s *Server) ident(r *http.Request) auth.Identity {
 // open reports whether the server runs without accounts.
 func (s *Server) open() bool { return s.Auth == nil }
 
-// bearerToken reads the access token from the Authorization header.
+// bearerToken reads the access token from the Authorization header. Asset
+// reads (GET /api/files/...) also accept it as ?token=, the way /ws does,
+// because an <img> in a rendered note cannot set a header.
 func bearerToken(r *http.Request) string {
-	return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if t := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); t != "" {
+		return t
+	}
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/files/") {
+		return r.URL.Query().Get("token")
+	}
+	return ""
 }
 
 // authed wraps every /api route that is not one of the public auth
