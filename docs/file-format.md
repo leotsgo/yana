@@ -193,6 +193,10 @@ of the scan continues.
 4. To move or rename, `mv` the file. To delete, `rm` it. Both are picked up
    on the next scan; the id follows the file.
 
+The full agent story — bind-mounting the tree, the per-space
+`CONVENTIONS.md` generator, and the MCP endpoint with attributed,
+rate-limited writes — is in [agents.md](agents.md).
+
 Rebuilding the index (`yana scan`, or deleting `.sync/index.db` and
 restarting) produces the same ids, tree, and search results, because
 nothing that matters lives only in the database.

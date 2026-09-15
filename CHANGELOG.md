@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Phase 8 — Agent integration. Agents work on the tree two ways. On the
+  box, bind-mount the tree and let the agent read and write files; a
+  per-space `CONVENTIONS.md` generator (`POST
+  /api/spaces/{space}/conventions`) writes the contract — frontmatter,
+  wikilinks, `_assets`, folder structure — for it to follow. Off the box,
+  an MCP server at `POST /mcp` exposes seven tools (list spaces and
+  tree, read, write, append, search, move) over the Streamable HTTP
+  transport. Agents authenticate with tokens of their own: minted by the
+  owner at `/api/agents`, scoped to named spaces, individually
+  revocable, and distinct from user sessions. Every MCP write is a
+  document edit authored `agent:<label>`, so it merges with concurrent
+  human typing, reaches open clients live, writes back through the
+  normal path, and commits to git under the label — where `git revert`
+  undoes it in one action. Writes are rate-limited per label
+  (`YANA_AGENT_RATE`, 30 a minute by default).
 - Phase 6 — The editor. Opening a note opens CodeMirror, bound to the
   note's CRDT document, with a live preview beside it rendered by the same
   code as everywhere else. Undo is yours alone: it never reverts what

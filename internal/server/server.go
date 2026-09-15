@@ -56,6 +56,9 @@ type Deps struct {
 	// only within the caller's spaces. nil runs the server without
 	// accounts (the pre-Phase-4 state, tests, or a private deployment).
 	Auth *auth.Service
+	// MCP is the agent tool endpoint (POST /mcp). nil leaves it
+	// unmounted; the handler itself decides what it needs.
+	MCP http.Handler
 	// CanWrite decides whether a request may change a space. nil allows
 	// everything; when Auth is set the role check below runs instead.
 	CanWrite func(r *http.Request, space string) error
@@ -141,11 +144,22 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/links/unresolved", s.authed(s.handleUnresolvedLinks))
 	s.mux.HandleFunc("POST /api/notes/{id}/move", s.authed(s.handleMove))
 	s.mux.HandleFunc("POST /api/notes", s.authed(s.handleCreateNote))
+	s.mux.HandleFunc("POST /api/spaces/{space}/conventions", s.authed(s.handleConventions))
 	s.mux.HandleFunc("GET /api/notes/{id}/history", s.authed(s.handleNoteHistory))
 	s.mux.HandleFunc("GET /api/notes/{id}/history/diff", s.authed(s.handleNoteHistoryDiff))
 	s.mux.HandleFunc("POST /api/notes/{id}/history/restore", s.authed(s.handleNoteHistoryRestore))
 	s.mux.HandleFunc("POST /api/git/snapshot", s.authed(s.handleGitSnapshot))
 	s.mux.HandleFunc("GET /api/status", s.authed(s.handleStatus))
+	if s.Auth != nil {
+		// Agent tokens are accounts-adjacent: they exist only when the
+		// account world does, and only the owner manages them.
+		s.mux.HandleFunc("GET /api/agents", s.authed(s.handleAgents))
+		s.mux.HandleFunc("POST /api/agents", s.authed(s.handleAgentCreate))
+		s.mux.HandleFunc("DELETE /api/agents/{id}", s.authed(s.handleAgentDelete))
+	}
+	if s.MCP != nil {
+		s.mux.Handle("/mcp", s.MCP)
+	}
 	if s.RT != nil {
 		s.mux.Handle("GET /ws", s.RT)
 	}

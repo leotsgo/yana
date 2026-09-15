@@ -68,6 +68,9 @@ ripgrep: true
 | `YANA_GIT_PUSH_HOUR` | `2` | Local hour of the nightly push |
 | `YANA_GIT_USER_NAME` | `yana user` | Git identity human edits commit under |
 | `YANA_GIT_USER_EMAIL` | `user@yana.local` | Its email |
+| `YANA_ACCESS_TTL` | `15m` | Access token lifetime |
+| `YANA_REFRESH_TTL` | `720h` | How long a session may go unused |
+| `YANA_AGENT_RATE` | `30` | MCP writes per agent label per minute |
 
 Logs are JSON on stderr, one object per line, with a `component` field and a
 `request_id` on HTTP lines. The `reconcile` component logs every write-back,
@@ -316,13 +319,21 @@ Two files under `.sync/` matter to accounts:
 - `auth_secret` — signs access tokens. Losing it (or deleting `.sync/`)
   invalidates every access token; clients refresh and carry on. Keep it
   out of backups of the notes tree if you like; it is not content.
-- the `users` and `sessions` tables in `index.db` — real state, unlike
-  the rest of that database. If you back up nothing else, back these up,
-  or accept recreating accounts (spaces' `.space.yml` files survive;
-  member ids would need re-pointing).
+- the `users`, `sessions`, and `agent_tokens` tables in `index.db` — real
+  state, unlike the rest of that database. If you back up nothing else,
+  back these up, or accept recreating accounts (spaces' `.space.yml`
+  files survive; member ids would need re-pointing).
 
 Token lifetimes are tunable: `YANA_ACCESS_TTL` (default `15m`) and
 `YANA_REFRESH_TTL` (default `720h`, 30 days).
+
+## Agents
+
+Agents reach the tree through the files (bind-mount the space, or the
+whole root for a trusted agent on the box) or through the MCP endpoint at
+`POST /mcp`, authenticated with a token minted at `POST /api/agents`.
+Both paths, including scoping, revocation, rate limits, and git
+attribution, are in [agents.md](agents.md).
 
 ## Daily note
 
