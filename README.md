@@ -50,7 +50,12 @@ credentials), sessions are device-labelled and revocable, and sharing is
 modeled as spaces — top-level directories whose `.space.yml` names their
 members — with the tree, search, exports, and live subscriptions never
 crossing a space boundary a member cannot see
-([docs/auth.md](docs/auth.md)). The editor is CodeMirror with a live
+([docs/auth.md](docs/auth.md)). Agents work on the tree two ways: by
+writing files (bind-mount the tree, follow the space's
+`CONVENTIONS.md`), or through the MCP endpoint at `/mcp` with a
+space-scoped, revocable agent token; every agent write is authored, rate
+limited, live for open clients, and committed to git under its label
+([docs/agents.md](docs/agents.md)). The editor is CodeMirror with a live
 preview, per-user undo, drag-and-drop and paste for images, and drag to
 move notes in the tree. New note, daily note, quick switcher, and command
 palette are one key away ([docs/editor.md](docs/editor.md)).
@@ -134,14 +139,14 @@ make lint       # gofmt and go vet
 make docker     # build the image locally
 ```
 
-Layout: `cmd/yana` (entry point), `internal/` (server packages; `pathsafe` is
-the only way a string becomes a filesystem path, `reconcile` keeps documents,
-files, and the index in step, `rt` is the realtime relay, `ydoc` wraps the
-CRDT library), `web/` (Preact and CodeMirror client, embedded into the binary),
-`spike/crdt/` (Phase 0 CRDT evaluation harness), `docs/` (`deployment.md`,
-`file-format.md`, `realtime.md` for the wire protocol, and
-`editor.md` for the client, and `crdt-decision.md`, which records which CRDT
-library each client uses and why).
+Layout: `cmd/yana` (entry point), `internal/` (server packages; `pathsafe`
+is the only way a string becomes a filesystem path, `reconcile` keeps documents,
+files, and the index in step, `rt` is the realtime relay, `mcp` is the agent
+tool endpoint, `ydoc` wraps the CRDT library), `web/` (Preact and CodeMirror
+client, embedded into the binary), `spike/crdt/` (Phase 0 CRDT evaluation
+harness), `docs/` (`deployment.md`, `file-format.md`, `agents.md`,
+`realtime.md` for the wire protocol, and `editor.md` for the client, and
+`crdt-decision.md`, which records which CRDT library each client uses and why).
 
 The reconciliation tests include a 60 second oscillation check and a
 process-kill check; the relay tests include a server-restart convergence

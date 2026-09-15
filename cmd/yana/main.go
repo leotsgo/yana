@@ -23,6 +23,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/config"
 	"github.com/madeofpendletonwool/yana/internal/git"
 	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/madeofpendletonwool/yana/internal/mcp"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
 	"github.com/madeofpendletonwool/yana/internal/rt"
@@ -185,8 +186,18 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 	})
 	as.OnSessionRevoked(hub.KickSession)
 
+	// The agent surface: MCP over the same loop, the same path safety,
+	// and its own write rate.
+	agentRate := pathsafe.Rate{N: cfg.AgentRate, Window: time.Minute}
+	agents := mcp.New(mcp.Deps{
+		DB: db, Root: root, Sync: rec, Scanner: sc, Auth: as,
+		Limit:   pathsafe.NewRateLimiter(agentRate, agentRate),
+		Log:     base,
+		Version: version,
+	})
+
 	srv := server.New(server.Deps{
-		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub, Scanner: sc, Git: gl, Auth: as,
+		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub, Scanner: sc, Git: gl, Auth: as, MCP: agents,
 		Daily: server.DailyConfig{Pattern: cfg.DailyPattern, Template: cfg.DailyTemplate},
 	})
 

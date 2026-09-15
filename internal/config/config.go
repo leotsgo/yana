@@ -89,6 +89,10 @@ type Config struct {
 	// RefreshTTL is how long a session may go unused before it expires.
 	RefreshTTL time.Duration `yaml:"refresh_ttl"`
 
+	// AgentRate bounds MCP writes per agent label per minute, so a
+	// runaway loop cannot fill the tree.
+	AgentRate int `yaml:"agent_rate"`
+
 	// DailyPattern is the path of the daily note inside a space. The
 	// tokens {YYYY}, {MM}, {DD} and {date} (YYYY-MM-DD) expand from the
 	// client's local date.
@@ -136,6 +140,7 @@ func Defaults() Config {
 		GitUserEmail:      "user@yana.local",
 		AccessTTL:         15 * time.Minute,
 		RefreshTTL:        30 * 24 * time.Hour,
+		AgentRate:         30,
 		DailyPattern:      "journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md",
 		DailyTemplate:     "templates/daily.md",
 	}
@@ -300,6 +305,9 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		return err
 	}
 	if err := dur("REFRESH_TTL", &cfg.RefreshTTL); err != nil {
+		return err
+	}
+	if err := i("AGENT_RATE", &cfg.AgentRate); err != nil {
 		return err
 	}
 	str("DAILY_PATTERN", &cfg.DailyPattern)

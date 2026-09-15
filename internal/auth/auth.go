@@ -90,6 +90,11 @@ type Service struct {
 
 	loginLimit *pathsafe.RateLimiter
 
+	// agentMu guards agentTouches, the last_used_at write throttle for
+	// agent tokens.
+	agentMu      sync.Mutex
+	agentTouches map[string]time.Time
+
 	mu      sync.Mutex
 	revokeC []func(sessionID string)
 }

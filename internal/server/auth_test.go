@@ -20,6 +20,7 @@ import (
 
 	"github.com/madeofpendletonwool/yana/internal/auth"
 	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/madeofpendletonwool/yana/internal/mcp"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
 	"github.com/madeofpendletonwool/yana/internal/rt"
@@ -91,7 +92,13 @@ func newAuthFixture(t *testing.T) *authFixture {
 	as.OnSessionRevoked(hub.KickSession)
 
 	f := &authFixture{dir: dir, root: root, db: db, sc: sc, rec: rec, as: as, hub: hub, log: log}
-	f.srv = New(Deps{DB: db, Root: root, Log: log, Version: "test", Sync: rec, RT: hub, Scanner: sc, Auth: as})
+	agents := mcp.New(mcp.Deps{
+		DB: db, Root: root, Sync: rec, Scanner: sc, Auth: as,
+		Limit:   pathsafe.NewRateLimiter(pathsafe.Rate{N: 1000, Window: time.Minute}, pathsafe.Rate{N: 1000, Window: time.Minute}),
+		Log:     log,
+		Version: "test",
+	})
+	f.srv = New(Deps{DB: db, Root: root, Log: log, Version: "test", Sync: rec, RT: hub, Scanner: sc, Auth: as, MCP: agents})
 	f.srv.SetReady(true)
 	f.ts = httptest.NewServer(f.srv)
 	t.Cleanup(f.ts.Close)

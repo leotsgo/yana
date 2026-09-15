@@ -49,6 +49,10 @@ rendered note cannot set a header either.
 | `DELETE /api/users/{id}` | owner only, not self |
 | `POST /api/users/{id}/password` | `{password}`, self or owner |
 
+Agent tokens are a separate credential for the MCP endpoint: minted,
+scoped, and revoked by the owner at `/api/agents`, never interchangeable
+with a session. See [agents.md](agents.md).
+
 Passwords are at least 8 characters. Usernames are 2–32 characters of
 letters, digits, dot, underscore, dash, and are unique case-insensitively.
 Logins are rate-limited to 10 attempts per minute per username.
