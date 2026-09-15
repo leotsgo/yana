@@ -89,7 +89,8 @@ func New(root *pathsafe.Root, db *index.DB, opts Options, log *slog.Logger) *Sca
 
 type indexed struct {
 	note index.Note
-	body string
+	body string // what search reads: markdown text or tag-stripped HTML
+	raw  string // untransformed body: what links are extracted from
 	tags []string
 }
 
@@ -115,7 +116,7 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 		batch, assets = nil, nil
 		return s.db.Write(ctx, func(tx *sql.Tx) error {
 			for _, it := range b {
-				if err := index.UpsertNote(tx, it.note, it.body, it.tags); err != nil {
+				if err := index.UpsertNote(tx, it.note, it.body, it.raw, it.tags); err != nil {
 					return err
 				}
 			}
@@ -325,7 +326,7 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 		}
 		moved := err == nil && old.RelPath != it.note.RelPath
 		fresh := errors.Is(err, index.ErrNotFound)
-		if err := index.UpsertNote(tx, it.note, it.body, it.tags); err != nil {
+		if err := index.UpsertNote(tx, it.note, it.body, it.raw, it.tags); err != nil {
 			return err
 		}
 		// A new note can resolve targets that were unresolved; a moved one
@@ -434,14 +435,16 @@ func (s *Scanner) indexFile(ctx context.Context, abs, rel, space, kind string, i
 
 	sum := sha256.Sum256(content)
 	body := fm.Body
-	var title, bodyText string
+	var title, bodyText, raw string
 	switch kind {
 	case "md":
 		title = render.Title(body)
 		bodyText = string(body)
+		raw = bodyText
 	case "html":
 		bodyText = render.StripHTML(body)
 		title = htmlTitle(body)
+		raw = string(body)
 	}
 	if title == "" {
 		title = strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
@@ -469,7 +472,7 @@ func (s *Scanner) indexFile(ctx context.Context, abs, rel, space, kind string, i
 	if kind == "md" {
 		tags = render.Tags(body)
 	}
-	return indexed{note: note, body: bodyText, tags: tags}, assigned, false, nil
+	return indexed{note: note, body: bodyText, raw: raw, tags: tags}, assigned, false, nil
 }
 
 // ReassignID gives the file at rel a fresh id on disk. The watcher uses it

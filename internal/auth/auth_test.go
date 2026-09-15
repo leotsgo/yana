@@ -260,7 +260,7 @@ func TestAuthorizeNote(t *testing.T) {
 
 	note := index.Note{ID: scanner.NewID(time.Now()), Space: "home", RelPath: "home/x.md", Title: "x", Kind: "md", ContentHash: "h", Created: time.Now(), UpdatedAt: time.Now(), MTime: time.Now()}
 	if err := db.Write(ctx, func(tx *sql.Tx) error {
-		return index.UpsertNote(tx, note, "body", nil)
+		return index.UpsertNote(tx, note, "body", "body", nil)
 	}); err != nil {
 		t.Fatal(err)
 	}

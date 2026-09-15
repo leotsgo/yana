@@ -51,11 +51,11 @@ func ReplaceLinksForNote(tx *sql.Tx, fromID string) error {
 	if err != nil {
 		return err
 	}
-	body, err := bodyOfTx(tx, fromID)
+	kind, raw, err := rawBodyOfTx(tx, fromID)
 	if err != nil {
 		return err
 	}
-	return writeLinks(tx, fromID, res, rel, body)
+	return writeLinks(tx, fromID, kind, res, rel, raw)
 }
 
 // RecomputeSpaceLinks recomputes the outbound links of every note in one
@@ -66,18 +66,18 @@ func RecomputeSpaceLinks(tx *sql.Tx, space string) error {
 	if err != nil {
 		return err
 	}
-	rows, err := tx.Query(`SELECT n.id, n.rel_path, b.body FROM notes n
+	rows, err := tx.Query(`SELECT n.id, n.rel_path, n.kind, COALESCE(b.raw_body, b.body) FROM notes n
 		JOIN note_bodies b ON b.note_rowid = n.rowid WHERE n.space = ?`, space)
 	if err != nil {
 		return err
 	}
 	type item struct {
-		id, rel, body string
+		id, rel, kind, body string
 	}
 	var items []item
 	for rows.Next() {
 		var it item
-		if err := rows.Scan(&it.id, &it.rel, &it.body); err != nil {
+		if err := rows.Scan(&it.id, &it.rel, &it.kind, &it.body); err != nil {
 			rows.Close()
 			return err
 		}
@@ -88,7 +88,7 @@ func RecomputeSpaceLinks(tx *sql.Tx, space string) error {
 		return err
 	}
 	for _, it := range items {
-		if err := writeLinks(tx, it.id, res, it.rel, it.body); err != nil {
+		if err := writeLinks(tx, it.id, it.kind, res, it.rel, it.body); err != nil {
 			return err
 		}
 	}
@@ -144,12 +144,19 @@ func spaceResolver(tx *sql.Tx, space string) (*wikilink.Resolver, error) {
 }
 
 // writeLinks replaces the outbound rows of one note. raws is exactly the
-// distinct targets the body spells.
-func writeLinks(tx *sql.Tx, fromID string, res *wikilink.Resolver, fromRel, body string) error {
+// distinct targets the body spells: [[targets]] for markdown notes,
+// data-wikilink attributes for HTML ones.
+func writeLinks(tx *sql.Tx, fromID, kind string, res *wikilink.Resolver, fromRel, raw string) error {
 	if _, err := tx.Exec(`DELETE FROM links WHERE from_id = ?`, fromID); err != nil {
 		return err
 	}
-	for _, raw := range render.WikiLinks([]byte(body)) {
+	var raws []string
+	if kind == "html" {
+		raws = render.HTMLWikiLinks([]byte(raw))
+	} else {
+		raws = render.WikiLinks([]byte(raw))
+	}
+	for _, raw := range raws {
 		r := res.Resolve(raw, fromRel)
 		var toID any
 		resolved := 0
@@ -165,13 +172,14 @@ func writeLinks(tx *sql.Tx, fromID string, res *wikilink.Resolver, fromRel, body
 	return nil
 }
 
-func bodyOfTx(tx *sql.Tx, noteID string) (string, error) {
-	var body string
-	err := tx.QueryRow(`SELECT b.body FROM note_bodies b JOIN notes n ON n.rowid = b.note_rowid WHERE n.id = ?`, noteID).Scan(&body)
+// rawBodyOfTx returns the note's kind and untransformed body.
+func rawBodyOfTx(tx *sql.Tx, noteID string) (kind, raw string, err error) {
+	err = tx.QueryRow(`SELECT n.kind, COALESCE(b.raw_body, b.body) FROM note_bodies b
+		JOIN notes n ON n.rowid = b.note_rowid WHERE n.id = ?`, noteID).Scan(&kind, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return "", "", nil
 	}
-	return body, err
+	return kind, raw, err
 }
 
 func spaceOfPath(rel string) string {

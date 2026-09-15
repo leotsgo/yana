@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Phase 9 — HTML notes. `.html` files now render instead of showing their
+  source: on a second origin (port 8081 by default) inside a frame with
+  `sandbox="allow-scripts"` and nothing else, behind a CSP with no
+  connects, no forms, and images only from the same origin. Notes are
+  sanitized before serving unless their frontmatter says `trusted: true`;
+  flipping the flag re-sanitizes on the next render. Editing is
+  source-only with explicit saves — HTML does not merge — and a save that
+  lands on a changed file keeps the overwritten version beside the note
+  as `name.conflict-<ts>.html`. Wikilinks work through a `data-wikilink`
+  attribute with the same resolution, backlinks, and reports as
+  `[[targets]]`.
 - Phase 8 — Agent integration. Agents work on the tree two ways. On the
   box, bind-mount the tree and let the agent read and write files; a
   per-space `CONVENTIONS.md` generator (`POST

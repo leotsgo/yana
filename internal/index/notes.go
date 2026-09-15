@@ -48,8 +48,10 @@ func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 }
 
 // UpsertNote writes a note row, its body (for search) and its tags inside
-// tx. A note is identified by id; a changed rel_path is a move.
-func UpsertNote(tx *sql.Tx, n Note, body string, tags []string) error {
+// tx. A note is identified by id; a changed rel_path is a move. raw is the
+// untransformed body (the markdown itself, or the HTML source) links are
+// extracted from; body is what search reads.
+func UpsertNote(tx *sql.Tx, n Note, body, raw string, tags []string) error {
 	var order any
 	if n.Order != nil {
 		order = *n.Order
@@ -79,9 +81,9 @@ func UpsertNote(tx *sql.Tx, n Note, body string, tags []string) error {
 	if err := tx.QueryRow(`SELECT rowid FROM notes WHERE id = ?`, n.ID).Scan(&rowid); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT INTO note_bodies (note_rowid, title, body) VALUES (?, ?, ?)
-		ON CONFLICT(note_rowid) DO UPDATE SET title = excluded.title, body = excluded.body`,
-		rowid, n.Title, body); err != nil {
+	if _, err := tx.Exec(`INSERT INTO note_bodies (note_rowid, title, body, raw_body) VALUES (?, ?, ?, ?)
+		ON CONFLICT(note_rowid) DO UPDATE SET title = excluded.title, body = excluded.body, raw_body = excluded.raw_body`,
+		rowid, n.Title, body, raw); err != nil {
 		return fmt.Errorf("upsert body %s: %w", n.RelPath, err)
 	}
 	if _, err := tx.Exec(`DELETE FROM tags WHERE note_id = ?`, n.ID); err != nil {

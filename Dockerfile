@@ -27,9 +27,10 @@ RUN apk add --no-cache ripgrep git ca-certificates tzdata \
     && mkdir -p /notes
 COPY --from=build /out/yana /usr/local/bin/yana
 ENV YANA_NOTES_ROOT=/notes \
-    YANA_LISTEN=:8080
+    YANA_LISTEN=:8080 \
+    YANA_CONTENT_LISTEN=:8081
 VOLUME ["/notes"]
-EXPOSE 8080
+EXPOSE 8080 8081
 # Runs as root by default so a freshly created bind mount is writable (the
 # scanner writes ids into frontmatter). Set `user:` in compose to drop it.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

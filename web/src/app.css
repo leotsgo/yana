@@ -345,3 +345,25 @@ button { font: inherit; color: inherit; }
 .auth-form .btn { align-self: flex-start; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: #a05c19; }
+
+/* --- html notes --- */
+.html-body { display: flex; flex-direction: column; }
+.html-note { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.html-frame {
+  flex: 1; width: 100%; min-height: 0; border: 1px solid var(--line);
+  border-radius: 3px; background: #fff; color-scheme: light;
+}
+.html-note.editing { gap: 8px; }
+.source-editor {
+  flex: 1; min-height: 0; resize: none; border: 1px solid var(--line);
+  border-radius: 3px; padding: 14px 18px; font: 13px/1.6 var(--mono);
+  color: var(--ink); background: var(--bg); outline: none; tab-size: 2;
+}
+.source-editor:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.trust-badge {
+  font: 11px var(--mono); padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--ink-3); white-space: nowrap;
+}
+.trust-badge.trusted { color: #9a3412; border-color: #9a3412; }
+.trust-toggle.on { background: #9a3412; border-color: #9a3412; color: #fff; }
+.html-source-fallback { flex: 1; overflow: auto; padding-top: 12px; }

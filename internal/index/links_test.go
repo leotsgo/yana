@@ -19,13 +19,17 @@ func openLinksDB(t *testing.T) *DB {
 }
 
 func upsert(t *testing.T, db *DB, id, rel, body string) {
+	upsertKind(t, db, id, rel, "md", body, body)
+}
+
+func upsertKind(t *testing.T, db *DB, id, rel, kind, body, raw string) {
 	t.Helper()
 	now := time.Now().UTC()
 	err := db.Write(context.Background(), func(tx *sql.Tx) error {
 		return UpsertNote(tx, Note{
-			ID: id, Space: spaceOfPath(rel), RelPath: rel, Title: id, Kind: "md",
+			ID: id, Space: spaceOfPath(rel), RelPath: rel, Title: id, Kind: kind,
 			ContentHash: id, MTime: now, Created: now, UpdatedAt: now,
-		}, body, nil)
+		}, body, raw, nil)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -170,5 +174,47 @@ func TestContextLine(t *testing.T) {
 	}
 	if got := contextLine("plain body", "target"); got != "" {
 		t.Fatalf("no match expected: %q", got)
+	}
+}
+
+// HTML notes link through data-wikilink attributes; the index resolves
+// them exactly like [[targets]].
+func TestHTMLNoteLinks(t *testing.T) {
+	db := openLinksDB(t)
+	ctx := context.Background()
+
+	upsertKind(t, db, "dash", "main/dash.html", "html",
+		"Dash See the metrics note. Missing target.",
+		`<h1>Dash</h1><p>See <a data-wikilink="metrics">the metrics note</a>.
+<a data-wikilink="metrics">repeated target</a> and
+<a data-wikilink="no such note">a missing one</a>.</p>`)
+	upsertKind(t, db, "metrics", "main/metrics.md", "md", "# Metrics\n", "# Metrics\n")
+
+	if err := db.Write(ctx, func(tx *sql.Tx) error { return ReplaceLinksForNote(tx, "dash") }); err != nil {
+		t.Fatal(err)
+	}
+	out, err := db.OutboundLinks(ctx, "dash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("outbound = %+v", out)
+	}
+	byRaw := map[string]OutboundLink{}
+	for _, l := range out {
+		byRaw[l.RawTarget] = l
+	}
+	if l := byRaw["metrics"]; !l.Resolved || l.ToID != "metrics" {
+		t.Fatalf("metrics link = %+v", l)
+	}
+	if l := byRaw["no such note"]; l.Resolved {
+		t.Fatalf("missing link = %+v", l)
+	}
+	back, err := db.Backlinks(ctx, "metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back) != 1 || back[0].Note.ID != "dash" {
+		t.Fatalf("backlinks = %+v", back)
 	}
 }

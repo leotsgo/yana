@@ -50,6 +50,8 @@ export interface Note {
   tags: string[]
   base: string
   links: LinkInfo[]
+  trusted: boolean
+  content_hash: string
   html?: string
   markdown?: string
   source?: string
@@ -160,6 +162,16 @@ export const api = {
   daily: (space: string, date: string) =>
     post<{ id: string; path: string; created: boolean }>('/api/notes/daily', { space, date }),
   render: (markdown: string) => post<{ html: string }>('/api/render', { markdown }),
+  noteView: (id: string) =>
+    get<{ url: string; expires_at: string }>(`/api/notes/${encodeURIComponent(id)}/view`),
+  saveSource: (id: string, source: string, baseHash: string) =>
+    post<{ ok: boolean; path: string; hash: string; conflict_copy?: string }>(
+      `/api/notes/${encodeURIComponent(id)}/source`,
+      { source, base_hash: baseHash },
+      'PUT',
+    ),
+  setTrusted: (id: string, trusted: boolean) =>
+    post<{ ok: boolean; trusted: boolean }>(`/api/notes/${encodeURIComponent(id)}/trust`, { trusted }),
   upload: (path: string, file: Blob) => upload(path, file),
 }
 
