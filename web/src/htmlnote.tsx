@@ -13,9 +13,10 @@ export interface HtmlNoteProps {
   note: Note
   onOpen: (id: string) => void
   onToast: (msg: string) => void
+  onDelete: () => void
 }
 
-export function HtmlNote({ note, onOpen, onToast }: HtmlNoteProps) {
+export function HtmlNote({ note, onOpen, onToast, onDelete }: HtmlNoteProps) {
   const [frameURL, setFrameURL] = useState<string | null>(null)
   const [trusted, setTrusted] = useState(note.trusted)
   const [editing, setEditing] = useState(false)
@@ -132,6 +133,9 @@ export function HtmlNote({ note, onOpen, onToast }: HtmlNoteProps) {
           title={trusted ? 'Sanitize this note again' : 'Render this note as written (no sanitizer)'}
         >
           {trusted ? 'Untrust' : 'Trust'}
+        </button>
+        <button type="button" class="btn danger" onClick={onDelete} title="Move this note to the trash">
+          Delete
         </button>
       </div>
       {editing ? (

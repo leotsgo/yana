@@ -23,9 +23,11 @@ export interface NotePageProps {
   onToast: (msg: string) => void
   /** True when the note was just created: focus the editor on open. */
   fresh: boolean
+  /** Opens the delete confirmation for the open note. */
+  onDelete: () => void
 }
 
-export function NotePage({ id, preview, onTogglePreview, onOpen, onNote, onToast, fresh }: NotePageProps) {
+export function NotePage({ id, preview, onTogglePreview, onOpen, onNote, onToast, fresh, onDelete }: NotePageProps) {
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -118,7 +120,7 @@ export function NotePage({ id, preview, onTogglePreview, onOpen, onNote, onToast
       <article class="page html-page">
         <NoteHeader note={note} />
         <div class="page-body html-body">
-          <HtmlNote note={note} onOpen={onOpen} onToast={onToast} />
+          <HtmlNote note={note} onOpen={onOpen} onToast={onToast} onDelete={onDelete} />
         </div>
       </article>
     )
@@ -153,6 +155,9 @@ export function NotePage({ id, preview, onTogglePreview, onOpen, onNote, onToast
         </button>
         <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Backlinks and history">
           Details
+        </button>
+        <button type="button" class="btn danger" onClick={onDelete} title="Move this note to the trash">
+          Delete
         </button>
       </div>
       <div class="page-body">

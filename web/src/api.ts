@@ -81,6 +81,28 @@ export interface Status {
   git?: { available: boolean; commits: number; last_commit: string; errors: number }
 }
 
+export interface TrashEntry {
+  id: string
+  space: string
+  path: string
+  title: string
+  kind: 'md' | 'html'
+  created: string
+  deleted_at: string
+  trash_path?: string
+  has_file: boolean
+  has_sidecar: boolean
+  untracked?: boolean
+}
+
+export interface RestoreResult {
+  ok: boolean
+  path: string
+  conflict: boolean
+  note?: Note
+  deferred: boolean
+}
+
 export interface Upload {
   path: string
   name: string
@@ -148,6 +170,13 @@ export const api = {
     post<{ id: string; path: string }>('/api/notes', { path, content }),
   moveNote: (id: string, path: string) =>
     post<{ note: Note; rewritten: number; broken: number }>(`/api/notes/${encodeURIComponent(id)}/move`, { path }),
+  deleteNote: (id: string) =>
+    post<{ ok: boolean; trash_path: string }>(`/api/notes/${encodeURIComponent(id)}`, {}, 'DELETE'),
+  trash: () => get<{ entries: TrashEntry[] }>('/api/trash'),
+  restoreTrash: (id: string) =>
+    post<RestoreResult>(`/api/trash/${encodeURIComponent(id)}/restore`, {}),
+  destroyTrash: (id: string) => post<{ ok: boolean }>(`/api/trash/${encodeURIComponent(id)}`, {}, 'DELETE'),
+  emptyTrash: () => post<{ ok: boolean; destroyed: number }>('/api/trash/empty', {}),
   history: (id: string) =>
     get<{ entries: HistoryEntry[] }>(`/api/notes/${encodeURIComponent(id)}/history`),
   historyDiff: (id: string, from: string, to: string) =>

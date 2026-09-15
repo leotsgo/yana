@@ -74,7 +74,8 @@ type Options struct {
 	SettleTime time.Duration
 	// CompactAfter is the log length that triggers a snapshot (500).
 	CompactAfter int
-	// Retention is how long the sidecar of a deleted note is kept (30 days).
+	// Retention is how long a deleted note is kept (30 days): the
+	// retained sidecar and the .trash copy both sweep after it.
 	Retention time.Duration
 	// UnloadAfter drops an idle, clean, unpinned document from memory
 	// (15m). Negative disables unloading.
@@ -1333,11 +1334,12 @@ func (r *Reconciler) retryLater(rel string) {
 
 // --- maintenance -------------------------------------------------------------
 
-// maintain unloads idle documents and sweeps expired retired sidecars.
+// maintain unloads idle documents and sweeps expired trash.
 func (r *Reconciler) maintain(ctx context.Context) {
 	tick := time.NewTicker(time.Minute)
 	defer tick.Stop()
 	r.sweepRetired()
+	r.sweepTrash()
 	for {
 		select {
 		case <-ctx.Done():
@@ -1345,6 +1347,7 @@ func (r *Reconciler) maintain(ctx context.Context) {
 		case <-tick.C:
 			r.unloadIdle()
 			r.sweepRetired()
+			r.sweepTrash()
 		}
 	}
 }

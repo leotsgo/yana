@@ -77,6 +77,11 @@ func UpsertNote(tx *sql.Tx, n Note, body, raw string, tags []string) error {
 	if err != nil {
 		return fmt.Errorf("upsert note %s: %w", n.RelPath, err)
 	}
+	// A note row for this id means it is alive again; its trash entry,
+	// if any, is stale.
+	if err := ClearDeleted(tx, n.ID); err != nil {
+		return err
+	}
 	var rowid int64
 	if err := tx.QueryRow(`SELECT rowid FROM notes WHERE id = ?`, n.ID).Scan(&rowid); err != nil {
 		return err
@@ -99,35 +104,53 @@ func UpsertNote(tx *sql.Tx, n Note, body, raw string, tags []string) error {
 
 // DeleteNotesExcept removes every note whose rel_path is not in keep. It is
 // how a full scan retires files that vanished while the server was down.
-func DeleteNotesExcept(tx *sql.Tx, keep map[string]struct{}) (int64, error) {
-	rows, err := tx.Query(`SELECT rel_path FROM notes`)
+// Each removed row moves to deleted_notes, so the trash can still say
+// where the note lived.
+func DeleteNotesExcept(tx *sql.Tx, keep map[string]struct{}, now time.Time) (int64, error) {
+	rows, err := tx.Query(`SELECT id, rel_path FROM notes`)
 	if err != nil {
 		return 0, err
 	}
 	var gone []string
 	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
+		var id, p string
+		if err := rows.Scan(&id, &p); err != nil {
 			rows.Close()
 			return 0, err
 		}
 		if _, ok := keep[p]; !ok {
-			gone = append(gone, p)
+			gone = append(gone, id)
 		}
 	}
 	rows.Close()
-	for _, p := range gone {
-		if _, err := tx.Exec(`DELETE FROM notes WHERE rel_path = ?`, p); err != nil {
+	for _, id := range gone {
+		n, err := GetNoteTx(tx, id)
+		if err != nil {
+			return 0, err
+		}
+		if err := RetireNote(tx, n, "", now); err != nil {
 			return 0, err
 		}
 	}
 	return int64(len(gone)), nil
 }
 
-// DeleteNoteByPath removes one note row and its dependents.
-func DeleteNoteByPath(tx *sql.Tx, relPath string) error {
-	_, err := tx.Exec(`DELETE FROM notes WHERE rel_path = ?`, relPath)
-	return err
+// DeleteNoteByPath removes one note row and its dependents, keeping a
+// trash record of where it lived. now stamps the deletion.
+func DeleteNoteByPath(tx *sql.Tx, relPath string, now time.Time) error {
+	var id string
+	err := tx.QueryRow(`SELECT id FROM notes WHERE rel_path = ?`, relPath).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	n, err := GetNoteTx(tx, id)
+	if err != nil {
+		return err
+	}
+	return RetireNote(tx, n, "", now)
 }
 
 // UpsertAsset records a file under _assets.

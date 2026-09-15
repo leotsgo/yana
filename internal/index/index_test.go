@@ -116,7 +116,7 @@ func TestMoveAndRetire(t *testing.T) {
 	var gone int64
 	if err := db.Write(ctx, func(tx *sql.Tx) error {
 		var err error
-		gone, err = DeleteNotesExcept(tx, map[string]struct{}{"home/sub/one.md": {}})
+		gone, err = DeleteNotesExcept(tx, map[string]struct{}{"home/sub/one.md": {}}, time.Now())
 		return err
 	}); err != nil {
 		t.Fatal(err)

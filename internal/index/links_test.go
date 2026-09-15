@@ -105,7 +105,7 @@ func TestLinkRecomputeAndQueries(t *testing.T) {
 	}
 
 	// Deleting the target flips its inbound links unresolved.
-	if err := db.Write(ctx, func(tx *sql.Tx) error { return DeleteNoteByPath(tx, "main/target.md") }); err != nil {
+	if err := db.Write(ctx, func(tx *sql.Tx) error { return DeleteNoteByPath(tx, "main/target.md", time.Now()) }); err != nil {
 		t.Fatal(err)
 	}
 	in, err = db.InboundLinks(ctx, "target")
@@ -146,7 +146,7 @@ func TestRecomputeSpaceLinks(t *testing.T) {
 
 	// One twin disappears; the filename becomes unique.
 	if err := db.Write(ctx, func(tx *sql.Tx) error {
-		if err := DeleteNoteByPath(tx, "s/two/twin.md"); err != nil {
+		if err := DeleteNoteByPath(tx, "s/two/twin.md", time.Now()); err != nil {
 			return err
 		}
 		return RecomputeSpaceLinks(tx, "s")
