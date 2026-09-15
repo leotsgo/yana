@@ -202,6 +202,43 @@ export const api = {
   setTrusted: (id: string, trusted: boolean) =>
     post<{ ok: boolean; trusted: boolean }>(`/api/notes/${encodeURIComponent(id)}/trust`, { trusted }),
   upload: (path: string, file: Blob) => upload(path, file),
+  exportNote: (id: string) => download(`/api/notes/${encodeURIComponent(id)}/export.html`),
+  exportSite: (space: string, path?: string) => download(`/api/spaces/${encodeURIComponent(space)}/export/site.zip` + scope(path)),
+  exportTree: (space: string, path?: string) => download(`/api/spaces/${encodeURIComponent(space)}/export/notes.zip` + scope(path)),
+}
+
+function scope(path?: string): string {
+  return path ? `?path=${encodeURIComponent(path)}` : ''
+}
+
+/** Fetches an export as a blob, carrying the account token a plain navigation cannot. */
+async function download(path: string): Promise<{ blob: Blob; name: string }> {
+  const res = await authFetch(path, { headers: { Accept: 'application/octet-stream' } })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiError(res.status, (body as { error?: string }).error ?? `export failed (${res.status})`)
+  }
+  const name = contentDispositionName(res.headers.get('Content-Disposition')) ?? 'export'
+  return { blob: await res.blob(), name }
+}
+
+/** Pulls the filename out of a Content-Disposition header. */
+function contentDispositionName(header: string | null): string | null {
+  if (!header) return null
+  const m = /filename="([^"]+)"/.exec(header)
+  return m && m[1] ? m[1] : null
+}
+
+/** Saves a downloaded blob the way a browser saves a clicked link. */
+export function saveBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.append(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
 /** PUT one file under an _assets directory; the server picks a free name. */

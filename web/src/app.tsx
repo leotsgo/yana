@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
-import { api, ApiError, baseOf, dirOf } from './api'
+import { api, ApiError, baseOf, dirOf, saveBlob } from './api'
 import type { Note, SpaceTree, Status } from './api'
 import * as auth from './auth'
 import { Confirm } from './confirm'
@@ -270,6 +270,36 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     })
   }
 
+  // Exports are downloads the token has to travel with, so they run
+  // through the API wrapper rather than a plain navigation.
+  function exportNote(): void {
+    const n = current.current
+    if (!n) return
+    api
+      .exportNote(n.id)
+      .then(({ blob, name }) => {
+        saveBlob(blob, name)
+        say(`Exported ${n.title} as a single HTML file.`)
+      })
+      .catch((err: unknown) => {
+        say(err instanceof ApiError ? err.message : 'Could not export the note.')
+      })
+  }
+
+  function exportSpace(mode: 'site' | 'zip'): void {
+    const space = defaultSpace()
+    const run = mode === 'site' ? api.exportSite(space) : api.exportTree(space)
+    const what = space === '' ? 'the root' : space
+    run
+      .then(({ blob, name }) => {
+        saveBlob(blob, name)
+        say(mode === 'site' ? `Exported ${what} as a static site.` : `Exported ${what} as a zip.`)
+      })
+      .catch((err: unknown) => {
+        say(err instanceof ApiError ? err.message : 'Could not export the space.')
+      })
+  }
+
   function openPalette(): void {
     const items: PaletteItem[] = [
       { id: 'new', label: 'New note', hint: label(keys.newNote), run: () => newNotePrompt() },
@@ -280,7 +310,28 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     ]
     if (current.current) {
       items.push({ id: 'rename', label: 'Rename or move this note', detail: current.current.path, run: renamePrompt })
+      items.push({
+        id: 'export-note',
+        label: 'Export this note as HTML',
+        detail: 'one self-contained file',
+        run: exportNote,
+      })
       items.push({ id: 'delete', label: 'Delete this note', detail: 'moves it to the trash', run: deleteNotePrompt })
+    }
+    if (spaces.length > 0) {
+      const space = defaultSpace() || 'the root'
+      items.push({
+        id: 'export-site',
+        label: `Export ${space} as a site`,
+        detail: 'offline HTML with search',
+        run: () => exportSpace('site'),
+      })
+      items.push({
+        id: 'export-zip',
+        label: `Export ${space} as a zip`,
+        detail: 'markdown and assets, unchanged',
+        run: () => exportSpace('zip'),
+      })
     }
     items.push({ id: 'links', label: 'Unresolved links', detail: 'every wikilink that points nowhere', run: () => openLinks() })
     items.push({ id: 'trash', label: 'Trash', detail: 'deleted notes, kept for 30 days', run: () => openTrash() })

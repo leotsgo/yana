@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Phase 10 — Export and publish. Everything leaves: one note as a
+  single self-contained HTML file (images inlined as data URIs,
+  stylesheet embedded), a space or subtree as a static site zip — one
+  page per note mirroring the real folders, assets beside them,
+  navigation from the directory structure, wikilinks as relative hrefs,
+  backlinks on every page, and offline search from a prebuilt index and
+  a bundled minisearch runtime, working from `file://` or any static
+  host — and the tree as a zip of markdown and assets byte-identical to
+  disk, which round-trips ids, links, and structure exactly. Exports
+  never cross a space boundary the caller cannot see. The palette has
+  the three of them.
 - Phase 9 — HTML notes. `.html` files now render instead of showing their
   source: on a second origin (port 8081 by default) inside a frame with
   `sandbox="allow-scripts"` and nothing else, behind a CSP with no

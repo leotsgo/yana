@@ -68,6 +68,9 @@ type Deps struct {
 	// ContentAddr is the content listener's address; its port feeds the
 	// derived view URLs when ContentOrigin is empty.
 	ContentAddr string
+	// SearchJS is the bundled client-side search runtime embedded in
+	// static site exports; nil exports sites without a search page.
+	SearchJS []byte
 	// CanWrite decides whether a request may change a space. nil allows
 	// everything; when Auth is set the role check below runs instead.
 	CanWrite func(r *http.Request, space string) error
@@ -167,6 +170,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/notes/{id}/history/restore", s.authed(s.handleNoteHistoryRestore))
 	s.mux.HandleFunc("POST /api/git/snapshot", s.authed(s.handleGitSnapshot))
 	s.mux.HandleFunc("GET /api/status", s.authed(s.handleStatus))
+	s.mux.HandleFunc("GET /api/notes/{id}/export.html", s.authed(s.handleExportNote))
+	s.mux.HandleFunc("GET /api/spaces/{space}/export/site.zip", s.authed(s.handleExportSite))
+	s.mux.HandleFunc("GET /api/spaces/{space}/export/notes.zip", s.authed(s.handleExportTree))
 	if s.Auth != nil {
 		// Agent tokens are accounts-adjacent: they exist only when the
 		// account world does, and only the owner manages them.

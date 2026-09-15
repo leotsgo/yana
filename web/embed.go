@@ -22,3 +22,15 @@ func Dist() fs.FS {
 	}
 	return sub
 }
+
+// ExportSearchJS returns the bundled client-side search runtime that
+// static site exports carry (minisearch plus the search page's wiring),
+// or nil when this build has no web client; exports then ship without a
+// search page.
+func ExportSearchJS() []byte {
+	b, err := dist.ReadFile("dist/export-search.js")
+	if err != nil {
+		return nil
+	}
+	return b
+}
