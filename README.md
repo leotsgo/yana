@@ -63,13 +63,17 @@ limited, live for open clients, and committed to git under its label
  runnable as written only after you mark the note trusted — with
  source-only editing that keeps a `name.conflict-<ts>.html` copy when
  saves collide ([docs/html-notes.md](docs/html-notes.md)). Deleting a
- note is soft: the file moves to `.trash/` and its edit history is
- retained, both for a 30-day window; the trash lists every deleted note
- with its original path, restore returns it (a note `rm`'d from a shell
- comes back from its history with everything intact), and emptying the
- trash is the only permanent destruction
- ([docs/trash.md](docs/trash.md)).
- Export and the Android app are tracked as later phases.
+  note is soft: the file moves to `.trash/` and its edit history is
+  retained, both for a 30-day window; the trash lists every deleted note
+  with its original path, restore returns it (a note `rm`'d from a shell
+  comes back from its history with everything intact), and emptying the
+  trash is the only permanent destruction
+  ([docs/trash.md](docs/trash.md)). Everything exports: one note as a
+  self-contained HTML file, a space or subtree as a static site with
+  navigation, relative wikilinks, backlinks, and offline search, and the
+  whole tree as a byte-identical zip that round-trips ids, links, and
+  structure exactly ([docs/export.md](docs/export.md)).
+  The Android app is tracked as a later phase.
 
 ## Quick start
 
@@ -157,8 +161,8 @@ client, embedded into the binary), `spike/crdt/` (Phase 0 CRDT evaluation
 harness), `docs/` (`deployment.md`, `file-format.md`, `agents.md`,
 `realtime.md` for the wire protocol, `editor.md` for the client,
 `html-notes.md` for the sandbox and trust model, `trash.md` for deletion
-and recovery, and `crdt-decision.md`, which records which CRDT library
-each client uses and why).
+and recovery, `export.md` for the export formats, and `crdt-decision.md`,
+which records which CRDT library each client uses and why).
 
 The reconciliation tests include a 60 second oscillation check and a
 process-kill check; the relay tests include a server-restart convergence

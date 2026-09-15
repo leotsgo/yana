@@ -201,6 +201,7 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		Daily:         server.DailyConfig{Pattern: cfg.DailyPattern, Template: cfg.DailyTemplate},
 		ContentAddr:   cfg.ContentListen,
 		ContentOrigin: cfg.ContentOrigin,
+		SearchJS:      web.ExportSearchJS(),
 	})
 	if cfg.ContentListen != "" && cfg.ContentListen != "off" {
 		srv.Deps.Content = server.NewContent(db, root, nil, base)

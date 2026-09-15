@@ -45,9 +45,25 @@ const ctx = await esbuild.context({
   plugins: [html],
 })
 
+// The export search runtime: minisearch plus the search page's wiring,
+// bundled as a classic script under a stable name so the server can
+// embed it into static site exports.
+const exportCtx = await esbuild.context({
+  entryPoints: { 'export-search': 'src/export-search.ts' },
+  bundle: true,
+  minify: !watch,
+  sourcemap: false,
+  target: ['es2020'],
+  format: 'iife',
+  outdir: 'dist',
+  logLevel: 'info',
+})
+
 if (watch) {
   await ctx.watch()
 } else {
   await ctx.rebuild()
   await ctx.dispose()
+  await exportCtx.rebuild()
+  await exportCtx.dispose()
 }
