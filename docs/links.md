@@ -45,6 +45,20 @@ sidebar, or `GET /api/links/unresolved?space=name`.
 Every note carries a panel of notes linking to it, each with the line the
 link sits on. `GET /api/notes/{id}/backlinks` returns the same list.
 
+## Moving and renaming folders
+
+`POST /api/dirs/move` with `{"path": "main/team", "to": "main/crew"}`
+renames or moves a folder by moving every note under it through the
+note move above, shallowest first, so each note's inbound links are
+rewritten as it goes; then the rest of the directory (assets, files the
+scanner does not index) follows and the empty shell is removed. Links
+between notes inside the folder hold: a relative link keeps pointing at
+its sibling, a root-style path is rewritten to the new one, a bare
+filename stays a filename. The response counts the notes moved and the
+links rewritten. A failure part-way stops there with the count; each
+note already moved is a complete move of its own, so nothing is left
+half-renamed. A folder cannot move inside itself.
+
 ## Moving and renaming notes
 
 `POST /api/notes/{id}/move` with `{"path": "new/path.md"}` moves a note and

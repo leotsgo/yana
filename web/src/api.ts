@@ -11,6 +11,8 @@ export interface TreeNode {
   title?: string
   kind?: 'md' | 'html'
   order?: number
+  /** The note's inline #tags, folded to lower case. */
+  tags?: string[]
   children?: TreeNode[]
 }
 
@@ -152,6 +154,19 @@ export interface TrashEntry {
   untracked?: boolean
 }
 
+export interface TagCount {
+  tag: string
+  count: number
+}
+
+export interface DirMoveResult {
+  path: string
+  moved: number
+  total: number
+  rewritten: number
+  broken: number
+}
+
 export interface MoveResult {
   note: Note
   rewritten: number
@@ -235,6 +250,12 @@ export const api = {
     post<{ note: Note; rewritten: number; broken: number }>(`/api/notes/${encodeURIComponent(id)}/move`, { path }),
   deleteNote: (id: string) =>
     post<{ ok: boolean; trash_path: string }>(`/api/notes/${encodeURIComponent(id)}`, {}, 'DELETE'),
+  tags: () => get<{ tags: TagCount[] }>('/api/tags'),
+  tagNotes: (tag: string) => get<{ tag: string; notes: Note[] }>(`/api/tags/${encodeURIComponent(tag)}`),
+  createDir: (path: string) => post<{ path: string }>('/api/dirs', { path }),
+  moveDir: (path: string, to: string) => post<DirMoveResult>('/api/dirs/move', { path, to }),
+  deleteDir: (path: string) =>
+    post<{ ok: boolean; deleted: number; removed: boolean }>(`/api/dirs?path=${encodeURIComponent(path)}`, {}, 'DELETE'),
   trash: () => get<{ entries: TrashEntry[] }>('/api/trash'),
   restoreTrash: (id: string) =>
     post<RestoreResult>(`/api/trash/${encodeURIComponent(id)}/restore`, {}),

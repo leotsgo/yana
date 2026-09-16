@@ -122,3 +122,28 @@ func TestTaskCheckboxLines(t *testing.T) {
 		t.Errorf("want 5 checkboxes, got %d in:\n%s", n, html)
 	}
 }
+
+func TestInlineTagsRender(t *testing.T) {
+	cases := map[string]string{
+		"Plan #Work today":         `<span class="tag" data-tag="work">#Work</span>`,
+		"- #multi/level tag":       `<span class="tag" data-tag="multi/level">#multi/level</span>`,
+		"see (#paren) here":        `<span class="tag" data-tag="paren">#paren</span>`,
+		"issue #1 is open":         `issue #1 is open`,
+		"C# is not a tag":          `C# is not a tag`,
+		"`#code` stays code":       `<code>#code</code>`,
+		"a #tag. ends at the stop": `<span class="tag" data-tag="tag">#tag</span>.`,
+		"# Heading #Tagged":        `<h1 id="heading-tagged">Heading <span class="tag" data-tag="tagged">#Tagged</span></h1>`,
+	}
+	for in, want := range cases {
+		out, err := Markdown([]byte(in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out), want) {
+			t.Errorf("%q: got %s, want it to contain %s", in, out, want)
+		}
+	}
+	if out, _ := Markdown([]byte("word#notatag")); strings.Contains(string(out), "class=\"tag\"") {
+		t.Errorf("mid-word # became a tag: %s", out)
+	}
+}

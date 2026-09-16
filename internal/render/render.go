@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/yuin/goldmark"
@@ -40,6 +42,7 @@ func engine() goldmark.Markdown {
 					highlighting.WithFormatOptions(chromahtml.WithClasses(true)),
 				),
 				&wikilinkExt{},
+				&tagExt{},
 				&taskLineExt{},
 			),
 			goldmark.WithParserOptions(parser.WithAutoHeadingID()),
@@ -241,6 +244,101 @@ func (r *wikilinkRenderer) render(w util.BufWriter, source []byte, node ast.Node
 	_, _ = w.Write(util.EscapeHTML(n.Target))
 	_, _ = w.WriteString(`">`)
 	_, _ = w.Write(util.EscapeHTML(n.Display))
+	_, _ = w.WriteString(`</span>`)
+	return ast.WalkSkipChildren, nil
+}
+
+// --- tags -------------------------------------------------------------
+
+// Tag is the AST node for an inline #tag. The renderer emits a span
+// carrying the tag folded to lower case, the form the index stores, so
+// the client can turn it into a link to the tag's page. The same rule
+// as Tags() decides what counts: a # after a space, a ( or the start
+// of a line, followed by letters, digits, _, / or -, and not a number.
+type Tag struct {
+	ast.BaseInline
+	Name []byte
+}
+
+var kindTag = ast.NewNodeKind("Tag")
+
+// Kind implements ast.Node.
+func (n *Tag) Kind() ast.NodeKind { return kindTag }
+
+// Dump implements ast.Node.
+func (n *Tag) Dump(source []byte, level int) {
+	ast.DumpHelper(n, source, level, map[string]string{"Name": string(n.Name)}, nil)
+}
+
+type tagExt struct{}
+
+func (e *tagExt) Extend(m goldmark.Markdown) {
+	m.Parser().AddOptions(parser.WithInlineParsers(util.Prioritized(&tagParser{}, 160)))
+	m.Renderer().AddOptions(renderer.WithNodeRenderers(util.Prioritized(&tagRenderer{}, 500)))
+}
+
+type tagParser struct{}
+
+func (p *tagParser) Trigger() []byte { return []byte{'#'} }
+
+func (p *tagParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
+	line, seg := block.PeekLine()
+	if len(line) < 2 || line[0] != '#' {
+		return nil
+	}
+	if seg.Start > 0 {
+		prev := block.Source()[seg.Start-1]
+		if prev != ' ' && prev != '\t' && prev != '\n' && prev != '(' {
+			return nil
+		}
+	}
+	n := tagLen(line[1:])
+	if n == 0 {
+		return nil
+	}
+	name := line[1 : 1+n]
+	if isNumeric(string(name)) {
+		return nil
+	}
+	node := &Tag{Name: name}
+	node.AppendChild(node, ast.NewTextSegment(text.NewSegment(seg.Start, seg.Start+1+n)))
+	block.Advance(1 + n)
+	return node
+}
+
+// tagLen is the byte length of the tag name at the start of b: a
+// letter, digit or _ then any run of letters, digits, _, / and -.
+func tagLen(b []byte) int {
+	i := 0
+	for i < len(b) {
+		r, size := utf8.DecodeRune(b[i:])
+		ok := unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_'
+		if i > 0 {
+			ok = ok || r == '/' || r == '-'
+		}
+		if !ok {
+			break
+		}
+		i += size
+	}
+	return i
+}
+
+type tagRenderer struct{}
+
+func (r *tagRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(kindTag, r.render)
+}
+
+func (r *tagRenderer) render(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkSkipChildren, nil
+	}
+	n := node.(*Tag)
+	_, _ = w.WriteString(`<span class="tag" data-tag="`)
+	_, _ = w.Write(util.EscapeHTML(bytes.ToLower(n.Name)))
+	_, _ = w.WriteString(`">#`)
+	_, _ = w.Write(util.EscapeHTML(n.Name))
 	_, _ = w.WriteString(`</span>`)
 	return ast.WalkSkipChildren, nil
 }

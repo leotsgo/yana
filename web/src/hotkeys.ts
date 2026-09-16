@@ -17,6 +17,7 @@ export const keys = {
   switcher: { key: 'p', mod: true } as Hotkey,
   newNote: { key: 'n', alt: true } as Hotkey,
   daily: { key: 'd', alt: true } as Hotkey,
+  capture: { key: 'c', alt: true } as Hotkey,
   search: { key: 'f', mod: true, shift: true } as Hotkey,
   split: { key: 'e', mod: true } as Hotkey,
 }

@@ -287,6 +287,20 @@ kbd {
 .space.drop > .space-name, .tree-dir.drop, .tree-note.drop { box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
 .tree-note[draggable="true"] { cursor: grab; }
 .tree-note[draggable="true"]:active { cursor: grabbing; }
+.tree-note .tree-title, .tree-dir .tree-title { flex: 1; min-width: 0; }
+.tree-more {
+  flex: none; width: 22px; height: 22px; margin-right: -4px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ink-3); background: none; border: 0; border-radius: 4px; cursor: pointer; visibility: hidden;
+}
+.tree-note:hover .tree-more, .tree-dir:hover .tree-more, .tree-note:focus-within .tree-more { visibility: visible; }
+.tree-more:hover { color: var(--ink); background: var(--hover); }
+.tree-empty-dir {
+  display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 calc(var(--indent, 10px) + 36px);
+  font-size: 12.5px; color: var(--ink-3); background: none; border: 0; cursor: pointer; width: 100%; text-align: left;
+}
+.tree-empty-dir:hover { color: var(--accent-ink); background: var(--hover); }
+.space.pinned { padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.space.pinned .space-name { color: var(--accent-ink); }
 
 .empty { padding: 14px 16px; color: var(--ink-2); font-size: 13px; }
 .empty p { margin: 0 0 10px; }
@@ -319,6 +333,7 @@ kbd {
 .home-sub { margin: 6px 0 24px; color: var(--ink-2); }
 .home-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 36px; }
 .section-title { font: 600 11px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 8px; }
+.recents + .recents { margin-top: 28px; }
 .recents-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .recent {
   display: flex; align-items: baseline; gap: 12px; padding: 8px 10px; margin: 0 -10px;
@@ -417,6 +432,12 @@ kbd {
 .meta dd { margin: 0; overflow-wrap: anywhere; }
 .meta .tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag { font-family: var(--mono); font-size: 12px; color: var(--accent-ink); }
+.note-tags { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; }
+.note-tags .tag { font-size: 12.5px; }
+.note-tags .tag:hover { text-decoration: underline; }
+.markdown .tag { font-size: 0.92em; padding: 0 2px; border-radius: 3px; cursor: pointer; }
+.markdown .tag:hover, .markdown .tag:focus-visible { background: var(--accent-soft); }
+.hit-mark { background: var(--mark); color: inherit; padding: 0 1px; border-radius: 2px; box-shadow: 0 0 0 2px var(--mark); }
 .details-layer { position: absolute; inset: 0; z-index: 12; display: flex; justify-content: flex-end; }
 .details-layer .scrim { position: absolute; inset: 0; background: var(--scrim); }
 .details-layer .details { position: relative; height: 100%; box-shadow: var(--shadow-3); border-left: 1px solid var(--line); animation: slide-left 160ms ease-out; }
@@ -507,6 +528,44 @@ kbd {
 .unresolved-report .unresolved-row { display: flex; gap: 12px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .unresolved-note { font-family: var(--mono); font-size: 13px; }
 .unresolved-target { font-size: 12px; color: var(--ink-3); }
+
+/* --- tags -------------------------------------------------------------- */
+
+.tag-hash { color: var(--ink-3); font-weight: 500; }
+.tag-cloud { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px;
+  font: 13px var(--mono); color: var(--ink); background: var(--bg-2); border: 1px solid var(--line); border-radius: 16px;
+}
+.tag-chip:hover { text-decoration: none; border-color: var(--accent); background: var(--accent-soft); }
+.tag-chip-name { color: var(--accent-ink); }
+.tag-chip-count { color: var(--ink-3); font-size: 12px; }
+.tag-notes { list-style: none; margin: 16px 0 0; padding: 0; }
+.tag-note { display: flex; flex-direction: column; gap: 2px; padding: 10px 2px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.tag-note:hover { background: var(--hover); text-decoration: none; }
+.tag-note-title { font-weight: 500; }
+.tag-note-path { font: 11.5px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-note-preview { font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- search page (phone) ---------------------------------------------- */
+
+.search-page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.search-page-bar { display: flex; align-items: center; gap: 4px; flex: none; padding: calc(6px + var(--safe-top)) 8px 6px 4px; border-bottom: 1px solid var(--line); }
+.search-page-bar .sidebar-search { flex: 1; margin: 0; }
+.search-page-body { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: calc(24px + var(--safe-bottom)); }
+.recent-queries { padding: 14px 12px 8px; }
+.recent-queries .section-title { padding: 0 4px; }
+.recent-query { display: flex; align-items: center; gap: 4px; }
+.recent-query-run {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 8px;
+  font-size: 15px; color: var(--ink); background: none; border: 0; border-radius: var(--r-sm); cursor: pointer; text-align: left;
+}
+.recent-query-run .icon { color: var(--ink-3); }
+.recent-query-run span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-query-run:hover { background: var(--hover); }
+.recent.static { cursor: default; }
+.recent.static:hover { background: none; }
+.recent.static .recent-title .icon { color: var(--ink-3); vertical-align: -2px; }
 
 /* --- settings ---------------------------------------------------------- */
 
@@ -662,6 +721,9 @@ kbd {
 .menu-detail { font: 11.5px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 .menu-check { color: var(--accent-ink); }
 .menu-sep { height: 1px; margin: 6px 4px; background: var(--line); }
+.menu-head { display: flex; flex-direction: column; gap: 1px; padding: 6px 10px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.menu-title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-subtitle { font: 11px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* --- toast and confirm ------------------------------------------------- */
 
@@ -669,7 +731,14 @@ kbd {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + var(--safe-bottom)); z-index: 30;
   max-width: min(460px, calc(100vw - 32px)); padding: 10px 14px; font-size: 13px; color: var(--bg); background: var(--ink);
   border-radius: var(--r); box-shadow: var(--shadow-2); animation: rise 140ms ease-out;
+  display: flex; align-items: center; gap: 14px; width: max-content;
 }
+.toast-msg { min-width: 0; }
+.toast-action {
+  flex: none; margin: -4px -6px -4px 0; padding: 4px 8px; font-weight: 600; font-size: 13px; color: var(--accent-soft);
+  background: none; border: 0; border-radius: var(--r-sm); cursor: pointer;
+}
+.toast-action:hover { background: rgba(255, 255, 255, 0.12); }
 .confirm {
   width: min(500px, 100%); background: var(--bg); border: 1px solid var(--line);
   border-radius: var(--r-lg); padding: 20px 22px 16px; box-shadow: var(--shadow-3); animation: rise 120ms ease-out;
@@ -839,6 +908,13 @@ kbd {
 .shell.phone .palette-key { display: none; }
 .shell.phone .menu-item { height: 44px; font-size: 15px; }
 .shell.phone .toast { bottom: calc(var(--bottombar) + var(--safe-bottom) + 12px); }
+/* A sheet takes the bottom of the screen; a toast still showing moves up. */
+.shell.phone .menu-layer ~ .toast { bottom: auto; top: calc(var(--topbar) + var(--safe-top) + 12px); }
+.shell.phone .bottombar-btn { font-size: 10.5px; }
+.shell.phone .menu-head { padding: 8px 12px 10px; }
+.shell.phone .menu-title { font-size: 15px; }
+.shell.phone .search-page .search-input { font-size: 16px; }
+.shell.phone .note-tags .tag { font-size: 13.5px; }
 .shell.phone .report-head { padding-top: 16px; }
 .shell.phone .settings-main { padding-top: 4px; }
 .shell.phone .settings-block { margin-top: 22px; padding-top: 16px; }

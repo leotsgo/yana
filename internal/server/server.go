@@ -147,6 +147,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PATCH /api/spaces/{space}", s.authed(s.handleSpaceUpdate))
 	s.mux.HandleFunc("DELETE /api/spaces/{space}", s.authed(s.handleSpaceDelete))
 	s.mux.HandleFunc("GET /api/tree", s.authed(s.handleTree))
+	s.mux.HandleFunc("GET /api/tags", s.authed(s.handleTags))
+	s.mux.HandleFunc("GET /api/tags/{tag}", s.authed(s.handleTagNotes))
+	s.mux.HandleFunc("POST /api/dirs", s.authed(s.handleDirCreate))
+	s.mux.HandleFunc("POST /api/dirs/move", s.authed(s.handleDirMove))
+	s.mux.HandleFunc("DELETE /api/dirs", s.authed(s.handleDirDelete))
 	s.mux.HandleFunc("GET /api/notes/{id}", s.authed(s.handleNote))
 	s.mux.HandleFunc("GET /api/search", s.authed(s.handleSearch))
 	s.mux.HandleFunc("GET /api/files/{path...}", s.authed(s.handleFile))
@@ -325,11 +330,17 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	notes = s.visibleNotes(r, notes)
-	tree := buildTree(notes)
+	tags, err := s.DB.AllTags(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	tree := buildTree(notes, tags)
 	if tree == nil {
 		tree = []SpaceTree{}
 	}
 	tree = s.withEmptySpaces(r, space, tree)
+	s.withEmptyDirs(tree)
 	writeJSON(w, http.StatusOK, map[string]any{"spaces": tree})
 }
 
