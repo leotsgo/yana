@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'preact/hooks'
 import { api, ApiError } from './api'
 import type { TrashEntry } from './api'
 import { fmtDate } from './dom'
+import { Icon } from './icons'
 import type { ConfirmSpec } from './confirm'
 
 export interface TrashPageProps {
@@ -122,22 +123,26 @@ export function TrashPage({ onOpen, onToast, confirm, onChanged }: TrashPageProp
   }
 
   return (
-    <div class="page-scroll trash">
-      <header class="trash-head">
-        <h1 class="trash-title">Trash</h1>
-        <p class="trash-sub">
+    <div class="page-scroll report trash">
+      <header class="report-head">
+        <h1 class="report-title">Trash</h1>
+        <p class="report-sub">
           {entries.length === 0
             ? 'Nothing in it.'
             : `${entries.length} ${entries.length === 1 ? 'note' : 'notes'}. Kept for 30 days; emptying is forever.`}
         </p>
         {entries.length > 0 && (
           <button type="button" class="btn danger" disabled={busy !== null} onClick={empty}>
+            <Icon name="trash" />
             Empty trash
           </button>
         )}
       </header>
       {entries.length === 0 ? (
-        <p class="trash-empty muted">Deleted notes sit here until the retention window passes.</p>
+        <div class="empty-state">
+          <Icon name="trash" size={28} />
+          <p>Deleted notes sit here for 30 days, then go for good.</p>
+        </div>
       ) : (
         <ul class="trash-list">
           {entries.map((e) => (
@@ -156,10 +161,12 @@ export function TrashPage({ onOpen, onToast, confirm, onChanged }: TrashPageProp
                 </span>
                 {e.id && (
                   <>
-                    <button type="button" class="btn" disabled={busy !== null} onClick={() => restore(e)}>
+                    <button type="button" class="btn small" disabled={busy !== null} onClick={() => restore(e)}>
+                      <Icon name="restore" />
                       Restore
                     </button>
-                    <button type="button" class="btn danger" disabled={busy !== null} onClick={() => destroy(e)}>
+                    <button type="button" class="btn small danger" disabled={busy !== null} onClick={() => destroy(e)}>
+                      <Icon name="x" />
                       Delete forever
                     </button>
                   </>

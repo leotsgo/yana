@@ -8,15 +8,19 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 
 import { api, ApiError } from './api'
 import type { Note } from './api'
+import { Icon } from './icons'
 
 export interface HtmlNoteProps {
   note: Note
   onOpen: (id: string) => void
   onToast: (msg: string) => void
-  onDelete: () => void
+  /** Opens the note's overflow menu (rename, export, delete) under the button. */
+  onMore: (anchor: HTMLElement) => void
+  details: boolean
+  onToggleDetails: () => void
 }
 
-export function HtmlNote({ note, onOpen, onToast, onDelete }: HtmlNoteProps) {
+export function HtmlNote({ note, onOpen, onToast, onMore, details, onToggleDetails }: HtmlNoteProps) {
   const [frameURL, setFrameURL] = useState<string | null>(null)
   const [trusted, setTrusted] = useState(note.trusted)
   const [editing, setEditing] = useState(false)
@@ -109,33 +113,44 @@ export function HtmlNote({ note, onOpen, onToast, onDelete }: HtmlNoteProps) {
     <section class={'html-note' + (editing ? ' editing' : '')}>
       <div class="editor-toolbar">
         <span class={'trust-badge ' + (trusted ? 'trusted' : 'sandboxed')} title={trusted
-          ? 'The frontmatter says trusted: true; the note renders as written, still sandboxed and behind the content CSP.'
-          : 'Scripts and remote references are stripped before rendering.'}>
-          {trusted ? 'trusted' : 'sanitized'}
+          ? 'Rendered as written, scripts and all, on the content origin.'
+          : 'Sanitized: scripts, event handlers and external loads are stripped before rendering.'}>
+          <Icon name={trusted ? 'shield-off' : 'shield'} />
+          {trusted ? 'Unsanitized' : 'Sanitized'}
         </span>
         {notice && <span class="editor-notice">{notice}</span>}
         <span class="spacer" />
         {editing && (
           <>
-            <span class={'sync-status ' + (dirty ? 'offline' : 'synced')}>{dirty ? 'unsaved' : 'saved'}</span>
-            <button type="button" class="btn" disabled={!dirty || saving} onClick={save}>
-              {saving ? 'Saving…' : 'Save'}
+            <span class={'sync-status ' + (dirty ? 'offline' : 'synced')}>
+              <span class="sync-dot" />
+              <span class="sync-label">{dirty ? 'Unsaved' : 'Saved'}</span>
+            </span>
+            <button type="button" class="btn primary" disabled={!dirty || saving} onClick={save}>
+              <Icon name="save" />
+              Save
             </button>
           </>
         )}
-        <button type="button" class={'btn' + (editing ? ' on' : '')} onClick={() => setEditing((e) => !e)} title="Edit the HTML source">
-          {editing ? 'View' : 'Edit source'}
+        <button type="button" class={'btn' + (editing ? ' on' : '')} onClick={() => setEditing((e) => !e)} title="Edit the HTML source" aria-pressed={editing}>
+          <Icon name="code" />
+          Source
         </button>
         <button
           type="button"
           class={'btn trust-toggle' + (trusted ? ' on' : '')}
           onClick={toggleTrust}
-          title={trusted ? 'Sanitize this note again' : 'Render this note as written (no sanitizer)'}
+          title={trusted ? 'Sanitize this note again' : 'Render this note unsanitized (scripts run)'}
+          aria-pressed={trusted}
         >
-          {trusted ? 'Untrust' : 'Trust'}
+          <Icon name={trusted ? 'shield-off' : 'shield'} />
+          Trust
         </button>
-        <button type="button" class="btn danger" onClick={onDelete} title="Move this note to the trash">
-          Delete
+        <button type="button" class={'btn' + (details ? ' on' : '')} onClick={onToggleDetails} title="Path, backlinks and history" aria-pressed={details}>
+          <Icon name="panel-right" />
+        </button>
+        <button type="button" class="icon-btn" title="More" aria-label="More actions" onClick={(ev) => onMore(ev.currentTarget as HTMLElement)}>
+          <Icon name="more" size={18} />
         </button>
       </div>
       {editing ? (

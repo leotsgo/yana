@@ -95,6 +95,12 @@ export interface TrashEntry {
   untracked?: boolean
 }
 
+export interface MoveResult {
+  note: Note
+  rewritten: number
+  broken: number
+}
+
 export interface RestoreResult {
   ok: boolean
   path: string

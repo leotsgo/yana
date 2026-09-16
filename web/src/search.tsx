@@ -45,11 +45,11 @@ export function SearchResults({ query, regex, onOpen }: { query: string; regex: 
     case 'idle':
       return null
     case 'loading':
-      return <p class="empty">Searching…</p>
+      return <p class="empty muted">Searching…</p>
     case 'error':
-      return <p class="error">{result.message}</p>
+      return <p class="empty error">{result.message}</p>
     case 'fts':
-      if (result.hits.length === 0) return <p class="empty">No notes match.</p>
+      if (result.hits.length === 0) return <p class="empty muted">No notes match. Search looks at titles and bodies; the .* switch matches a regular expression against the files instead.</p>
       return (
         <div class="results">
           {result.hits.map((hit) => (
@@ -67,7 +67,7 @@ export function SearchResults({ query, regex, onOpen }: { query: string; regex: 
         </div>
       )
     case 'regex':
-      if (result.hits.length === 0) return <p class="empty">No lines match.</p>
+      if (result.hits.length === 0) return <p class="empty muted">No lines match that expression.</p>
       return (
         <div class="results">
           {result.hits.map((hit, i) => (

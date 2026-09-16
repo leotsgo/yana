@@ -300,6 +300,9 @@ export class SyncClient {
     this.destroyed = true
     if (this.retryTimer !== undefined) window.clearTimeout(this.retryTimer)
     if (this.flushTimer !== undefined) window.clearTimeout(this.flushTimer)
+    // Whatever was typed in the last batch window goes out before the
+    // socket closes; leaving a note is not a reason to drop an edit.
+    this.flush()
     if (this.awarenessTimer !== undefined) window.clearTimeout(this.awarenessTimer)
     this.stopKeepalive()
     const ws = this.ws

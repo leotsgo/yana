@@ -1,19 +1,28 @@
-// The app shell: top bar, sidebar (tree or search results), the open note
-// or report, and the overlays (command palette, quick switcher, prompts).
-// Global hotkeys live here too; see hotkeys.ts for the bindings.
+// The app shell: top bar, sidebar (search, tree or results, nav), the open
+// note or report, and the overlays (command palette, quick switcher,
+// prompts, menus). Three layouts share this one tree: on phones the
+// sidebar is a drawer and a bar runs along the bottom; on tablets the
+// drawer stays but the top bar has room for actions; on desktops the
+// sidebar is a column that can be collapsed. Global hotkeys live here
+// too; see hotkeys.ts for the bindings.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import { api, ApiError, baseOf, dirOf, saveBlob } from './api'
-import type { Note, SpaceTree, Status } from './api'
+import type { MoveResult, Note, SpaceTree, Status } from './api'
 import * as auth from './auth'
 import { Confirm } from './confirm'
 import type { ConfirmSpec } from './confirm'
 import { isEditable, keys, label, matches } from './hotkeys'
+import { Icon } from './icons'
+import { useLayout } from './layout'
 import { renderUnresolvedReport } from './links'
+import { Menu } from './menu'
+import type { MenuSpec } from './menu'
 import { NotePage } from './note'
 import { Palette } from './palette'
 import type { PaletteItem, PaletteSpec } from './palette'
+import * as prefs from './prefs'
 import { SearchResults } from './search'
 import { TrashPage } from './trash'
 import { Tree, flatten } from './tree'
@@ -27,24 +36,28 @@ function parseRoute(): Route {
   return m && m[1] ? { kind: 'note', id: m[1] } : { kind: 'home' }
 }
 
-const PREVIEW_KEY = 'yana.preview'
-
 export function App({ onSignOut }: { onSignOut: () => void }) {
+  const layout = useLayout()
   const [route, setRoute] = useState<Route>(parseRoute)
-  const [spaces, setSpaces] = useState<SpaceTree[]>([])
+  const [spaces, setSpaces] = useState<SpaceTree[] | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
   const [query, setQuery] = useState('')
   const [regex, setRegex] = useState(false)
   const [palette, setPalette] = useState<PaletteSpec | null>(null)
+  const [menu, setMenu] = useState<MenuSpec | null>(null)
   const [confirmSpec, setConfirmSpec] = useState<ConfirmSpec | null>(null)
   const [toast, setToast] = useState<string | null>(null)
-  const [preview, setPreview] = useState(() => localStorage.getItem(PREVIEW_KEY) !== '0')
+  const [preview, setPreview] = useState(() => prefs.openMode() === 'split')
+  const [collapsed, setCollapsed] = useState(prefs.sidebarCollapsed) // desktop column
+  const [drawer, setDrawer] = useState(false) // phone and tablet
   const [fresh, setFresh] = useState<string | null>(null)
+  const [themePref, setThemePref] = useState(prefs.theme)
   const [rev, setRev] = useState(0) // bumps to reopen the current note after a move
   const searchInput = useRef<HTMLInputElement>(null)
   const current = useRef<Note | null>(null)
   const user = auth.user()
+  const narrow = layout !== 'desktop'
 
   // --- navigation --------------------------------------------------------
 
@@ -52,18 +65,21 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     const path = id ? `/n/${id}` : '/'
     if (push && location.pathname !== path) history.pushState(null, '', path)
     setRoute(id ? { kind: 'note', id } : { kind: 'home' })
+    setDrawer(false)
     if (!id) document.title = 'YANA/'
   }, [])
 
   const openLinks = useCallback((push = true) => {
     if (push && location.pathname !== '/links') history.pushState(null, '', '/links')
     setRoute({ kind: 'links' })
+    setDrawer(false)
     document.title = 'Unresolved links — YANA/'
   }, [])
 
   const openTrash = useCallback((push = true) => {
     if (push && location.pathname !== '/trash') history.pushState(null, '', '/trash')
     setRoute({ kind: 'trash' })
+    setDrawer(false)
     document.title = 'Trash — YANA/'
   }, [])
 
@@ -72,6 +88,11 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
+
+  // The drawer is a phone thing; a resize to desktop leaves it closed.
+  useEffect(() => {
+    if (!narrow) setDrawer(false)
+  }, [narrow])
 
   // --- data --------------------------------------------------------------
 
@@ -117,12 +138,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // --- actions -----------------------------------------------------------
 
-  const notes = useMemo(() => flatten(spaces), [spaces])
+  const notes = useMemo(() => flatten(spaces ?? []), [spaces])
 
   /** The space new things go into: the open note's, else the first one. */
   function defaultSpace(): string {
     if (current.current) return current.current.space
-    return spaces[0]?.name ?? ''
+    return spaces?.[0]?.name ?? ''
   }
 
   const createNote = useCallback(
@@ -148,9 +169,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     const initial = dir ? dir + '/' : ''
     setPalette({
       mode: 'prompt',
-      placeholder: 'Path for the new note',
+      placeholder: 'Name for the new note',
       initial,
-      hint: 'A path inside the tree, like projects/kiln.md. Folders that do not exist yet are created. Enter to create and start writing.',
+      hint: 'A name, or a path inside the tree like projects/kiln. Folders that do not exist yet are created.',
       onSubmit: (v) => void createNote(v),
     })
   }
@@ -171,24 +192,43 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate, loadTree, say, spaces])
 
+  const movedToast = useCallback(
+    (res: MoveResult) => {
+      const n = res.rewritten
+      say(
+        n > 0
+          ? `Moved to ${res.note.path}. ${n} link${n === 1 ? '' : 's'} updated${res.broken ? `, ${res.broken} left unresolved` : ''}.`
+          : `Moved to ${res.note.path}.`,
+      )
+    },
+    [say],
+  )
+
   const moveNote = useCallback(
     async (id: string, from: string, to: string) => {
       try {
         const res = await api.moveNote(id, to)
         current.current = null
         void loadTree()
-        const n = res.rewritten
-        say(
-          n > 0
-            ? `Moved to ${res.note.path}. ${n} link${n === 1 ? '' : 's'} updated${res.broken ? `, ${res.broken} left unresolved` : ''}.`
-            : `Moved to ${res.note.path}.`,
-        )
+        movedToast(res)
         if (route.kind === 'note' && route.id === id) setRev((r) => r + 1)
       } catch (err) {
         say(err instanceof ApiError ? err.message : `Could not move ${from}.`)
       }
     },
-    [loadTree, say, route],
+    [loadTree, say, movedToast, route],
+  )
+
+  // A rename from the title keeps the page mounted; only the tree changes.
+  // The new heading reaches the index a beat after the file moves, so the
+  // tree is read twice.
+  const onMoved = useCallback(
+    (res: MoveResult) => {
+      void loadTree()
+      window.setTimeout(() => void loadTree(), 1500)
+      movedToast(res)
+    },
+    [loadTree, movedToast],
   )
 
   function renamePrompt(): void {
@@ -226,6 +266,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           api
             .deleteNote(n.id)
             .then(() => {
+              prefs.forgetRecent(n.id)
               if (route.kind === 'note' && route.id === n.id) navigate(null)
               void loadTree()
               say(`Deleted ${n.title}. It is in the trash.`)
@@ -246,23 +287,45 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   const togglePreview = useCallback(() => {
     setPreview((p) => {
-      localStorage.setItem(PREVIEW_KEY, p ? '0' : '1')
+      prefs.setOpenMode(p ? 'edit' : 'split')
       return !p
     })
   }, [])
 
+  function toggleSidebar(): void {
+    if (narrow) {
+      setDrawer((d) => !d)
+      return
+    }
+    setCollapsed((c) => {
+      prefs.setSidebarCollapsed(!c)
+      return !c
+    })
+  }
+
   function focusSearch(): void {
-    const el = searchInput.current
-    if (!el) return
-    el.focus()
-    el.select()
+    if (narrow) setDrawer(true)
+    else if (collapsed) {
+      setCollapsed(false)
+      prefs.setSidebarCollapsed(false)
+    }
+    // The input may be mounting; focus after the next paint.
+    window.setTimeout(() => {
+      const el = searchInput.current
+      if (!el) return
+      el.focus()
+      el.select()
+    }, 0)
   }
 
   function openSwitcher(): void {
+    const recent = new Set(prefs.recents())
+    const items = notes.map((n) => ({ id: n.id, label: n.title, detail: n.path, run: () => navigate(n.id) }))
+    items.sort((a, b) => Number(recent.has(b.id)) - Number(recent.has(a.id)))
     setPalette({
       mode: 'list',
       placeholder: 'Open a note',
-      items: notes.map((n) => ({ id: n.id, label: n.title, detail: n.path, run: () => navigate(n.id) })),
+      items,
       onCreate: (q) => {
         const sp = defaultSpace()
         void createNote(q.includes('/') || !sp ? q : `${sp}/${q}`)
@@ -300,14 +363,34 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       })
   }
 
+  function showShortcuts(): void {
+    const rows: Array<[string, string]> = [
+      ['New note', label(keys.newNote)],
+      ["Today's note", label(keys.daily)],
+      ['Open a note by name', label(keys.switcher)],
+      ['Command palette', label(keys.palette)],
+      ['Search', label(keys.search) + ' or /'],
+      ['Show or hide the preview', label(keys.preview)],
+      ['Close a dialog', 'Esc'],
+    ]
+    setPalette({
+      mode: 'list',
+      placeholder: 'Keyboard shortcuts',
+      items: rows.map(([what, key]) => ({ id: what, label: what, hint: key, run: () => undefined })),
+    })
+  }
+
   function openPalette(): void {
     const items: PaletteItem[] = [
       { id: 'new', label: 'New note', hint: label(keys.newNote), run: () => newNotePrompt() },
-      { id: 'daily', label: 'Daily note', detail: 'today', hint: label(keys.daily), run: () => void openDaily() },
+      { id: 'daily', label: "Today's note", hint: label(keys.daily), run: () => void openDaily() },
       { id: 'open', label: 'Open a note', hint: label(keys.switcher), run: openSwitcher },
       { id: 'search', label: 'Search notes', hint: label(keys.search), run: focusSearch },
-      { id: 'preview', label: preview ? 'Hide the preview' : 'Show the preview', hint: label(keys.preview), run: togglePreview },
     ]
+    if (!narrow) {
+      items.push({ id: 'preview', label: preview ? 'Hide the preview' : 'Show the preview', hint: label(keys.preview), run: togglePreview })
+      items.push({ id: 'sidebar', label: collapsed ? 'Show the sidebar' : 'Hide the sidebar', run: toggleSidebar })
+    }
     if (current.current) {
       items.push({ id: 'rename', label: 'Rename or move this note', detail: current.current.path, run: renamePrompt })
       items.push({
@@ -318,7 +401,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       })
       items.push({ id: 'delete', label: 'Delete this note', detail: 'moves it to the trash', run: deleteNotePrompt })
     }
-    if (spaces.length > 0) {
+    if (spaces && spaces.length > 0) {
       const space = defaultSpace() || 'the root'
       items.push({
         id: 'export-site',
@@ -348,8 +431,46 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         },
       })
     }
+    items.push({ id: 'theme', label: 'Theme', detail: themePref, run: () => setThemeNext() })
+    items.push({ id: 'keys', label: 'Keyboard shortcuts', run: showShortcuts })
     if (user) items.push({ id: 'signout', label: 'Sign out', detail: user.username, run: () => void auth.logout().then(onSignOut) })
     setPalette({ mode: 'list', placeholder: 'Type a command', items })
+  }
+
+  function setThemeTo(t: prefs.Theme): void {
+    prefs.setTheme(t)
+    setThemePref(t)
+  }
+
+  function setThemeNext(): void {
+    const order: prefs.Theme[] = ['system', 'light', 'dark']
+    const i = order.indexOf(themePref)
+    setThemeTo(order[(i + 1) % order.length] ?? 'system')
+  }
+
+  function openUserMenu(anchor: HTMLElement): void {
+    setMenu({
+      anchor,
+      label: 'account',
+      items: [
+        { id: 'light', label: 'Light', icon: 'sun', checked: themePref === 'light', run: () => setThemeTo('light') },
+        { id: 'dark', label: 'Dark', icon: 'moon', checked: themePref === 'dark', run: () => setThemeTo('dark') },
+        { id: 'system', label: 'Match the system', icon: 'monitor', checked: themePref === 'system', run: () => setThemeTo('system') },
+        'sep',
+        { id: 'keys', label: 'Keyboard shortcuts', icon: 'keyboard', run: showShortcuts },
+        {
+          id: 'about',
+          label: status ? `${status.notes} notes · ${status.version}` : 'YANA/',
+          icon: 'info',
+          detail: status && !status.ready ? 'indexing' : undefined,
+          disabled: true,
+          run: () => undefined,
+        },
+        ...(user
+          ? ['sep' as const, { id: 'signout', label: 'Sign out', icon: 'log-out' as const, detail: user.username, run: () => void auth.logout().then(onSignOut) }]
+          : []),
+      ],
+    })
   }
 
   // --- hotkeys -----------------------------------------------------------
@@ -385,99 +506,150 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // --- render ------------------------------------------------------------
 
-  const onNote = useCallback((n: Note | null) => { current.current = n }, [])
+  const onNote = useCallback((n: Note | null) => {
+    current.current = n
+    if (n) prefs.touchRecent(n.id)
+  }, [])
   const searching = query.trim() !== ''
   const selected = route.kind === 'note' ? route.id : null
+  const sidebarShown = narrow ? drawer : !collapsed
+
+  const shellClass = ['shell', layout, sidebarShown ? 'sidebar-open' : 'sidebar-closed'].join(' ')
 
   return (
-    <>
+    <div class={shellClass}>
       <header class="topbar">
+        <button
+          type="button"
+          class="icon-btn"
+          title={narrow ? 'Notes' : collapsed ? 'Show the sidebar' : 'Hide the sidebar'}
+          aria-label={narrow ? 'Open the notes drawer' : 'Toggle the sidebar'}
+          aria-expanded={sidebarShown}
+          onClick={toggleSidebar}
+        >
+          <Icon name={narrow ? 'menu' : 'panel-left'} size={18} />
+        </button>
         <a class="wordmark" href="/" onClick={(ev) => { ev.preventDefault(); navigate(null) }}>
           YANA/
         </a>
-        <div class="search">
-          <input
-            ref={searchInput}
-            type="search"
-            class="search-input"
-            placeholder="Search notes  (/)"
-            autocomplete="off"
-            spellcheck={false}
-            aria-label="Search notes"
-            value={query}
-            onInput={(ev) => setQuery((ev.target as HTMLInputElement).value)}
-            onKeyDown={(ev) => {
-              if (ev.key === 'Escape') {
-                setQuery('')
-                ;(ev.target as HTMLInputElement).blur()
-              }
-            }}
-          />
-          <label
-            class="regex-label"
-            title={status && !status.regex_search ? 'Regex search needs ripgrep on the server.' : 'Regular expression search over the files (ripgrep)'}
-          >
-            <input type="checkbox" checked={regex} disabled={status ? !status.regex_search : false} onChange={(ev) => setRegex((ev.target as HTMLInputElement).checked)} />
-            re
-          </label>
-        </div>
-        <button type="button" class="btn btn-new" title={`New note (${label(keys.newNote)})`} onClick={() => newNotePrompt()}>
-          New
-        </button>
-        <button type="button" class="btn" title={`Command palette (${label(keys.palette)})`} onClick={openPalette}>
-          …
-        </button>
-        <span class="status" title={status ? (status.ready ? `index built ${status.last_scan}` : 'index is still building') : ''}>
-          {status ? `${status.notes} notes · ${status.version}` : ''}
-        </span>
-        {user && (
-          <span class="user">
-            <span class="user-name">{user.username}</span>
-          </span>
+        <span class="spacer" />
+        {layout !== 'phone' && (
+          <>
+            <button type="button" class="btn" title={`New note (${label(keys.newNote)})`} onClick={() => newNotePrompt()}>
+              <Icon name="plus" />
+              New
+            </button>
+            <button type="button" class="btn" title={`Today's note (${label(keys.daily)})`} onClick={() => void openDaily()}>
+              <Icon name="calendar" />
+              Today
+            </button>
+          </>
         )}
+        <button type="button" class="icon-btn" title={`Command palette (${label(keys.palette)})`} aria-label="Command palette" onClick={openPalette}>
+          <Icon name="command" size={18} />
+        </button>
+        <button
+          type="button"
+          class="icon-btn user-btn"
+          title={user ? user.username : 'Account'}
+          aria-label="Account menu"
+          onClick={(ev) => openUserMenu(ev.currentTarget as HTMLElement)}
+        >
+          {user ? <span class="avatar">{user.username.slice(0, 1).toUpperCase()}</span> : <Icon name="user" size={18} />}
+        </button>
       </header>
       <div class="body">
-        <aside class="sidebar">
-          {searching ? (
-            <SearchResults query={query} regex={regex} onOpen={navigate} />
-          ) : (
-            <nav class="tree" aria-label="notes">
-              {treeError ? (
-              <p class="error">{treeError}</p>
+        <aside class="sidebar" aria-label="notes" aria-hidden={!sidebarShown}>
+          <div class="sidebar-search">
+            <Icon name="search" class="sidebar-search-icon" />
+            <input
+              ref={searchInput}
+              type="search"
+              class="search-input"
+              placeholder="Search notes"
+              autocomplete="off"
+              spellcheck={false}
+              aria-label="Search notes"
+              value={query}
+              onInput={(ev) => setQuery((ev.target as HTMLInputElement).value)}
+              onKeyDown={(ev) => {
+                if (ev.key === 'Escape') {
+                  setQuery('')
+                  ;(ev.target as HTMLInputElement).blur()
+                }
+              }}
+            />
+            <button
+              type="button"
+              class={'regex-btn' + (regex ? ' on' : '')}
+              disabled={status ? !status.regex_search : false}
+              aria-pressed={regex}
+              title={status && !status.regex_search ? 'Regex search needs ripgrep on the server.' : 'Match a regular expression against the files'}
+              onClick={() => setRegex((r) => !r)}
+            >
+              .*
+            </button>
+          </div>
+          <div class="sidebar-scroll">
+            {searching ? (
+              <SearchResults query={query} regex={regex} onOpen={navigate} />
             ) : (
-              <Tree
-                spaces={spaces}
-                selected={selected}
-                onOpen={navigate}
-                onMove={(id, from, dir) => void moveNote(id, from, dir ? `${dir}/${baseOf(from)}` : baseOf(from))}
-                onNew={newNotePrompt}
-              />
+              <nav class="tree" aria-label="tree">
+                {treeError ? (
+                  <div class="empty">
+                    <p class="error">{treeError}</p>
+                    <button type="button" class="btn" onClick={() => void loadTree()}>
+                      <Icon name="refresh" />
+                      Try again
+                    </button>
+                  </div>
+                ) : spaces === null ? (
+                  <div class="tree-skeleton" aria-busy="true">
+                    <span /><span /><span /><span /><span />
+                  </div>
+                ) : (
+                  <Tree
+                    spaces={spaces}
+                    selected={selected}
+                    onOpen={navigate}
+                    onMove={(id, from, dir) => void moveNote(id, from, dir ? `${dir}/${baseOf(from)}` : baseOf(from))}
+                    onNew={newNotePrompt}
+                  />
+                )}
+              </nav>
             )}
-            </nav>
-          )}
+          </div>
           {!searching && (
-            <div class="sidebar-nav">
-              <a class="unresolved-nav" href="/links" onClick={(ev) => { ev.preventDefault(); openLinks() }}>
+            <nav class="sidebar-nav" aria-label="more">
+              <a class={'sidebar-link' + (route.kind === 'links' ? ' selected' : '')} href="/links" onClick={(ev) => { ev.preventDefault(); openLinks() }}>
+                <Icon name="unlink" />
                 Unresolved links
               </a>
-              <a class="unresolved-nav" href="/trash" onClick={(ev) => { ev.preventDefault(); openTrash() }}>
+              <a class={'sidebar-link' + (route.kind === 'trash' ? ' selected' : '')} href="/trash" onClick={(ev) => { ev.preventDefault(); openTrash() }}>
+                <Icon name="trash" />
                 Trash
               </a>
-            </div>
+            </nav>
           )}
         </aside>
+        {narrow && drawer && <div class="scrim" onClick={() => setDrawer(false)} />}
         <main class="content">
           {route.kind === 'note' && (
             <NotePage
               key={`${route.id}:${rev}`}
               id={route.id}
+              layout={layout}
               preview={preview}
               onTogglePreview={togglePreview}
               onOpen={navigate}
               onNote={onNote}
               onToast={say}
+              onMenu={setMenu}
               fresh={fresh === route.id}
               onDelete={deleteNotePrompt}
+              onRename={renamePrompt}
+              onExport={exportNote}
+              onMoved={onMoved}
             />
           )}
           {route.kind === 'links' && <LinksReport onOpen={navigate} />}
@@ -485,36 +657,101 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
             <TrashPage onOpen={navigate} onToast={say} confirm={setConfirmSpec} onChanged={() => void loadTree()} />
           )}
           {route.kind === 'home' && (
-            <div class="placeholder">
-              <p class="wordmark large">YANA/</p>
-              <p>Pick a note from the tree, or start one.</p>
-              <ul class="hints">
-                <li>
-                  <kbd>{label(keys.newNote)}</kbd> new note
-                </li>
-                <li>
-                  <kbd>{label(keys.daily)}</kbd> today's note
-                </li>
-                <li>
-                  <kbd>{label(keys.switcher)}</kbd> open a note by name
-                </li>
-                <li>
-                  <kbd>{label(keys.palette)}</kbd> everything else
-                </li>
-              </ul>
-              <p class="muted">Everything you expect. Nothing you don't.</p>
-            </div>
+            <Home
+              notes={notes}
+              loading={spaces === null}
+              onOpen={navigate}
+              onNew={() => newNotePrompt()}
+              onDaily={() => void openDaily()}
+            />
           )}
         </main>
       </div>
+      {layout === 'phone' && (
+        <nav class="bottombar" aria-label="quick actions">
+          <button type="button" class={'bottombar-btn' + (drawer ? ' on' : '')} onClick={() => setDrawer((d) => !d)}>
+            <Icon name="folder" size={20} />
+            Notes
+          </button>
+          <button type="button" class="bottombar-btn" onClick={focusSearch}>
+            <Icon name="search" size={20} />
+            Search
+          </button>
+          <button type="button" class="bottombar-btn" onClick={() => void openDaily()}>
+            <Icon name="calendar" size={20} />
+            Today
+          </button>
+          <button type="button" class="bottombar-btn accent" onClick={() => newNotePrompt()}>
+            <Icon name="plus" size={20} />
+            New
+          </button>
+        </nav>
+      )}
       {palette && <Palette spec={palette} onClose={() => setPalette(null)} />}
+      {menu && <Menu spec={menu} onClose={() => setMenu(null)} />}
       {confirmSpec && <Confirm spec={confirmSpec} onClose={() => setConfirmSpec(null)} />}
       {toast && (
         <div class="toast" role="status">
           {toast}
         </div>
       )}
-    </>
+    </div>
+  )
+}
+
+interface HomeProps {
+  notes: Array<{ id: string; path: string; title: string }>
+  loading: boolean
+  onOpen: (id: string) => void
+  onNew: () => void
+  onDaily: () => void
+}
+
+// The home page: the two things people come here to do, then what they
+// opened last. Shortcuts are in the account menu.
+function Home({ notes, loading, onOpen, onNew, onDaily }: HomeProps) {
+  const byId = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
+  const recent = prefs.recents().map((id) => byId.get(id)).filter((n): n is HomeProps['notes'][number] => Boolean(n))
+
+  return (
+    <div class="home">
+      <div class="home-mark" aria-hidden="true">
+        <Icon name="slash" size={56} />
+      </div>
+      <h1 class="home-title">YANA/</h1>
+      <p class="home-sub">Everything you expect. Nothing you don't.</p>
+      <div class="home-actions">
+        <button type="button" class="btn primary large" onClick={onNew}>
+          <Icon name="plus" size={18} />
+          New note
+        </button>
+        <button type="button" class="btn large" onClick={onDaily}>
+          <Icon name="calendar" size={18} />
+          Today
+        </button>
+      </div>
+      {loading ? (
+        <p class="muted">Loading the tree…</p>
+      ) : notes.length === 0 ? (
+        <p class="muted">No notes yet. Start one above, or drop a markdown file into the notes directory; it shows up on the next scan.</p>
+      ) : recent.length > 0 ? (
+        <section class="recents" aria-label="recently opened">
+          <h2 class="section-title">Recent</h2>
+          <ul class="recents-list">
+            {recent.map((n) => (
+              <li key={n.id}>
+                <a class="recent" href={`/n/${n.id}`} onClick={(ev) => { ev.preventDefault(); onOpen(n.id) }}>
+                  <span class="recent-title">{n.title}</span>
+                  <span class="recent-path">{n.path}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <p class="muted">Pick a note from the sidebar. The ones you open show up here.</p>
+      )}
+    </div>
   )
 }
 
