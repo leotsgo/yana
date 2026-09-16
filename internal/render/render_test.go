@@ -99,3 +99,26 @@ func TestWikiLinksEmpty(t *testing.T) {
 		t.Fatalf("WikiLinks = %q, want none", got)
 	}
 }
+
+func TestTaskCheckboxLines(t *testing.T) {
+	src := []byte("# List\n\n- [ ] one\n- [x] two\n  - [ ] nested\n\n> - [X] quoted\n\n```\n- [ ] not a task\n```\n\n1. [ ] numbered\n")
+	out, err := Markdown(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(out)
+	for _, want := range []string{
+		`<input type="checkbox" disabled="" data-line="2"> one`,
+		`<input type="checkbox" disabled="" checked="" data-line="3"> two`,
+		`<input type="checkbox" disabled="" data-line="4"> nested`,
+		`<input type="checkbox" disabled="" checked="" data-line="6"> quoted`,
+		`<input type="checkbox" disabled="" data-line="12"> numbered`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q in:\n%s", want, html)
+		}
+	}
+	if n := strings.Count(html, `type="checkbox"`); n != 5 {
+		t.Errorf("want 5 checkboxes, got %d in:\n%s", n, html)
+	}
+}

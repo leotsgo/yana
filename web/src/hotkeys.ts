@@ -18,7 +18,7 @@ export const keys = {
   newNote: { key: 'n', alt: true } as Hotkey,
   daily: { key: 'd', alt: true } as Hotkey,
   search: { key: 'f', mod: true, shift: true } as Hotkey,
-  preview: { key: 'e', mod: true } as Hotkey,
+  split: { key: 'e', mod: true } as Hotkey,
 }
 
 export function matches(ev: KeyboardEvent, hk: Hotkey): boolean {

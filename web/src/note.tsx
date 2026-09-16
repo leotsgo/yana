@@ -1,32 +1,43 @@
 // One open note: the title, the toolbar (sync state, presence, view
-// switches, overflow), the editor, the optional live preview beside it,
-// and the details drawer (path and dates, backlinks, history). The
-// realtime session starts as soon as the id is known so the editor is
-// typeable as early as the relay answers.
+// switches, overflow), the body in one of three modes, and the details
+// drawer (path and dates, backlinks, history). The realtime session
+// starts as soon as the id is known so the editor is typeable as early
+// as the relay answers.
 //
-// Wide screens show the editor and preview side by side; a phone shows
-// one of them. The title is edited in place: it rewrites the note's H1
-// and renames the file to match.
+// Read shows the rendered note; its task boxes write back through the
+// CRDT. Edit is the source editor, with a formatting bar above the
+// keyboard on a phone. Split puts both side by side and is a wide-screen
+// thing; a phone in split mode reads. The title is edited in place: it
+// rewrites the note's H1 and renames the file to match.
 
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { EditorView } from '@codemirror/view'
 
 import { api, ApiError, baseOf, dirOf } from './api'
 import type { MoveResult, Note } from './api'
 import { fmtBytes, fmtDate } from './dom'
 import { Editor } from './editor'
+import { FormatBar } from './format'
+import { isEditable } from './hotkeys'
 import { HtmlNote } from './htmlnote'
 import { Icon } from './icons'
+import { coarsePointer } from './layout'
 import type { Layout } from './layout'
 import type { MenuSpec } from './menu'
 import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
-import { SyncClient } from './sync'
+import type { OpenMode } from './prefs'
+import { SyncClient, presence } from './sync'
 import type { PresenceState, PresenceUser, SyncStatus } from './sync'
 
 export interface NotePageProps {
   id: string
   layout: Layout
-  preview: boolean
-  onTogglePreview: () => void
+  mode: OpenMode
+  onMode: (m: OpenMode) => void
+  /** Hide markdown syntax on the lines the caret is not on. */
+  live: boolean
+  /** The page is showing the editor on a phone; the shell swaps its bottom bar for the formatting bar. */
+  onEditing: (editing: boolean) => void
   onOpen: (id: string) => void
   onNote: (note: Note | null) => void
   onToast: (msg: string) => void
@@ -40,10 +51,8 @@ export interface NotePageProps {
   onMoved: (res: MoveResult) => void
 }
 
-type PhoneView = 'edit' | 'preview'
-
 export function NotePage(props: NotePageProps) {
-  const { id, layout, preview, onTogglePreview, onOpen, onNote, onToast, onMenu, fresh, onDelete, onRename, onExport, onMoved } = props
+  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, onDelete, onRename, onExport, onMoved } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -53,8 +62,11 @@ export function NotePage(props: NotePageProps) {
   const [readOnly, setReadOnly] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [details, setDetails] = useState(false)
-  const [phoneView, setPhoneView] = useState<PhoneView>('edit')
+  const [view, setView] = useState<EditorView | null>(null)
   const phone = layout === 'phone'
+  // Split needs the width; a phone in split mode reads.
+  const shown: OpenMode = phone && mode === 'split' ? 'read' : mode
+  const editing = shown !== 'read'
   // A rename from the title moves the file; the relay's "moved" for it is ours.
   const expectMove = useRef<string | null>(null)
 
@@ -62,7 +74,7 @@ export function NotePage(props: NotePageProps) {
   // markdown notes. HTML notes do not merge — no session, no CRDT — so
   // their page never waits for one.
   useEffect(() => {
-    let live = true
+    let alive = true
     setNote(null)
     setError(null)
     setNotice(null)
@@ -74,19 +86,19 @@ export function NotePage(props: NotePageProps) {
     api
       .note(id)
       .then((n) => {
-        if (!live) return
+        if (!alive) return
         setNote(n)
         onNote(n)
         document.title = `${n.title} — YANA/`
         if (n.kind !== 'md') return
         client = new SyncClient(id, {
           onStatus(s) {
-            if (!live) return
+            if (!alive) return
             setStatus(s)
             if (s === 'synced') setSynced(true)
           },
           onError(code) {
-            if (!live) return
+            if (!alive) return
             if (code === 'rate_limited') setNotice('Typing faster than the server allows; edits are kept and retried.')
             else if (code === 'forbidden') {
               setReadOnly(true)
@@ -94,7 +106,7 @@ export function NotePage(props: NotePageProps) {
             }
           },
           onGone(kind, path) {
-            if (!live) return
+            if (!alive) return
             if (kind === 'moved' && path && path === expectMove.current) {
               expectMove.current = null
               return
@@ -102,12 +114,17 @@ export function NotePage(props: NotePageProps) {
             setNotice(kind === 'moved' ? `This note moved to ${path ?? 'another path'}.` : 'This note was deleted on disk.')
           },
           onPresence() {
-            if (!live || !client) return
+            if (!alive || !client) return
+            // Someone else: not this tab, and not this account in
+            // another one. One chip per name however many tabs they have.
             const out: PresenceUser[] = []
+            const seen = new Set([presence().name])
             for (const [clientID, raw] of client.awareness.getStates()) {
               if (clientID === client.awareness.clientID) continue
               const st = raw as Partial<PresenceState>
-              if (st.user) out.push(st.user)
+              if (!st.user || seen.has(st.user.name)) continue
+              seen.add(st.user.name)
+              out.push(st.user)
             }
             setOthers(out)
           },
@@ -115,11 +132,11 @@ export function NotePage(props: NotePageProps) {
         setSync(client)
       })
       .catch((err: unknown) => {
-        if (!live) return
+        if (!alive) return
         setError(err instanceof ApiError ? err.message : 'Could not load the note.')
       })
     return () => {
-      live = false
+      alive = false
       onNote(null)
       setSync(null)
       client?.destroy()
@@ -136,6 +153,30 @@ export function NotePage(props: NotePageProps) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [details, layout])
+
+  // In the read view a bare `e` opens the editor; in the editor, Escape
+  // goes back (the editor's own keymap handles it while it has focus).
+  useEffect(() => {
+    if (note?.kind !== 'md') return
+    const onKey = (ev: KeyboardEvent) => {
+      if (isEditable(document.activeElement)) return
+      if (shown === 'read' && ev.key === 'e' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
+        ev.preventDefault()
+        onMode('edit')
+      } else if (shown === 'edit' && ev.key === 'Escape') {
+        onMode('read')
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [shown, note?.kind, onMode])
+
+  // The shell needs to know when the phone keyboard is the point.
+  const md = note?.kind === 'md'
+  useEffect(() => {
+    onEditing(phone && md && shown === 'edit')
+    return () => onEditing(false)
+  }, [phone, md, shown, onEditing])
 
   // The title edit: the H1 in the document follows, then the file name.
   function commitTitle(raw: string): void {
@@ -236,12 +277,16 @@ export function NotePage(props: NotePageProps) {
     return <div class="placeholder muted">Opening…</div>
   }
 
-  const split = !phone && preview
-  const showEditor = !phone || phoneView === 'edit'
-  const showPreview = phone ? phoneView === 'preview' : preview
+  const split = shown === 'split'
+  const modeBtn = (m: OpenMode, icon: 'book-open' | 'pencil' | 'columns', text: string, title: string) => (
+    <button type="button" role="tab" aria-selected={shown === m} class={shown === m ? 'on' : ''} title={title} onClick={() => onMode(m)}>
+      <Icon name={icon} />
+      {text}
+    </button>
+  )
 
   return (
-    <article class={'page' + (split ? ' split' : '') + (details ? ' with-details' : '')}>
+    <article class={'page' + (split ? ' split' : '') + (details ? ' with-details' : '') + (editing ? ' editing' : ' reading')}>
       {header}
       <div class="editor-toolbar">
         <span class={'sync-status ' + status} title={statusTitle(status)}>
@@ -249,9 +294,9 @@ export function NotePage(props: NotePageProps) {
           <span class="sync-label">{statusLabel(status)}</span>
         </span>
         {others.length > 0 && (
-          <div class="presence" aria-label="also editing">
+          <div class="presence" aria-label="also here">
             {others.map((u, i) => (
-              <span key={`${u.name}-${i}`} class="presence-chip" title={u.name}>
+              <span key={`${u.name}-${i}`} class="presence-chip" title={`${u.name} has this note open`}>
                 <span class="presence-dot" style={`background:${u.color}`} />
                 {u.name}
               </span>
@@ -261,21 +306,23 @@ export function NotePage(props: NotePageProps) {
         {notice && <span class="editor-notice">{notice}</span>}
         <span class="spacer" />
         {phone ? (
-          <div class="segmented" role="tablist" aria-label="view">
-            <button type="button" role="tab" aria-selected={phoneView === 'edit'} class={phoneView === 'edit' ? 'on' : ''} onClick={() => setPhoneView('edit')}>
+          editing ? (
+            <button type="button" class="btn primary" onClick={() => onMode('read')} title="Back to reading (Esc)">
+              <Icon name="check" />
+              Done
+            </button>
+          ) : (
+            <button type="button" class="btn" onClick={() => onMode('edit')} title="Edit (E)" disabled={readOnly}>
               <Icon name="pencil" />
               Edit
             </button>
-            <button type="button" role="tab" aria-selected={phoneView === 'preview'} class={phoneView === 'preview' ? 'on' : ''} onClick={() => setPhoneView('preview')}>
-              <Icon name="eye" />
-              Preview
-            </button>
-          </div>
+          )
         ) : (
-          <button type="button" class={'btn' + (preview ? ' on' : '')} onClick={onTogglePreview} title="Show the preview beside the editor" aria-pressed={preview}>
-            <Icon name="columns" />
-            Preview
-          </button>
+          <div class="segmented" role="tablist" aria-label="view">
+            {modeBtn('read', 'book-open', 'Read', 'Read (Esc)')}
+            {modeBtn('edit', 'pencil', 'Edit', 'Edit (E)')}
+            {modeBtn('split', 'columns', 'Split', 'Editor and preview side by side')}
+          </div>
         )}
         <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Path, backlinks and history" aria-pressed={details}>
           <Icon name="panel-right" />
@@ -286,15 +333,37 @@ export function NotePage(props: NotePageProps) {
         </button>
       </div>
       <div class="page-body">
-        {showEditor &&
+        {editing &&
           (synced ? (
-            <Editor sync={sync} note={note} readOnly={readOnly} autofocus={fresh} onToast={onToast} />
+            <Editor
+              sync={sync}
+              note={note}
+              readOnly={readOnly}
+              autofocus={fresh || shown === 'edit'}
+              atEnd={fresh || phone}
+              phone={phone}
+              live={live}
+              onToast={onToast}
+              onDone={() => onMode('read')}
+              onView={setView}
+            />
           ) : (
             <div class="editor editor-wait muted">{status === 'offline' ? 'Offline. Waiting for the server.' : 'Connecting…'}</div>
           ))}
-        {showPreview && synced && <Preview sync={sync} note={note} onOpen={onOpen} />}
+        {shown !== 'edit' && (
+          <Reader
+            html={note.html ?? ''}
+            sync={synced ? sync : null}
+            note={note}
+            readOnly={readOnly}
+            cls={split ? 'preview' : 'reader'}
+            onOpen={onOpen}
+            onEdit={!split && layout === 'desktop' && !coarsePointer && !readOnly ? () => onMode('edit') : undefined}
+          />
+        )}
         {detailsPane}
       </div>
+      {phone && shown === 'edit' && !readOnly && <FormatBar view={view} note={note} onToast={onToast} />}
     </article>
   )
 }
@@ -409,15 +478,36 @@ function NoteHeader({ note, onCommit }: { note: Note; onCommit: (title: string) 
   )
 }
 
-// The preview renders the live document through the server so it matches
-// the read view exactly (same renderer, same wikilink handling). A short
-// debounce keeps it from rendering every keystroke.
-function Preview({ sync, note, onOpen }: { sync: SyncClient; note: Note; onOpen: (id: string) => void }) {
+interface ReaderProps {
+  /** The render that came with the note; shown until the live one lands. */
+  html: string
+  sync: SyncClient | null
+  note: Note
+  readOnly: boolean
+  cls: 'reader' | 'preview'
+  onOpen: (id: string) => void
+  /** A click on the body (not a link or a box) opens the editor. */
+  onEdit?: () => void
+}
+
+// The rendered note. It renders the live document through the server so
+// it matches every other render (same goldmark, same wikilink handling);
+// a short debounce keeps it from rendering every keystroke. Task boxes
+// carry the line their marker is on and flip it through the CRDT.
+function Reader({ html, sync, note, readOnly, cls, onOpen, onEdit }: ReaderProps) {
   const host = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const el = host.current
-    if (!el) return
+    if (!el || sync) return
+    el.innerHTML = html
+    rewriteRelative(el, note.base)
+    wireWikiLinks(el, note, onOpen)
+  }, [html, sync, note, onOpen])
+
+  useEffect(() => {
+    const el = host.current
+    if (!el || !sync) return
     let seq = 0
     let timer: number | undefined
     let last = ''
@@ -433,6 +523,7 @@ function Preview({ sync, note, onOpen }: { sync: SyncClient; note: Note; onOpen:
           el.innerHTML = html
           rewriteRelative(el, note.base)
           wireWikiLinks(el, note, onOpen)
+          if (!readOnly) wireTasks(el, sync, () => { last = ''; render() })
         })
         .catch(() => {
           // Keep the last good render; the editor is still live.
@@ -449,9 +540,76 @@ function Preview({ sync, note, onOpen }: { sync: SyncClient; note: Note; onOpen:
       window.clearTimeout(timer)
       seq++
     }
-  }, [sync, note, onOpen])
+  }, [sync, note, readOnly, onOpen])
 
-  return <div class="preview markdown" ref={host} aria-label="preview" />
+  return (
+    <div
+      class={cls + ' markdown'}
+      ref={host}
+      aria-label={cls === 'preview' ? 'preview' : 'note'}
+      onClick={
+        onEdit &&
+        ((ev) => {
+          const t = ev.target as HTMLElement
+          if (t.closest('a, input, button, summary, .wikilink')) return
+          // A drag to select text is not a request to edit.
+          if (!(window.getSelection()?.isCollapsed ?? true)) return
+          onEdit()
+        })
+      }
+    />
+  )
+}
+
+/** Lines taken by a frontmatter block at the top of the text, 0 when
+ * there is none. Mirrors the server's rule: the first line is exactly
+ * `---`, the block ends at `---` or `...`, and an unterminated block is
+ * body. */
+function headLines(text: string): number {
+  if (!/^---\r?\n/.test(text)) return 0
+  const lines = text.split('\n')
+  for (let i = 1; i < lines.length; i++) {
+    const l = (lines[i] ?? '').replace(/\r$/, '')
+    if (l === '---' || l === '...') return i + 1
+  }
+  return 0
+}
+
+// Enables the task boxes in a render and flips the `[ ]` on the line each
+// one points at. The line is checked before it is written: if the text has
+// moved under the render (another client typed above), nothing is
+// changed and the view is re-rendered instead.
+function wireTasks(el: HTMLElement, sync: SyncClient, rerender: () => void): void {
+  for (const box of el.querySelectorAll<HTMLInputElement>('input[type="checkbox"][data-line]')) {
+    box.disabled = false
+    box.addEventListener('change', () => {
+      const line = Number(box.dataset['line'])
+      const text = sync.text.toString()
+      const n = headLines(text) + line
+      let pos = 0
+      for (let i = 0; i < n; i++) {
+        const nl = text.indexOf('\n', pos)
+        if (nl < 0) {
+          rerender()
+          return
+        }
+        pos = nl + 1
+      }
+      const end = text.indexOf('\n', pos)
+      const lineText = text.slice(pos, end < 0 ? text.length : end)
+      const m = /\[([ xX])\]/.exec(lineText)
+      const was = m?.[1] !== undefined && m[1] !== ' '
+      if (!m || was === box.checked) {
+        rerender()
+        return
+      }
+      const at = pos + m.index + 1
+      sync.doc.transact(() => {
+        sync.text.delete(at, 1)
+        sync.text.insert(at, box.checked ? 'x' : ' ')
+      })
+    })
+  }
 }
 
 interface DetailsProps {

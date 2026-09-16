@@ -1,8 +1,9 @@
 # The editor
 
-The browser client is a Preact app around a CodeMirror 6 editor. Opening a
-note opens its editor; there is no separate read view. What follows is what
-the client does and which endpoints it leans on.
+The browser client is a Preact app around a CodeMirror 6 editor. A note
+opens as its rendered view; the editor is a mode you step into and out
+of. What follows is what the client does and which endpoints it leans
+on.
 
 ## The shell
 
@@ -10,9 +11,9 @@ One component tree, three layouts, picked by width:
 
 | Width | Layout |
 |---|---|
-| under 720px | Phone. One pane. The sidebar is a drawer; a bar along the bottom has Notes, Search, Today and New. The editor and the preview are alternatives, switched in the toolbar. |
-| 720 to 1023px | Tablet. The drawer stays; the top bar has room for New and Today. |
-| 1024px and up | Desktop. The sidebar is a column that collapses from the top-left button; the preview opens beside the editor. |
+| under 720px | Phone. One pane. The sidebar is a drawer; a bar along the bottom has Notes, Search, Today and New. A note reads or edits, never both; while editing, a formatting bar replaces the bottom bar. |
+| 720 to 1023px | Tablet. The drawer stays; the top bar has room for New and Today. Read, Edit and Split are all available. |
+| 1024px and up | Desktop. The sidebar is a column that collapses from the top-left button; Split puts the editor beside the render. |
 
 The sidebar holds search (full text, or a regular expression with the `.*`
 switch when the server has ripgrep), the tree, and the links to the
@@ -20,9 +21,9 @@ unresolved-link report and the trash. Search results replace the tree
 while a query is typed.
 
 Light and dark themes follow the system unless picked in the account menu
-(top right). The choice, the sidebar state, whether the preview is open,
-and the recently opened notes are kept per browser in `localStorage`
-under `yana.*`; nothing else is stored there.
+(top right). The choice, the sidebar state, the mode notes open in, the
+hide-syntax switch and the recently opened notes are kept per browser in
+`localStorage` under `yana.*`; nothing else is stored there.
 
 ## Title
 
@@ -34,8 +35,61 @@ a path cannot hold. The rename goes through `POST /api/notes/{id}/move`,
 so wikilinks follow. A note whose title comes from its file name (no
 heading) is only renamed. Escape puts the old title back.
 
-Path, dates, size and tags live in the Details drawer beside the editor,
+Path, dates, size and tags live in the Details drawer beside the note,
 with the backlinks and the history.
+
+## Read, edit, split
+
+A note opens in read mode: the rendered document, the same HTML the
+server produces everywhere else. Wikilinks open the note they point at
+(or offer to create it), images load from `_assets/`, footnotes jump.
+Task boxes are live: ticking one rewrites its `[ ]` or `[x]` through the
+CRDT, so the change shows on every open client and reaches the file on
+the next writeback, like any other edit. The renderer stamps each box
+with the source line its marker sits on (`data-line`, counted from the
+start of the body after any frontmatter); the client checks that line
+still holds a marker in the expected state before writing, and re-renders
+instead if the text has moved underneath.
+
+Edit is the source editor. Get there with the pencil, by pressing `e`, or
+on a desktop by clicking the body of the note anywhere that is not a link
+or a box (a drag to select text does not count). Escape, or Done on a
+phone, goes back to reading. Split shows the editor and the render side
+by side and is for screens 720px and wider; `Mod+E` toggles it.
+
+The mode a note opens in — read, edit, or split — is a preference in the
+account menu and the palette. A note you just created always opens in
+the editor with the caret ready. A phone never opens in split; it reads.
+
+Presence chips in the toolbar list the other people who have the note
+open, one chip per person, in any mode. Your own account in another tab
+is not listed.
+
+### On a phone
+
+While editing, a bar of formatting buttons sits above the keyboard:
+bold, italic, heading (cycles `#`, `##`, `###`, none), list, task,
+quote, code (inline, or a fence around a multi-line selection), link,
+image, undo and redo. Image opens the photo picker or the camera and
+uploads through the same `_assets/` path as drag and drop. The buttons
+take no focus, so the keyboard stays up.
+
+The shell sizes itself to the visual viewport while the keyboard is
+open, so the caret and the bar stay above it. Lines wrap, long words
+break, and nothing scrolls sideways; tables and code blocks scroll
+inside themselves in the render. Autocorrect is off in the editor on a
+phone (it rewrites paths, code and link targets); spellcheck and
+sentence capitalisation stay on.
+
+### Hide the syntax
+
+An optional switch, off by default, collapses markdown marks on the
+lines the caret is not on: `#` before headings, `**` and `_` around
+emphasis, backticks around inline code, `~~`, and the brackets and
+target of an inline link, so `[text](url)` reads as `text`. Move the
+caret onto a line and its marks come back. Block marks (list bullets,
+quotes, fences) and wikilinks are always shown. It is in the account
+menu as "Hide syntax while editing".
 
 ## Editing
 
@@ -54,17 +108,16 @@ and the browser smoke test verifies for the app.
 Presence comes from the awareness protocol: each client announces its
 user (name, colour) and the editor binding publishes its cursor as a
 relative position. Remote carets draw in the editor with the author's name;
-the bar above the editor lists who is on the note.
+the bar above the note lists who else is on it.
 
-## Preview
+## Rendering
 
-The Preview button (or `Mod+E`) opens a pane beside the editor that
-renders the live document through `POST /api/render`. On a phone the
-toolbar switches between the editor and the preview instead. The server renders
-it with the same goldmark pipeline the note endpoint uses, so wikilinks,
-tags, code blocks, and images look the same in the preview as they do
-anywhere else. Rendering runs at most every 220 ms while typing. The
-choice is remembered per browser.
+The read view and the split preview render the live document through
+`POST /api/render` with the same goldmark pipeline the note endpoint
+uses, so wikilinks, tags, code blocks, and images look the same
+everywhere. The render that came with the note is shown first; the live
+one replaces it once the session is up. Rendering runs at most every
+220 ms while typing.
 
 ## Files: drag, drop, paste
 
@@ -100,7 +153,9 @@ intercept them.
 | `Mod+P` | Quick switcher: fuzzy match on title and path; Enter on no match creates that note |
 | `Mod+K` | Command palette: everything above plus rename/move, export, unresolved links, snapshot, theme, sign out |
 | `Mod+Shift+F` or `/` | Focus search |
-| `Mod+E` | Toggle the preview |
+| `E` | Edit the open note |
+| `Esc` | Back to reading |
+| `Mod+E` | Editor and render side by side (on a phone: in and out of the editor) |
 | `Mod+Z` / `Mod+Shift+Z` | Undo / redo (local edits only) |
 | `Mod+F` | Find in the open note |
 | `Esc` | Close whatever is open |
@@ -134,7 +189,7 @@ of its own like any other file.
 |---|---|
 | `PUT /api/files/{path}` | Upload one file under an `_assets/` directory; body is the file, response carries the path written |
 | `POST /api/notes/daily` | `{space, date}` → today's note, created from the template if missing |
-| `POST /api/render` | `{markdown}` → `{html}` for the live preview |
+| `POST /api/render` | `{markdown}` → `{html}` for the read view and the preview |
 
 `GET /api/status` now includes `daily` with the effective pattern and
 template.

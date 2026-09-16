@@ -360,12 +360,25 @@ kbd {
 .editor { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .editor > .cm-editor { flex: 1; min-height: 0; }
 .editor-wait { padding: 18px var(--page-x); }
-.preview {
-  flex: 1; min-width: 0; overflow-y: auto; padding: 18px var(--page-x) 40vh;
-  border-left: 1px solid var(--line); background: var(--bg-2);
-}
-.preview > :first-child { margin-top: 0; }
+/* the rendered note: the page itself in read mode, a second column in split */
+.reader, .preview { flex: 1; min-width: 0; overflow-y: auto; padding: 18px var(--page-x) 40vh; }
+.preview { border-left: 1px solid var(--line); background: var(--bg-2); }
+.reader > :first-child, .preview > :first-child { margin-top: 0; }
 .cm-ySelectionInfo { font-family: var(--mono); }
+
+/* the formatting bar above the phone keyboard */
+.format-bar {
+  display: flex; align-items: center; flex: none; gap: 2px;
+  padding: 4px 6px calc(4px + var(--safe-bottom));
+  border-top: 1px solid var(--line); background: var(--bg-2);
+}
+.format-btn {
+  flex: 1 0 30px; display: inline-flex; align-items: center; justify-content: center;
+  height: 42px; padding: 0; color: var(--ink-2); background: none; border: 0; border-radius: var(--r-sm);
+  cursor: pointer; -webkit-touch-callout: none; user-select: none;
+}
+.format-btn:active { background: var(--hover); color: var(--ink); }
+.format-btn:disabled { opacity: 0.4; }
 
 /* details: a column on desktop, a sheet elsewhere */
 .details {
@@ -389,7 +402,7 @@ kbd {
 
 /* --- rendered markdown ------------------------------------------------- */
 
-.markdown { font-size: 15.5px; line-height: 1.62; max-width: var(--measure); }
+.markdown { font-size: 15.5px; line-height: 1.62; max-width: var(--measure); overflow-wrap: break-word; }
 .markdown h1, .markdown h2, .markdown h3, .markdown h4 { line-height: 1.25; margin: 1.4em 0 0.5em; }
 .markdown h1 { font-size: 26px; margin-top: 0; }
 .markdown h2 { font-size: 20px; }
@@ -404,7 +417,12 @@ kbd {
 .markdown th { background: var(--bg-3); }
 .markdown img { max-width: 100%; height: auto; border-radius: var(--r-sm); }
 .markdown hr { border: 0; border-top: 1px solid var(--line-2); margin: 1.5em 0; }
-.markdown input[type="checkbox"] { accent-color: var(--accent); }
+.markdown input[type="checkbox"] {
+  width: 16px; height: 16px; margin: 0 7px 0 0; vertical-align: -3px; accent-color: var(--accent);
+}
+.markdown input[type="checkbox"]:not(:disabled) { cursor: pointer; }
+.markdown li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.35em; }
+.markdown li:has(> input[type="checkbox"]:checked) { color: var(--ink-3); }
 .markdown .footnotes { font-size: 13px; color: var(--ink-2); }
 .wikilink { color: var(--accent-ink); border-bottom: 1px dashed var(--accent); cursor: default; }
 .wikilink.resolved { border-bottom: none; cursor: pointer; }
@@ -633,6 +651,13 @@ kbd {
 .shell.phone .note-title { font-size: 23px; }
 .shell.phone .editor-toolbar { gap: 6px; padding-bottom: 6px; }
 .shell.phone .preview { border-left: 0; }
+.shell.phone .markdown input[type="checkbox"] { width: 20px; height: 20px; vertical-align: -4px; }
+/* A table keeps its shape and scrolls inside itself rather than folding every cell. */
+.shell.phone .markdown th, .shell.phone .markdown td { white-space: nowrap; }
+.shell.phone .markdown li:has(> input[type="checkbox"]) { margin-left: -1.6em; }
+/* With the keyboard up, the shell is sized to the visual viewport (inline
+   style from the app) so the bar and the caret sit above the keys. */
+.shell.kb { position: fixed; left: 0; right: 0; --safe-bottom: 0px; }
 .shell.phone .details-layer .details { width: 100%; border-left: 0; }
 .shell.phone .home { padding-top: 32px; }
 .shell.phone .overlay { padding: calc(6vh + var(--safe-top)) 10px 10px; align-items: flex-start; }

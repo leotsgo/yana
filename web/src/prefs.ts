@@ -5,7 +5,8 @@
 // site data); every access is guarded and falls back to the default.
 
 export type Theme = 'light' | 'dark' | 'system'
-export type OpenMode = 'edit' | 'split'
+/** How a note opens: rendered, as source, or both side by side. */
+export type OpenMode = 'read' | 'edit' | 'split'
 
 const PREFIX = 'yana.'
 const RECENTS_MAX = 12
@@ -56,13 +57,24 @@ darkQuery.addEventListener('change', () => {
 
 // --- layout --------------------------------------------------------------
 
-/** Whether the editor opens beside its preview on wide screens. */
+/** The mode a note opens in. Read is the default; split only applies
+ * on wide screens and falls back to read on a phone. */
 export function openMode(): OpenMode {
-  return read('preview') === '0' ? 'edit' : 'split'
+  const m = read('open')
+  return m === 'edit' || m === 'split' ? m : 'read'
 }
 
 export function setOpenMode(m: OpenMode): void {
-  write('preview', m === 'split' ? '1' : '0')
+  write('open', m === 'read' ? null : m)
+}
+
+/** Whether the editor hides markdown syntax on the lines the caret is not on. */
+export function livePreview(): boolean {
+  return read('live') === '1'
+}
+
+export function setLivePreview(on: boolean): void {
+  write('live', on ? '1' : null)
 }
 
 export function sidebarCollapsed(): boolean {

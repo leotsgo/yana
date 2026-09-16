@@ -15,6 +15,7 @@ import { Confirm } from './confirm'
 import type { ConfirmSpec } from './confirm'
 import { isEditable, keys, label, matches } from './hotkeys'
 import { Icon } from './icons'
+import { useVisualViewport } from './keyboard'
 import { useLayout } from './layout'
 import { renderUnresolvedReport } from './links'
 import { Menu } from './menu'
@@ -48,7 +49,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const [menu, setMenu] = useState<MenuSpec | null>(null)
   const [confirmSpec, setConfirmSpec] = useState<ConfirmSpec | null>(null)
   const [toast, setToast] = useState<string | null>(null)
-  const [preview, setPreview] = useState(() => prefs.openMode() === 'split')
+  const [mode, setMode] = useState<prefs.OpenMode>(prefs.openMode)
+  const [openPref, setOpenPref] = useState<prefs.OpenMode>(prefs.openMode)
+  const [live, setLive] = useState(prefs.livePreview)
+  const [editing, setEditing] = useState(false) // the phone is showing an editor
   const [collapsed, setCollapsed] = useState(prefs.sidebarCollapsed) // desktop column
   const [drawer, setDrawer] = useState(false) // phone and tablet
   const [fresh, setFresh] = useState<string | null>(null)
@@ -61,10 +65,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // --- navigation --------------------------------------------------------
 
-  const navigate = useCallback((id: string | null, push = true) => {
+  // Every note opens in the preferred mode; a new one opens in the editor.
+  const navigate = useCallback((id: string | null, push = true, edit = false) => {
     const path = id ? `/n/${id}` : '/'
     if (push && location.pathname !== path) history.pushState(null, '', path)
     setRoute(id ? { kind: 'note', id } : { kind: 'home' })
+    setMode(edit ? 'edit' : prefs.openMode())
     setDrawer(false)
     if (!id) document.title = 'YANA/'
   }, [])
@@ -84,7 +90,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   }, [])
 
   useEffect(() => {
-    const onPop = () => setRoute(parseRoute())
+    const onPop = () => {
+      setRoute(parseRoute())
+      setMode(prefs.openMode())
+    }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
@@ -154,7 +163,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       try {
         const res = await api.createNote(p, `# ${title}\n\n`)
         setFresh(res.id)
-        navigate(res.id)
+        navigate(res.id, true, true)
         void loadTree()
       } catch (err) {
         say(err instanceof ApiError ? err.message : 'Could not create the note.')
@@ -185,7 +194,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         setFresh(res.id)
         void loadTree()
       }
-      navigate(res.id)
+      navigate(res.id, true, res.created)
     } catch (err) {
       say(err instanceof ApiError ? err.message : 'Could not open the daily note.')
     }
@@ -285,12 +294,21 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       .catch(() => ask([]))
   }, [navigate, loadTree, say, route])
 
-  const togglePreview = useCallback(() => {
-    setPreview((p) => {
-      prefs.setOpenMode(p ? 'edit' : 'split')
-      return !p
-    })
-  }, [])
+  // Mod+E: the editor beside the render on a wide screen; on a phone,
+  // in and out of the editor.
+  const toggleSplit = useCallback(() => {
+    setMode((m) => (layout === 'phone' ? (m === 'edit' ? 'read' : 'edit') : m === 'split' ? 'edit' : 'split'))
+  }, [layout])
+
+  function setOpenPrefTo(m: prefs.OpenMode): void {
+    prefs.setOpenMode(m)
+    setOpenPref(m)
+  }
+
+  function toggleLive(): void {
+    prefs.setLivePreview(!live)
+    setLive(!live)
+  }
 
   function toggleSidebar(): void {
     if (narrow) {
@@ -370,7 +388,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ['Open a note by name', label(keys.switcher)],
       ['Command palette', label(keys.palette)],
       ['Search', label(keys.search) + ' or /'],
-      ['Show or hide the preview', label(keys.preview)],
+      ['Edit the open note', 'E'],
+      ['Back to reading', 'Esc'],
+      ['Editor and preview side by side', label(keys.split)],
       ['Close a dialog', 'Esc'],
     ]
     setPalette({
@@ -388,8 +408,15 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       { id: 'search', label: 'Search notes', hint: label(keys.search), run: focusSearch },
     ]
     if (!narrow) {
-      items.push({ id: 'preview', label: preview ? 'Hide the preview' : 'Show the preview', hint: label(keys.preview), run: togglePreview })
       items.push({ id: 'sidebar', label: collapsed ? 'Show the sidebar' : 'Hide the sidebar', run: toggleSidebar })
+    }
+    if (current.current?.kind === 'md') {
+      const shown = layout === 'phone' && mode === 'split' ? 'read' : mode
+      if (shown !== 'read') items.push({ id: 'read', label: 'Read this note', hint: 'Esc', run: () => setMode('read') })
+      if (shown !== 'edit') items.push({ id: 'edit', label: 'Edit this note', hint: 'E', run: () => setMode('edit') })
+      if (layout !== 'phone' && shown !== 'split') {
+        items.push({ id: 'split', label: 'Editor and preview side by side', hint: label(keys.split), run: () => setMode('split') })
+      }
     }
     if (current.current) {
       items.push({ id: 'rename', label: 'Rename or move this note', detail: current.current.path, run: renamePrompt })
@@ -432,6 +459,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       })
     }
     items.push({ id: 'theme', label: 'Theme', detail: themePref, run: () => setThemeNext() })
+    items.push({ id: 'open', label: 'Open notes in', detail: openLabel(openPref), run: setOpenPrefNext })
+    items.push({ id: 'live', label: 'Hide markdown syntax while editing', detail: live ? 'on' : 'off', run: toggleLive })
     items.push({ id: 'keys', label: 'Keyboard shortcuts', run: showShortcuts })
     if (user) items.push({ id: 'signout', label: 'Sign out', detail: user.username, run: () => void auth.logout().then(onSignOut) })
     setPalette({ mode: 'list', placeholder: 'Type a command', items })
@@ -448,6 +477,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     setThemeTo(order[(i + 1) % order.length] ?? 'system')
   }
 
+  function setOpenPrefNext(): void {
+    const order: prefs.OpenMode[] = layout === 'phone' ? ['read', 'edit'] : ['read', 'edit', 'split']
+    const i = order.indexOf(openPref)
+    setOpenPrefTo(order[(i + 1) % order.length] ?? 'read')
+  }
+
   function openUserMenu(anchor: HTMLElement): void {
     setMenu({
       anchor,
@@ -456,6 +491,13 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         { id: 'light', label: 'Light', icon: 'sun', checked: themePref === 'light', run: () => setThemeTo('light') },
         { id: 'dark', label: 'Dark', icon: 'moon', checked: themePref === 'dark', run: () => setThemeTo('dark') },
         { id: 'system', label: 'Match the system', icon: 'monitor', checked: themePref === 'system', run: () => setThemeTo('system') },
+        'sep',
+        { id: 'open-read', label: 'Open notes to read', icon: 'book-open', checked: openPref === 'read', run: () => setOpenPrefTo('read') },
+        { id: 'open-edit', label: 'Open notes to edit', icon: 'pencil', checked: openPref === 'edit', run: () => setOpenPrefTo('edit') },
+        ...(layout === 'phone'
+          ? []
+          : [{ id: 'open-split', label: 'Open notes side by side', icon: 'columns' as const, checked: openPref === 'split', run: () => setOpenPrefTo('split') }]),
+        { id: 'live', label: 'Hide syntax while editing', icon: 'eye', checked: live, run: toggleLive },
         'sep',
         { id: 'keys', label: 'Keyboard shortcuts', icon: 'keyboard', run: showShortcuts },
         {
@@ -475,8 +517,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // --- hotkeys -----------------------------------------------------------
 
-  const actions = useRef({ openPalette, openSwitcher, newNotePrompt, openDaily, focusSearch, togglePreview })
-  actions.current = { openPalette, openSwitcher, newNotePrompt, openDaily, focusSearch, togglePreview }
+  const actions = useRef({ openPalette, openSwitcher, newNotePrompt, openDaily, focusSearch, toggleSplit })
+  actions.current = { openPalette, openSwitcher, newNotePrompt, openDaily, focusSearch, toggleSplit }
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
@@ -491,7 +533,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       else if (matches(ev, keys.newNote)) a.newNotePrompt()
       else if (matches(ev, keys.daily)) void a.openDaily()
       else if (matches(ev, keys.search)) a.focusSearch()
-      else if (matches(ev, keys.preview)) a.togglePreview()
+      else if (matches(ev, keys.split)) a.toggleSplit()
       else if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !isEditable(document.activeElement)) a.focusSearch()
       else handled = false
       if (handled) {
@@ -514,10 +556,15 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const selected = route.kind === 'note' ? route.id : null
   const sidebarShown = narrow ? drawer : !collapsed
 
-  const shellClass = ['shell', layout, sidebarShown ? 'sidebar-open' : 'sidebar-closed'].join(' ')
+  // While the phone keyboard is up the shell is sized to what is left
+  // above it, so the formatting bar and the caret stay in view.
+  const phoneEditing = layout === 'phone' && editing
+  const viewport = useVisualViewport(phoneEditing)
+  const shellClass = ['shell', layout, sidebarShown ? 'sidebar-open' : 'sidebar-closed', viewport ? 'kb' : ''].join(' ')
+  const shellStyle = viewport ? `height:${viewport.height}px;top:${viewport.top}px` : undefined
 
   return (
-    <div class={shellClass}>
+    <div class={shellClass} style={shellStyle}>
       <header class="topbar">
         <button
           type="button"
@@ -639,8 +686,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               key={`${route.id}:${rev}`}
               id={route.id}
               layout={layout}
-              preview={preview}
-              onTogglePreview={togglePreview}
+              mode={mode}
+              onMode={setMode}
+              live={live}
+              onEditing={setEditing}
               onOpen={navigate}
               onNote={onNote}
               onToast={say}
@@ -667,7 +716,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           )}
         </main>
       </div>
-      {layout === 'phone' && (
+      {layout === 'phone' && !editing && (
         <nav class="bottombar" aria-label="quick actions">
           <button type="button" class={'bottombar-btn' + (drawer ? ' on' : '')} onClick={() => setDrawer((d) => !d)}>
             <Icon name="folder" size={20} />
@@ -697,6 +746,17 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       )}
     </div>
   )
+}
+
+function openLabel(m: prefs.OpenMode): string {
+  switch (m) {
+    case 'read':
+      return 'read'
+    case 'edit':
+      return 'edit'
+    case 'split':
+      return 'side by side'
+  }
 }
 
 interface HomeProps {
