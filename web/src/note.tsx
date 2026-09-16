@@ -15,6 +15,7 @@ import type { EditorView } from '@codemirror/view'
 
 import { api, ApiError, baseOf, dirOf } from './api'
 import type { MoveResult, Note } from './api'
+import * as cache from './cache'
 import { fmtBytes, fmtDate } from './dom'
 import { Editor } from './editor'
 import { FormatBar } from './format'
@@ -58,6 +59,7 @@ export function NotePage(props: NotePageProps) {
   const [sync, setSync] = useState<SyncClient | null>(null)
   const [status, setStatus] = useState<SyncStatus>('connecting')
   const [synced, setSynced] = useState(false)
+  const [local, setLocal] = useState(false) // the local document copy is loaded
   const [others, setOthers] = useState<PresenceUser[]>([])
   const [readOnly, setReadOnly] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -72,7 +74,9 @@ export function NotePage(props: NotePageProps) {
 
   // Fetch the note's metadata, then open the realtime session for
   // markdown notes. HTML notes do not merge — no session, no CRDT — so
-  // their page never waits for one.
+  // their page never waits for one. Offline, the metadata and the last
+  // render come from the read cache and the session runs on the local
+  // document, which y-indexeddb has already loaded.
   useEffect(() => {
     let alive = true
     setNote(null)
@@ -80,6 +84,7 @@ export function NotePage(props: NotePageProps) {
     setNotice(null)
     setReadOnly(false)
     setSynced(false)
+    setLocal(false)
     setOthers([])
     setStatus('connecting')
     let client: SyncClient | null = null
@@ -87,6 +92,17 @@ export function NotePage(props: NotePageProps) {
       .note(id)
       .then((n) => {
         if (!alive) return
+        void cache.putNote(n)
+        return n
+      })
+      .catch(async (err: unknown) => {
+        if (!alive || !cache.networkDown(err)) throw err
+        const cached = await cache.getNote(id)
+        if (!cached) throw err
+        return cached
+      })
+      .then((n) => {
+        if (!alive || !n) return
         setNote(n)
         onNote(n)
         document.title = `${n.title} — YANA/`
@@ -98,6 +114,9 @@ export function NotePage(props: NotePageProps) {
             if (!alive) return
             setStatus(s)
             if (s === 'synced') setSynced(true)
+          },
+          onLocal() {
+            if (alive) setLocal(true)
           },
           onError(code) {
             if (!alive) return
@@ -283,6 +302,9 @@ export function NotePage(props: NotePageProps) {
   }
 
   const split = shown === 'split'
+  // The editor opens once the document is in step with the server, or —
+  // offline — once the local copy has loaded; edits are kept either way.
+  const docReady = synced || (local && status === 'offline')
   const modeBtn = (m: OpenMode, icon: 'book-open' | 'pencil' | 'columns', text: string, title: string) => (
     <button type="button" role="tab" aria-selected={shown === m} class={shown === m ? 'on' : ''} title={title} onClick={() => onMode(m)}>
       <Icon name={icon} />
@@ -349,7 +371,7 @@ export function NotePage(props: NotePageProps) {
       </div>
       <div class="page-body">
         {editing &&
-          (synced ? (
+          (docReady ? (
             <Editor
               sync={sync}
               note={note}
@@ -363,7 +385,7 @@ export function NotePage(props: NotePageProps) {
               onView={setView}
             />
           ) : (
-            <div class="editor editor-wait muted">{status === 'offline' ? 'Offline. Waiting for the server.' : 'Connecting…'}</div>
+            <div class="editor editor-wait muted">{status === 'offline' ? 'Offline. Opening the copy on this device.' : 'Connecting…'}</div>
           ))}
         {shown !== 'edit' && (
           <Reader

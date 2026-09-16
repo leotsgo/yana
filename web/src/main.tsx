@@ -1,6 +1,7 @@
 // Boot: find out whether the server has accounts, get a session, then
 // mount the app. The setup and sign-in screens live here because they run
-// before anything else exists.
+// before anything else exists. With no network the app mounts on its
+// local caches; the session is checked again once the network returns.
 
 import { render } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
@@ -9,10 +10,12 @@ import { App } from './app'
 import * as auth from './auth'
 import { Icon } from './icons'
 import * as prefs from './prefs'
+import { initPwa } from './pwa'
 import './app.css'
 
 prefs.applyTheme()
 prefs.applyAppearance()
+initPwa()
 
 type Phase = 'loading' | 'setup' | 'signin' | 'app'
 
@@ -23,14 +26,28 @@ function Root() {
   useEffect(() => {
     let live = true
     void (async () => {
-      const { setupRequired, open } = await auth.authState()
+      let state: { setupRequired: boolean; open: boolean }
+      try {
+        state = await auth.authState()
+      } catch {
+        // The shell came from the service worker and the server is
+        // unreachable: open on the local copies and sort the session out
+        // when the network returns.
+        if (live) setPhase('app')
+        return
+      }
       if (!live) return
-      if (setupRequired && !open) {
+      if (state.setupRequired && !state.open) {
         setPhase('setup')
         return
       }
-      if (!open) {
-        const ok = await auth.tryRefresh()
+      if (!state.open) {
+        let ok = false
+        try {
+          ok = await auth.tryRefresh()
+        } catch {
+          ok = false
+        }
         if (!live) return
         if (!ok || !auth.token()) {
           setPhase('signin')

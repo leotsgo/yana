@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { api, ApiError, baseOf, dirOf, saveBlob } from './api'
 import type { MoveResult, Note, SpaceInfo, SpaceTree, Status } from './api'
 import * as auth from './auth'
+import * as cache from './cache'
 import { Confirm } from './confirm'
 import type { ConfirmSpec } from './confirm'
 import { isEditable, keys, label, matches } from './hotkeys'
@@ -21,23 +22,29 @@ import { renderUnresolvedReport } from './links'
 import { Menu } from './menu'
 import type { MenuSpec } from './menu'
 import { NotePage } from './note'
+import * as outbox from './outbox'
 import { Palette } from './palette'
 import type { PaletteItem, PaletteSpec } from './palette'
 import * as prefs from './prefs'
+import * as pwa from './pwa'
 import { SearchResults } from './search'
 import { SettingsPage, isSection } from './settings'
 import type { Section } from './settings'
+import { SharePage } from './share'
+import { today } from './sharelib'
 import { TrashPage } from './trash'
 import { Tree, flatten } from './tree'
 
 type Route =
   | { kind: 'home' }
   | { kind: 'note'; id: string }
+  | { kind: 'share' }
   | { kind: 'links' }
   | { kind: 'trash' }
   | { kind: 'settings'; section: Section | null }
 
 function parseRoute(): Route {
+  if (location.pathname === '/share') return { kind: 'share' }
   if (location.pathname === '/links') return { kind: 'links' }
   if (location.pathname === '/trash') return { kind: 'trash' }
   if (location.pathname === '/settings') return { kind: 'settings', section: null }
@@ -47,12 +54,20 @@ function parseRoute(): Route {
   return m && m[1] ? { kind: 'note', id: m[1] } : { kind: 'home' }
 }
 
+/** Track a subscribe/get module state in a component. */
+function useExternal<T>(get: () => T, subscribe: (l: () => void) => () => void): T {
+  const [value, setValue] = useState(get)
+  useEffect(() => subscribe(() => setValue(get())), [get, subscribe])
+  return value
+}
+
 export function App({ onSignOut }: { onSignOut: () => void }) {
   const layout = useLayout()
   const [route, setRoute] = useState<Route>(parseRoute)
   const [spaces, setSpaces] = useState<SpaceTree[] | null>(null)
   const [spaceList, setSpaceList] = useState<SpaceInfo[] | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
+  const [staleTree, setStaleTree] = useState(false) // the tree is the last saved copy
   const [status, setStatus] = useState<Status | null>(null)
   const [query, setQuery] = useState('')
   const [regex, setRegex] = useState(false)
@@ -139,12 +154,26 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // --- data --------------------------------------------------------------
 
+  const net = useExternal(pwa.netState, pwa.subscribeNet)
+  const box = useExternal(outbox.outboxState, outbox.subscribeOutbox)
+
   const loadTree = useCallback(async () => {
     try {
       const { spaces } = await api.tree()
       setSpaces(spaces)
       setTreeError(null)
+      setStaleTree(false)
+      void cache.putTree(spaces)
     } catch (err) {
+      // Offline, the last saved tree stands in for the server's.
+      if (cache.networkDown(err)) {
+        const cached = await cache.getTree()
+        if (cached) {
+          setSpaces(cached)
+          setStaleTree(true)
+          return
+        }
+      }
       setTreeError(err instanceof ApiError ? err.message : 'Could not load the tree.')
     }
   }, [])
@@ -162,23 +191,29 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     try {
       const s = await api.status()
       setStatus(s)
+      void cache.putStatus(s)
       if (!s.ready) window.setTimeout(() => { void loadStatus(); void loadTree() }, 2000)
-    } catch {
-      setStatus(null)
+    } catch (err) {
+      if (cache.networkDown(err)) setStatus(await cache.getStatus())
+      else setStatus(null)
     }
   }, [loadTree])
 
   useEffect(() => {
     void loadTree()
     void loadStatus()
+    void outbox.drain()
     void loadSpaces()
     // Files can change under us; keep the tree fresh without a websocket.
     const t = window.setInterval(() => { void loadTree() }, 30_000)
-    const onVis = () => { if (document.visibilityState === 'visible') void loadTree() }
+    const onVis = () => { if (document.visibilityState === 'visible') { void loadTree(); void outbox.drain() } }
+    const onOnline = () => { void loadTree(); void outbox.drain() }
     document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('online', onOnline)
     return () => {
       window.clearInterval(t)
       document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('online', onOnline)
     }
   }, [loadTree, loadStatus, loadSpaces])
 
@@ -188,6 +223,11 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     const t = window.setTimeout(() => setToast(null), 4500)
     return () => window.clearTimeout(t)
   }, [toast])
+
+  // Replay results surface the same way everything else does.
+  useEffect(() => {
+    if (box.message) say(box.message)
+  }, [box.message, say])
 
   // --- actions -----------------------------------------------------------
 
@@ -214,13 +254,21 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       let p = path.trim().replace(/^\/+/, '')
       if (!/\.(md|markdown|html?)$/i.test(p)) p += '.md'
       const title = baseOf(p).replace(/\.(md|markdown|html?)$/i, '')
+      const seed = `# ${title}\n\n`
       try {
-        const res = await api.createNote(p, `# ${title}\n\n`)
+        const res = await api.createNote(p, seed)
         setFresh(res.id)
         navigate(res.id, true, true)
         void loadTree()
       } catch (err) {
-        say(err instanceof ApiError ? err.message : 'Could not create the note.')
+        if (cache.networkDown(err)) {
+          // The id comes from the server, so offline the note is queued
+          // and created when the server answers again.
+          void outbox.enqueue({ kind: 'create', path: p, content: seed })
+          say(`Offline. ${p} is created when the connection returns.`)
+        } else {
+          say(err instanceof ApiError ? err.message : 'Could not create the note.')
+        }
       }
     },
     [navigate, loadTree, say],
@@ -240,8 +288,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   }
 
   const openDaily = useCallback(async () => {
-    const d = new Date()
-    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const date = today()
     try {
       const res = await api.daily(dailySpace(), date)
       if (res.created) {
@@ -250,7 +297,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       }
       navigate(res.id, true, res.created)
     } catch (err) {
-      say(err instanceof ApiError ? err.message : 'Could not open the daily note.')
+      if (cache.networkDown(err)) {
+        void outbox.enqueue({ kind: 'daily', space: dailySpace(), date })
+        say("Offline. Today's note opens when the connection returns.")
+      } else {
+        say(err instanceof ApiError ? err.message : 'Could not open the daily note.')
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate, loadTree, say, spaces])
@@ -474,6 +526,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       items.push({ id: 'settings-people', label: 'People', detail: 'the accounts on this server', run: () => openSettings('people') })
       items.push({ id: 'settings-agents', label: 'Agents', detail: 'MCP keys', run: () => openSettings('agents') })
     }
+    if (net.canInstall) {
+      items.push({ id: 'install', label: 'Install app', detail: 'add to the home screen', run: () => void pwa.promptInstall() })
+    }
     items.push({ id: 'theme', label: 'Theme', detail: themePref, run: () => setThemeNext() })
     items.push({ id: 'open', label: 'Open notes in', detail: openLabel(openPref), run: setOpenPrefNext })
     items.push({ id: 'live', label: 'Hide markdown syntax while editing', detail: live ? 'on' : 'off', run: toggleLive })
@@ -518,6 +573,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         'sep',
         { id: 'settings', label: 'Settings', icon: 'settings', run: () => openSettings(narrow ? null : 'account') },
         { id: 'keys', label: 'Keyboard shortcuts', icon: 'keyboard', run: showShortcuts },
+        ...(net.canInstall
+          ? ['sep' as const, { id: 'install', label: 'Install app', icon: 'share' as const, run: () => void pwa.promptInstall() }]
+          : []),
         {
           id: 'about',
           label: status ? `${status.notes} notes · ${status.version}` : 'YANA/',
@@ -581,6 +639,19 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const shellClass = ['shell', layout, sidebarShown ? 'sidebar-open' : 'sidebar-closed', viewport ? 'kb' : ''].join(' ')
   const shellStyle = viewport ? `height:${viewport.height}px;top:${viewport.top}px` : undefined
 
+  // One chip for the offline and queued state, whichever applies.
+  const queuedLabel = box.pending > 0 ? `${box.pending} queued` : ''
+  const netLabel = net.offline
+    ? queuedLabel
+      ? `Offline · ${queuedLabel}`
+      : 'Offline'
+    : box.sending
+      ? 'Sending…'
+      : queuedLabel
+  const netTitle = net.offline
+    ? 'Changes are kept on this device and sent when the connection returns.'
+    : 'Queued changes replay in order when the connection returns.'
+
   return (
     <div class={shellClass} style={shellStyle}>
       <header class="topbar">
@@ -597,6 +668,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         <a class="wordmark" href="/" onClick={(ev) => { ev.preventDefault(); navigate(null) }}>
           YANA/
         </a>
+        {netLabel && (
+          <span class={'net-chip' + (net.offline ? ' offline' : '')} title={netTitle}>
+            <span class="sync-dot" />
+            {netLabel}
+          </span>
+        )}
         <span class="spacer" />
         {layout !== 'phone' && (
           <>
@@ -623,6 +700,14 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           {user ? <span class="avatar">{user.username.slice(0, 1).toUpperCase()}</span> : <Icon name="user" size={18} />}
         </button>
       </header>
+      {net.updateReady && (
+        <div class="update-bar" role="status">
+          <span>A new version is ready.</span>
+          <button type="button" class="btn small" onClick={() => pwa.reloadForUpdate()}>
+            Reload
+          </button>
+        </div>
+      )}
       <div class="body">
         <aside class="sidebar" aria-label="notes" aria-hidden={!sidebarShown}>
           <div class="sidebar-search">
@@ -673,13 +758,16 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
                     <span /><span /><span /><span /><span />
                   </div>
                 ) : (
-                  <Tree
-                    spaces={spaces}
-                    selected={selected}
-                    onOpen={navigate}
-                    onMove={(id, from, dir) => void moveNote(id, from, dir ? `${dir}/${baseOf(from)}` : baseOf(from))}
-                    onNew={newNotePrompt}
-                  />
+                  <>
+                    {staleTree && <p class="tree-offline">Offline. This is the last saved tree.</p>}
+                    <Tree
+                      spaces={spaces}
+                      selected={selected}
+                      onOpen={navigate}
+                      onMove={(id, from, dir) => void moveNote(id, from, dir ? `${dir}/${baseOf(from)}` : baseOf(from))}
+                      onNew={newNotePrompt}
+                    />
+                  </>
                 )}
               </nav>
             )}
@@ -727,6 +815,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           {route.kind === 'trash' && (
             <TrashPage onOpen={navigate} onToast={say} confirm={setConfirmSpec} onChanged={() => void loadTree()} />
           )}
+          {route.kind === 'share' && (
+            <SharePage notes={notes} dailySpace={dailySpace()} onOpen={navigate} onToast={say} />
+          )}
           {route.kind === 'settings' && (
             <SettingsPage
               section={route.section}
@@ -751,6 +842,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               onOpen={navigate}
               onNew={() => newNotePrompt()}
               onDaily={() => void openDaily()}
+              onInstall={net.canInstall ? () => void pwa.promptInstall() : null}
             />
           )}
         </main>
@@ -804,11 +896,13 @@ interface HomeProps {
   onOpen: (id: string) => void
   onNew: () => void
   onDaily: () => void
+  /** Offered when the browser made an install prompt available. */
+  onInstall: (() => void) | null
 }
 
 // The home page: the two things people come here to do, then what they
 // opened last. Shortcuts are in the account menu.
-function Home({ notes, loading, onOpen, onNew, onDaily }: HomeProps) {
+function Home({ notes, loading, onOpen, onNew, onDaily, onInstall }: HomeProps) {
   const byId = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
   const recent = prefs.recents().map((id) => byId.get(id)).filter((n): n is HomeProps['notes'][number] => Boolean(n))
 
@@ -828,6 +922,12 @@ function Home({ notes, loading, onOpen, onNew, onDaily }: HomeProps) {
           <Icon name="calendar" size={18} />
           Today
         </button>
+        {onInstall && (
+          <button type="button" class="btn large" onClick={onInstall}>
+            <Icon name="share" size={18} />
+            Install app
+          </button>
+        )}
       </div>
       {loading ? (
         <p class="muted">Loading the tree…</p>

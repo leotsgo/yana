@@ -647,6 +647,15 @@ func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(p, "assets/") {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			}
+			// The service worker must not be served from a stale cache,
+			// and the manifest needs its real content type: the extension
+			// is not one ServeContent knows.
+			if p == "sw.js" || p == "manifest.webmanifest" {
+				w.Header().Set("Cache-Control", "no-cache")
+				if p == "manifest.webmanifest" {
+					w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+				}
+			}
 			http.ServeFileFS(w, r, s.Web, p)
 			return
 		}

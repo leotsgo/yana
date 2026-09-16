@@ -80,7 +80,14 @@ limited, live for open clients, and committed to git under its label
   navigation, relative wikilinks, backlinks, and offline search, and the
   whole tree as a byte-identical zip that round-trips ids, links, and
   structure exactly ([docs/export.md](docs/export.md)).
-  The Android app is tracked as a later phase.
+  The client installs: a home-screen app with the shell cached, notes
+  kept on the device through their CRDT documents, the tree and recent
+  renders readable offline, changes that need the server (new note,
+  daily note, upload) queued in order and sent when the connection
+  returns, a share target that appends to today's note, and a
+  one-line reload notice when a new version arrives
+  ([docs/pwa.md](docs/pwa.md)). The Android app is tracked as a later
+  phase.
 
 ## Quick start
 
@@ -168,7 +175,8 @@ client, embedded into the binary), `spike/crdt/` (Phase 0 CRDT evaluation
 harness), `docs/` (`deployment.md`, `file-format.md`, `agents.md`,
 `realtime.md` for the wire protocol, `editor.md` for the client,
 `html-notes.md` for the sandbox and trust model, `trash.md` for deletion
-and recovery, `export.md` for the export formats, and `crdt-decision.md`,
+and recovery, `export.md` for the export formats, `pwa.md` for the
+installable app, and `crdt-decision.md`,
 which records which CRDT library each client uses and why).
 
 The reconciliation tests include a 60 second oscillation check and a

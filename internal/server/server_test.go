@@ -56,8 +56,12 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	web := fstest.MapFS{
-		"index.html":    {Data: []byte("<!doctype html><title>YANA/</title>")},
-		"assets/app.js": {Data: []byte("console.log(1)")},
+		"index.html":           {Data: []byte("<!doctype html><title>YANA/</title>")},
+		"assets/app.js":        {Data: []byte("console.log(1)")},
+		"sw.js":                {Data: []byte("self.addEventListener('install', () => {})")},
+		"manifest.webmanifest": {Data: []byte(`{"name":"YANA/","start_url":"/"}`)},
+		"icon-192.png":         {Data: []byte("PNG")},
+		"apple-touch-icon.png": {Data: []byte("PNG")},
 	}
 	srv := New(Deps{
 		DB: db, Root: root, Ripgrep: search.NewRipgrep(dir, true, 2*time.Second), Web: web, Version: "test",
@@ -236,6 +240,52 @@ func TestFilesAndWeb(t *testing.T) {
 	resp, _ = http.Get(e.ts.URL + "/assets/app.js")
 	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Cache-Control"), "immutable") {
 		t.Errorf("static asset: %d %s", resp.StatusCode, resp.Header.Get("Cache-Control"))
+	}
+	resp.Body.Close()
+}
+
+func TestPwaFiles(t *testing.T) {
+	e := newEnv(t)
+	resp, err := http.Get(e.ts.URL + "/sw.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Type"), "text/javascript") {
+		t.Errorf("sw.js: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("sw.js cache-control: %q", cc)
+	}
+	resp.Body.Close()
+
+	resp, err = http.Get(e.ts.URL + "/manifest.webmanifest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Type"), "application/manifest+json") {
+		t.Errorf("manifest: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("manifest cache-control: %q", cc)
+	}
+	resp.Body.Close()
+
+	resp, err = http.Get(e.ts.URL + "/icon-192.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Type"), "image/png") {
+		t.Errorf("icon: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	resp.Body.Close()
+
+	// The share target is a client route; it gets the shell.
+	resp, err = http.Get(e.ts.URL + "/share?title=x&url=https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
+		t.Errorf("/share: %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
 	resp.Body.Close()
 }

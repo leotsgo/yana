@@ -742,6 +742,43 @@ kbd {
 .bottombar-btn.accent { color: var(--accent-ink); }
 .bottombar-btn:active { background: var(--hover); }
 
+/* --- installable app --------------------------------------------------- */
+
+/* One-line notice under the top bar when a new version has taken over. */
+.update-bar {
+  flex: none; display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 5px 12px; font-size: 12.5px; color: var(--ink-2);
+  background: var(--accent-soft); border-bottom: 1px solid var(--line);
+}
+.update-bar .btn { height: 24px; padding: 0 10px; font-size: 12px; }
+
+/* Offline / queued chip in the top bar. */
+.net-chip {
+  display: inline-flex; align-items: center; gap: 6px; margin-left: 10px;
+  font-size: 11.5px; color: var(--ink-2); white-space: nowrap;
+  padding: 2px 9px; border: 1px solid var(--line-2); border-radius: 999px;
+}
+.net-chip .sync-dot { background: var(--ink-3); animation: pulse 1.2s ease-in-out infinite; }
+.net-chip.offline { color: var(--danger); border-color: var(--danger); }
+.net-chip.offline .sync-dot { background: var(--danger); animation: none; }
+
+/* The tree is the last saved copy, said plainly at its top. */
+.tree-offline { margin: 10px 12px 0; font-size: 12px; color: var(--ink-3); }
+
+/* The share target page; home's layout with the shared item front and centre. */
+.share-page .home-mark { color: var(--ok); }
+.share-preview {
+  font-size: 13px; color: var(--ink-2); background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: 10px 12px; max-width: 100%; overflow-x: auto; text-align: left;
+  white-space: pre; margin-bottom: 0;
+}
+.share-paste {
+  width: 100%; max-width: 520px; min-height: 96px; resize: vertical; margin-top: 4px;
+  padding: 10px 12px; font: 14px/1.5 var(--sans); color: var(--ink);
+  background: var(--bg); border: 1px solid var(--line-2); border-radius: var(--r-sm); outline: none;
+}
+.share-paste:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
 /* --- layouts ----------------------------------------------------------- */
 
 /* Desktop: the sidebar is a column that collapses to nothing. */

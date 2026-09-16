@@ -230,4 +230,9 @@ template.
 `web/` builds with esbuild (`npm run build`) into `web/dist`, which the
 binary embeds. Bundle names carry a content hash (`assets/app-XXXX.js`)
 and `index.html` is rewritten to match, so the long immutable cache
-lifetime the server puts on `/assets/` is safe across releases.
+lifetime the server puts on `/assets/` is safe across releases. The same
+build rasterises the install icons, writes `manifest.webmanifest`, and
+fills `sw.template.js` into `sw.js` with the hashed names and a version
+stamp — the installable-app side of the client
+([pwa.md](pwa.md)). `npm run watch` skips the worker so development is
+never shadowed by a cache.
