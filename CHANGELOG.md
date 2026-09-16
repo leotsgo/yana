@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Phase 15 — Installable and offline. The web client is a PWA: a
+  manifest and slash-mark icons install it to a home screen, a service
+  worker precaches the shell (never the API) and serves it for every
+  route with no network, and a new deploy shows up as a one-line reload
+  notice. Each note's CRDT document persists in the browser
+  (y-indexeddb), so a note edited offline is there when the app reopens
+  and merges both ways; the tree and the last 20 opened notes' renders
+  are cached for reading; new note, daily note, and uploads made
+  offline queue in order and replay when the connection returns, with
+  the offline and queued state in the top bar. A share target appends
+  what other apps share to today's note (or a chosen note) through the
+  CRDT; on iOS a documented Shortcut does it through the API. Sign-in
+  carries over to the installed app via the refresh cookie.
 - Phase 14 — Reading mode and mobile editing. A note opens as its
   rendered view, and task boxes in it are live: a tick rewrites the
   `[ ]` through the CRDT, so it shows on every open client and lands in

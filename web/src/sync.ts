@@ -2,11 +2,14 @@
 // a WebSocket carrying binary msgpack frames, a Yjs document per note,
 // keystroke batching, awareness for presence, and reconnect with
 // exponential backoff. Offline edits queue locally and merge both ways on
-// reconnect.
+// reconnect. The document is also persisted to IndexedDB (y-indexeddb),
+// so a note edited offline survives the tab closing and merges the next
+// time the note opens.
 
 import * as Y from 'yjs'
 import { encode, decode } from '@msgpack/msgpack'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
+import { IndexeddbPersistence } from 'y-indexeddb'
 
 import { tryRefresh, user, wsURL } from './auth'
 
@@ -56,6 +59,9 @@ export interface SyncEvents {
   onGone?(kind: 'moved' | 'deleted', path?: string): void
   /** Awareness states changed; presence UI should rerender. */
   onPresence?(): void
+  /** The local copy of the document is loaded (or storage was
+   * unavailable); the note can be read and edited offline from here. */
+  onLocal?(): void
 }
 
 const FLUSH_MS = 50 // keystroke batching window
@@ -103,6 +109,7 @@ export class SyncClient {
 
   private readonly noteID: string
   private readonly events: SyncEvents
+  private readonly idb: IndexeddbPersistence
   private ws: WebSocket | null = null
   private attempts = 0
   private retryTimer: number | undefined
@@ -114,6 +121,7 @@ export class SyncClient {
   private lastSentAt = 0
   private synced = false
   private everSynced = false
+  private localReady = false
   private destroyed = false
   private composing = false
 
@@ -125,6 +133,15 @@ export class SyncClient {
     this.author = `user:${me.name}`
     this.awareness = new Awareness(this.doc)
     this.awareness.setLocalStateField('user', me)
+
+    // The document persists per note. Whatever this device edited before
+    // — online or offline — loads into the doc here; updates it brings
+    // queue like local edits and merge with the server on connect.
+    this.idb = new IndexeddbPersistence('yana-note-' + noteID, this.doc)
+    this.idb.whenSynced.then(
+      () => this.markLocalReady(),
+      () => this.markLocalReady(), // storage blocked: the doc still works in memory
+    )
 
     this.doc.on('update', (update: Uint8Array, origin: unknown) => {
       if (origin === 'remote') return
@@ -142,9 +159,19 @@ export class SyncClient {
     this.connect()
   }
 
+  private markLocalReady(): void {
+    this.localReady = true
+    this.events.onLocal?.()
+  }
+
   get status(): SyncStatus {
     if (this.synced) return 'synced'
     return this.ws && this.ws.readyState === WebSocket.OPEN ? 'connecting' : 'offline'
+  }
+
+  /** True once the local copy of the document is in place. */
+  get isLocalReady(): boolean {
+    return this.localReady
   }
 
   /** Local editing composition state; remote splices wait for it to end. */
@@ -313,6 +340,8 @@ export class SyncClient {
       ws.close(1000, 'leaving')
     }
     this.awareness.destroy()
-    this.doc.destroy()
+    // The persistence provider closes its database after writing out
+    // what it has; the doc outlives it just long enough for that.
+    void this.idb.destroy().then(() => this.doc.destroy())
   }
 }

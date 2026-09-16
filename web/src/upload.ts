@@ -1,12 +1,16 @@
 // Drag-and-drop and paste uploads. Each file goes to the note's sibling
 // _assets/ directory through PUT /api/files; while it is in flight the
 // document holds a placeholder link, which becomes the real image link
-// once the server has answered with the name it actually wrote.
+// once the server has answered with the name it actually wrote. Offline
+// the upload is queued in the outbox and the link is written now, so the
+// note keeps its place and the file lands when the connection returns.
 
 import type { EditorView } from '@codemirror/view'
 
 import { api, ApiError, join } from './api'
 import type { Note } from './api'
+import { networkDown } from './cache'
+import { enqueue } from './outbox'
 
 function safeName(name: string, type: string): string {
   let n = name.trim().replace(/[\\/:*?"<>| ]/g, '-').replace(/\s+/g, '-').replace(/-+/g, '-')
@@ -56,14 +60,25 @@ export async function uploadInto(
     view.dispatch({ changes: { from: pos, insert: marker } })
     pos += marker.length
     try {
-      const res = await api.upload(join(note.base, '_assets/' + name), file)
+      const path = join(note.base, '_assets/' + name)
+      const res = await api.upload(path, file)
       const link = `${isImage ? '!' : ''}[${isImage ? altFor(res.name) : res.name}](_assets/${res.name})`
       replaceMarker(view, marker, link)
       pos += link.length - marker.length
     } catch (err) {
-      replaceMarker(view, marker, '')
-      pos -= marker.length
-      onToast(err instanceof ApiError ? err.message : `Could not upload ${name}.`)
+      if (networkDown(err)) {
+        // Offline: write the link for the name we asked for and queue
+        // the bytes; the outbox reports if the server picks another.
+        const link = `${isImage ? '!' : ''}[${isImage ? altFor(name) : name}](_assets/${name})`
+        replaceMarker(view, marker, link)
+        pos += link.length - marker.length
+        void enqueue({ kind: 'upload', path: join(note.base, '_assets/' + name), name, blob: file })
+        onToast(`Offline. ${name} uploads when the connection returns.`)
+      } else {
+        replaceMarker(view, marker, '')
+        pos -= marker.length
+        onToast(err instanceof ApiError ? err.message : `Could not upload ${name}.`)
+      }
     }
   }
 }
