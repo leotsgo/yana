@@ -7,6 +7,8 @@ import { useState } from 'preact/hooks'
 
 import type { SpaceTree, TreeNode } from './api'
 import { baseOf, dirOf } from './api'
+import { Icon } from './icons'
+import { coarsePointer } from './layout'
 
 // Directory open/closed state survives re-renders within a session.
 const collapsed = new Set<string>()
@@ -63,7 +65,7 @@ export function Tree({ spaces, selected, onOpen, onMove, onNew }: TreeProps) {
         class={'tree-note' + (id === selected ? ' selected' : '') + (dropOn === dirOf(n.path) ? ' drop' : '')}
         href={`/n/${id}`}
         title={n.path}
-        draggable
+        draggable={!coarsePointer}
         onDragStart={(ev) => {
           ev.dataTransfer?.setData(NOTE_DRAG, JSON.stringify({ id, path: n.path, title: n.title ?? n.name }))
           ev.dataTransfer?.setData('text/plain', `[[${n.name.replace(/\.(md|markdown|html?)$/i, '')}]]`)
@@ -95,8 +97,9 @@ export function Tree({ spaces, selected, onOpen, onMove, onNew }: TreeProps) {
           }}
           {...dragProps(n.path)}
         >
-          <span class="tree-caret" />
-          <span class="tree-title">{n.name}/</span>
+          <Icon name="chevron-right" class="tree-caret" size={14} />
+          <Icon name={isOpen ? 'folder-open' : 'folder'} class="tree-folder" size={15} />
+          <span class="tree-title">{n.name}</span>
         </button>
         <div class="tree-children" hidden={!isOpen}>
           {(n.children ?? []).map((c) => render(c, depth + 1))}
@@ -111,10 +114,13 @@ export function Tree({ spaces, selected, onOpen, onMove, onNew }: TreeProps) {
 
   if (spaces.length === 0) {
     return (
-      <p class="empty">
-        No notes yet. Press the plus, or drop a markdown file into the notes directory; it shows up on the next scan.
-        <button type="button" class="tree-add" title="New note" onClick={() => onNew('')}>+</button>
-      </p>
+      <div class="empty">
+        <p>No notes yet. Start one, or drop a markdown file into the notes directory; it shows up on the next scan.</p>
+        <button type="button" class="btn" onClick={() => onNew('')}>
+          <Icon name="plus" />
+          New note
+        </button>
+      </div>
     )
   }
 
@@ -125,8 +131,8 @@ export function Tree({ spaces, selected, onOpen, onMove, onNew }: TreeProps) {
           <h2 class="space-name" title={`${s.notes} notes`}>
             {s.name === '' ? '/' : s.name + '/'}
             <span class="space-count">{s.notes}</span>
-            <button type="button" class="tree-add" title={`New note in ${s.name || 'the root'}`} onClick={() => onNew(s.name)}>
-              +
+            <button type="button" class="tree-add" title={`New note in ${s.name || 'the root'}`} aria-label={`New note in ${s.name || 'the root'}`} onClick={() => onNew(s.name)}>
+              <Icon name="plus" size={14} />
             </button>
           </h2>
           {s.children.map((c) => render(c, 0))}

@@ -55,7 +55,8 @@ writing files (bind-mount the tree, follow the space's
 `CONVENTIONS.md`), or through the MCP endpoint at `/mcp` with a
 space-scoped, revocable agent token; every agent write is authored, rate
 limited, live for open clients, and committed to git under its label
- ([docs/agents.md](docs/agents.md)). The editor is CodeMirror with a live
+ ([docs/agents.md](docs/agents.md)). The client works on a phone and a
+ desktop and has a dark theme. The editor is CodeMirror with a live
  preview, per-user undo, drag-and-drop and paste for images, and drag to
  move notes in the tree. New note, daily note, quick switcher, and command
  palette are one key away ([docs/editor.md](docs/editor.md)). HTML notes

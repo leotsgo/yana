@@ -75,17 +75,22 @@ export function wireWikiLinks(body: HTMLElement, note: Note, onOpen: (id: string
 }
 
 export function backlinksPanel(note: Note, onOpen: (id: string) => void): HTMLElement {
-  const panel = h('section', { class: 'backlinks', 'aria-label': 'linked from' }, h('h2', { class: 'backlinks-title' }, 'Linked from'))
+  const panel = h('section', { class: 'backlinks panel', 'aria-label': 'linked from' }, h('h2', { class: 'panel-title' }, 'Linked from'))
   const list = h('ul', { class: 'backlinks-list' })
-  panel.append(list)
+  const empty = h('p', { class: 'panel-empty' }, 'Loading…')
+  panel.append(list, empty)
   api
     .backlinks(note.id)
     .then(({ backlinks }) => {
-      if (backlinks.length === 0) return
+      if (backlinks.length === 0) {
+        empty.textContent = 'Nothing links here yet. Write [[' + (note.title || 'this note') + ']] in another note and it shows up.'
+        return
+      }
+      empty.remove()
       for (const b of backlinks) list.append(backlinkRow(b, onOpen))
     })
     .catch(() => {
-      // A failed fetch leaves the panel empty; the note stays usable.
+      empty.textContent = 'Could not load the backlinks.'
     })
   return panel
 }
@@ -115,11 +120,12 @@ function backlinkRow(b: Backlink, onOpen: (id: string) => void): HTMLElement {
 // shows the diff between them; restoring writes the old text back as a
 // live edit.
 export function historyPanel(note: Note, onOpen: (id: string) => void): HTMLElement {
-  const panel = h('section', { class: 'history', 'aria-label': 'history' })
+  const panel = h('section', { class: 'history panel', 'aria-label': 'history' })
   const list = h('ul', { class: 'history-list' })
   const diffBox = h('pre', { class: 'history-diff', hidden: true })
   const notice = h('p', { class: 'history-notice' })
-  const snapshotBtn = h('button', { class: 'btn btn-snapshot' }, 'Snapshot now')
+  const empty = h('p', { class: 'panel-empty' }, 'Loading…')
+  const snapshotBtn = h('button', { class: 'btn small btn-snapshot' }, 'Snapshot now')
   snapshotBtn.addEventListener('click', () => {
     snapshotBtn.disabled = true
     api
@@ -133,8 +139,9 @@ export function historyPanel(note: Note, onOpen: (id: string) => void): HTMLElem
       })
   })
   panel.append(
-    h('div', { class: 'history-head' }, h('h2', { class: 'history-title' }, 'History'), snapshotBtn),
+    h('div', { class: 'history-head' }, h('h2', { class: 'panel-title' }, 'History'), snapshotBtn),
     notice,
+    empty,
     list,
     diffBox,
   )
@@ -152,14 +159,23 @@ export function historyPanel(note: Note, onOpen: (id: string) => void): HTMLElem
         entries = es
         clear(list)
         if (es.length === 0) {
-          panel.classList.add('empty')
+          panel.classList.add('no-entries')
+          empty.textContent = 'No revisions yet. The tree is committed on a timer; Snapshot now commits it here.'
+          empty.hidden = false
           return
         }
-        panel.classList.remove('empty')
+        panel.classList.remove('no-entries')
+        empty.hidden = true
         for (const e of es) list.append(row(e))
       })
       .catch((err: unknown) => {
-        if (err instanceof ApiError && err.status === 501) panel.remove()
+        if (err instanceof ApiError && err.status === 501) {
+          panel.classList.add('no-entries')
+          empty.textContent = 'History is off on this server.'
+          snapshotBtn.hidden = true
+          return
+        }
+        empty.textContent = 'Could not load the history.'
       })
   }
 

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Phase 13 — The web client works on a phone, and looks like it was
+  meant to. One shell, three layouts: a drawer and a bottom bar under
+  720px, a collapsible column above 1024px, the in-between for tablets.
+  Light and dark themes, following the system or picked from the
+  account menu. Icons where there were mono labels; a title at the top
+  of every note that is edited in place and renames the file to match;
+  path, dates and backlinks in a details drawer; delete in an overflow
+  menu instead of beside Preview. The home page shows recent notes and
+  two buttons rather than a list of keyboard shortcuts. Empty states
+  everywhere a blank column used to be. Leaving a note now flushes the
+  last batch of keystrokes before the socket closes.
 - Phase 10 — Export and publish. Everything leaves: one note as a
   single self-contained HTML file (images inlined as data URIs,
   stylesheet embedded), a space or subtree as a static site zip — one

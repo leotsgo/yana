@@ -7,7 +7,11 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 
 import { App } from './app'
 import * as auth from './auth'
+import { Icon } from './icons'
+import * as prefs from './prefs'
 import './app.css'
+
+prefs.applyTheme()
 
 type Phase = 'loading' | 'setup' | 'signin' | 'app'
 
@@ -41,7 +45,7 @@ function Root() {
 
   switch (phase) {
     case 'loading':
-      return null
+      return <div class="boot" aria-busy="true" />
     case 'setup':
       return (
         <AuthForm
@@ -105,6 +109,9 @@ function AuthForm({ title, passwordLabel, passwordAutocomplete, button, submit, 
             .finally(() => setBusy(false))
         }}
       >
+        <div class="auth-mark" aria-hidden="true">
+          <Icon name="slash" size={40} />
+        </div>
         <h1 class="wordmark large">YANA/</h1>
         <p class="auth-sub">{title}</p>
         <label class="field">
@@ -134,7 +141,7 @@ function AuthForm({ title, passwordLabel, passwordAutocomplete, button, submit, 
         <p class="auth-msg" role="status">
           {msg}
         </p>
-        <button class="btn primary" type="submit" disabled={busy}>
+        <button class="btn primary large" type="submit" disabled={busy}>
           {button}
         </button>
       </form>

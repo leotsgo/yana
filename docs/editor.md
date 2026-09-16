@@ -4,6 +4,39 @@ The browser client is a Preact app around a CodeMirror 6 editor. Opening a
 note opens its editor; there is no separate read view. What follows is what
 the client does and which endpoints it leans on.
 
+## The shell
+
+One component tree, three layouts, picked by width:
+
+| Width | Layout |
+|---|---|
+| under 720px | Phone. One pane. The sidebar is a drawer; a bar along the bottom has Notes, Search, Today and New. The editor and the preview are alternatives, switched in the toolbar. |
+| 720 to 1023px | Tablet. The drawer stays; the top bar has room for New and Today. |
+| 1024px and up | Desktop. The sidebar is a column that collapses from the top-left button; the preview opens beside the editor. |
+
+The sidebar holds search (full text, or a regular expression with the `.*`
+switch when the server has ripgrep), the tree, and the links to the
+unresolved-link report and the trash. Search results replace the tree
+while a query is typed.
+
+Light and dark themes follow the system unless picked in the account menu
+(top right). The choice, the sidebar state, whether the preview is open,
+and the recently opened notes are kept per browser in `localStorage`
+under `yana.*`; nothing else is stored there.
+
+## Title
+
+The heading at the top of a note is its title and is edited in place.
+Committing a new title (Enter, or clicking away) rewrites the note's first
+`# ` heading through the CRDT — so it reaches every open client like any
+other edit — and renames the file to match, dropping only the characters
+a path cannot hold. The rename goes through `POST /api/notes/{id}/move`,
+so wikilinks follow. A note whose title comes from its file name (no
+heading) is only renamed. Escape puts the old title back.
+
+Path, dates, size and tags live in the Details drawer beside the editor,
+with the backlinks and the history.
+
 ## Editing
 
 Each note's text is a Yjs document bound to the editor through
@@ -26,7 +59,8 @@ the bar above the editor lists who is on the note.
 ## Preview
 
 The Preview button (or `Mod+E`) opens a pane beside the editor that
-renders the live document through `POST /api/render`. The server renders
+renders the live document through `POST /api/render`. On a phone the
+toolbar switches between the editor and the preview instead. The server renders
 it with the same goldmark pipeline the note endpoint uses, so wikilinks,
 tags, code blocks, and images look the same in the preview as they do
 anywhere else. Rendering runs at most every 220 ms while typing. The
@@ -64,7 +98,7 @@ intercept them.
 | `Alt+N` | New note: a prompt for the path, then the editor with the caret ready |
 | `Alt+D` | Today's daily note (created on first use) |
 | `Mod+P` | Quick switcher: fuzzy match on title and path; Enter on no match creates that note |
-| `Mod+K` | Command palette: everything above plus rename/move, unresolved links, snapshot, sign out |
+| `Mod+K` | Command palette: everything above plus rename/move, export, unresolved links, snapshot, theme, sign out |
 | `Mod+Shift+F` or `/` | Focus search |
 | `Mod+E` | Toggle the preview |
 | `Mod+Z` / `Mod+Shift+Z` | Undo / redo (local edits only) |
@@ -72,7 +106,8 @@ intercept them.
 | `Esc` | Close whatever is open |
 
 The switcher and the palette list every note in the tree and filter as you
-type; arrows move, Enter picks.
+type; arrows move, Enter picks. The switcher puts recently opened notes
+first. The full list of shortcuts is in the account menu.
 
 ## Daily note
 

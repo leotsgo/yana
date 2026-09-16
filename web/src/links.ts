@@ -11,9 +11,8 @@ export function renderUnresolvedReport(
 ): void {
   clear(container)
   container.append(
-    h('article', { class: 'note' },
-      h('header', { class: 'note-header' },
-        h('nav', { class: 'crumbs', 'aria-label': 'path' }, h('span', { class: 'crumb crumb-file' }, 'Unresolved links'))),
+    h('article', { class: 'report' },
+      h('header', { class: 'report-head' }, h('h1', { class: 'report-title' }, 'Unresolved links')),
       h('p', { class: 'muted loading' }, 'Loading…'),
     ),
   )
@@ -21,13 +20,10 @@ export function renderUnresolvedReport(
     .unresolved()
     .then(({ unresolved }) => {
       clear(container)
-      const article = h('article', { class: 'note unresolved-report' })
-      article.append(
-        h('header', { class: 'note-header' },
-          h('nav', { class: 'crumbs', 'aria-label': 'path' }, h('span', { class: 'crumb crumb-file' }, 'Unresolved links'))),
-      )
+      const article = h('article', { class: 'report unresolved-report' })
+      article.append(h('header', { class: 'report-head' }, h('h1', { class: 'report-title' }, 'Unresolved links')))
       if (unresolved.length === 0) {
-        article.append(h('p', { class: 'muted' }, 'Every wikilink resolves.'))
+        article.append(h('div', { class: 'empty-state' }, h('p', {}, 'Every wikilink points at a note that exists.')))
         container.append(article)
         return
       }
@@ -40,7 +36,7 @@ export function renderUnresolvedReport(
       }
       for (const [space, rows] of groups) {
         const section = h('section', { class: 'unresolved-space' },
-          h('h2', { class: 'space-name' }, space === '' ? '/' : space + '/'))
+          h('h2', { class: 'section-title' }, space === '' ? '/' : space + '/'))
         for (const u of rows) {
           section.append(
             h('li', { class: 'unresolved-row' },
