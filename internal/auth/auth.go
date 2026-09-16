@@ -97,6 +97,11 @@ type Service struct {
 
 	mu      sync.Mutex
 	revokeC []func(sessionID string)
+	// revoked holds sessions revoked while this process runs, each until
+	// the last access token minted for it has expired, so a revocation
+	// takes effect on the next request rather than at token expiry and
+	// verification still reads no database.
+	revoked map[string]time.Time
 }
 
 // Open builds the service. The signing secret is created on first use
@@ -148,7 +153,19 @@ func (s *Service) OnSessionRevoked(fn func(sessionID string)) {
 }
 
 func (s *Service) fireRevoked(ids ...string) {
+	now := s.opts.Now()
 	s.mu.Lock()
+	if s.revoked == nil {
+		s.revoked = map[string]time.Time{}
+	}
+	for id, until := range s.revoked {
+		if !now.Before(until) {
+			delete(s.revoked, id)
+		}
+	}
+	for _, id := range ids {
+		s.revoked[id] = now.Add(s.opts.AccessTTL)
+	}
 	cbs := make([]func(string), len(s.revokeC))
 	copy(cbs, s.revokeC)
 	s.mu.Unlock()
@@ -283,6 +300,12 @@ func (s *Service) VerifyAccess(token string) (Identity, error) {
 		return Identity{}, ErrInvalidToken
 	}
 	if !s.opts.Now().UTC().Before(time.Unix(0, c.Exp)) {
+		return Identity{}, ErrInvalidToken
+	}
+	s.mu.Lock()
+	_, gone := s.revoked[c.Sid]
+	s.mu.Unlock()
+	if gone {
 		return Identity{}, ErrInvalidToken
 	}
 	return Identity{UserID: c.Sub, Username: c.Usr, Owner: c.Own, SessionID: c.Sid, Expires: time.Unix(0, c.Exp).UTC()}, nil

@@ -17,6 +17,11 @@
     var t = localStorage.getItem('yana.theme');
     var dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    // Text size, measure and density the same way, so nothing reflows.
+    var d = document.documentElement.dataset;
+    var size = localStorage.getItem('yana.size'); if (size) d.size = size;
+    var measure = localStorage.getItem('yana.measure'); if (measure) d.measure = measure;
+    var density = localStorage.getItem('yana.density'); if (density) d.density = density;
   } catch (e) {}
 })();
 </script>

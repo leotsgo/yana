@@ -12,9 +12,25 @@ export interface User {
 let accessToken: string | null = null
 let currentUser: User | null = null
 let refreshing: Promise<boolean> | null = null
+const signedOutListeners = new Set<() => void>()
 
 export function user(): User | null {
   return currentUser
+}
+
+/** Runs fn when the session stops working (revoked, expired for good)
+ * so the shell can return to the sign-in screen. */
+export function onSignedOut(fn: () => void): () => void {
+  signedOutListeners.add(fn)
+  return () => signedOutListeners.delete(fn)
+}
+
+/** Drops the session on the client and tells the shell. */
+export function expire(): void {
+  if (accessToken === null && currentUser === null) return
+  accessToken = null
+  currentUser = null
+  for (const fn of signedOutListeners) fn()
 }
 
 export function token(): string | null {
@@ -86,7 +102,10 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
   const res = await fetch(path, { ...init, headers: { ...authHeaders(), ...(init?.headers ?? {}) } })
   if (res.status !== 401 || path.startsWith('/api/auth/')) return res
   const ok = await refreshOnce()
-  if (!ok) return res
+  if (!ok) {
+    expire()
+    return res
+  }
   return fetch(path, { ...init, headers: { ...authHeaders(), ...(init?.headers ?? {}) } })
 }
 
@@ -123,7 +142,7 @@ export async function login(username: string, password: string): Promise<void> {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, label: navigator.userAgent }),
+    body: JSON.stringify({ username, password }),
   })
   const { ok, status, body } = await parse(res)
   if (!ok) throw new AuthError(status, errMsg(body, 'sign in failed'))

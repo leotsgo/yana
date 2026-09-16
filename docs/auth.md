@@ -23,7 +23,13 @@ format). Sign-in returns a pair of tokens:
 Sessions carry a device label (from the sign-in request or the
 User-Agent), are listed at `GET /api/auth/sessions`, and are revoked one
 at a time at `DELETE /api/auth/sessions/{id}` or all at once by a password
-change. Revoking a session also closes its live WebSocket connections.
+change. Revoking a session closes its live WebSocket connections and
+refuses its access token from the next request on: the running server
+keeps the ids of sessions revoked in the last access-token lifetime, so
+verification still reads no database and the revoked device is back at
+the sign-in screen without waiting for the token to expire. The Account
+page in the web client lists a person's own sessions with sign-out for
+one or for every other device.
 
 ## Endpoints
 
@@ -44,7 +50,7 @@ rendered note cannot set a header either.
 | `POST /api/auth/logout` | revokes the session the refresh token names |
 | `GET /api/auth/sessions` | own sessions, `current` flagged |
 | `DELETE /api/auth/sessions/{id}` | revoke own (owner: any) |
-| `GET /api/users` | owner only |
+| `GET /api/users` | owner only; the People page in settings |
 | `POST /api/users` | `{username, password}`, owner only |
 | `DELETE /api/users/{id}` | owner only, not self |
 | `POST /api/users/{id}/password` | `{password}`, self or owner |
@@ -105,9 +111,22 @@ its notes' existence is not disclosed.
 | --- | --- |
 | `GET /api/spaces` | the caller's spaces |
 | `POST /api/spaces` | `{name}` — creates the directory and `.space.yml` with the caller as owner |
-| `GET /api/spaces/{space}` | role check; shows the caller's role |
-| `PATCH /api/spaces/{space}` | `{name?, members?}` — space owner only; rewrites `.space.yml` |
+| `GET /api/spaces/{space}` | `{name, label, role}`; for space owners also `members`, each `{user, role}` as written in `.space.yml` plus `id` and `username` when the reference resolves to an account |
+| `PATCH /api/spaces/{space}` | `{name, members}` — space owner only; rewrites `.space.yml` and caches it at once |
 | `DELETE /api/spaces/{space}` | space owner only; refuses when the space still holds files |
+
+`GET /api/spaces` lists the caller's spaces (the owner's list has every
+space, the root included), and `GET /api/tree` shows a space you belong
+to even while it holds no notes. `GET /api/notes/{id}` carries `role`,
+the caller's role in the note's space, so the client can show a viewer
+the note without the pencil.
+
+The Spaces page in settings is these routes as forms: create, rename and
+remove a space, and for its owners the member list with a role per
+person. The owner adds an account on the People page, shares a space
+with it there, and that account signs in and edits — with no file
+touched by hand. Hand-editing `.space.yml` still works and shows on the
+page at once, since the page reads the file itself.
 
 ### Realtime relay
 

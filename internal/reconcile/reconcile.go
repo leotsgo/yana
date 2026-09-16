@@ -335,6 +335,9 @@ func (r *Reconciler) emit(ev Event) {
 	}
 }
 
+// Retention is how long a deleted note stays recoverable.
+func (r *Reconciler) Retention() time.Duration { return r.opts.Retention }
+
 // Stats returns the loop's counters.
 func (r *Reconciler) Stats() Stats {
 	r.mu.Lock()
