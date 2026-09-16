@@ -2,13 +2,15 @@
 
 Everything is exportable. At any moment you can walk away with the tree
 and lose nothing but edit history. There are three ways out, all
-downloads from the command palette (`Ctrl+K`), all scoped to spaces you
-are a member of, and all reading the same files the app edits.
+downloads from the Data page in settings (`/settings/data`), all scoped
+to spaces you are a member of, and all reading the same files the app
+edits.
 
 ## One note as a single HTML file
 
-`GET /api/notes/{id}/export.html` — or "Export this note as HTML" in the
-palette — renders one note as a self-contained document: images inlined
+`GET /api/notes/{id}/export.html` — "Export as HTML" in the open note's
+overflow menu, or any note from the Data page — renders one note as a
+self-contained document: images inlined
 as data URIs, the stylesheet embedded, no external references. It opens
 anywhere: mail it, archive it, open it on a machine that has never heard
 of this app. Markdown notes render as they do in the app; HTML notes
@@ -18,7 +20,7 @@ a trusted one runs as written.
 ## A space as a static site
 
 `GET /api/spaces/{space}/export/site.zip`, with `?path=` to scope the
-site to a subtree — "Export <space> as a site" in the palette. The zip
+site to a subtree — a space and "Site" on the Data page. The zip
 holds a directory that works from `file://` or any static host, with no
 server and no network:
 
@@ -45,7 +47,7 @@ overwriting one with the other.
 ## The tree as a zip
 
 `GET /api/spaces/{space}/export/notes.zip`, `?path=` for a subtree —
-"Export <space> as a zip" in the palette. Markdown, HTML notes, assets,
+a space and "Zip" on the Data page. Markdown, HTML notes, assets,
 and the space's `.space.yml`, byte-identical to disk, no transformation.
 Unzip it at a notes root and the space comes back exactly: note ids,
 wikilinks, and directory structure are preserved, because they were

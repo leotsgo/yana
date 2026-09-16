@@ -52,10 +52,14 @@ export interface Note {
   links: LinkInfo[]
   trusted: boolean
   content_hash: string
+  /** The caller's role in the note's space; a viewer reads only. */
+  role: Role
   html?: string
   markdown?: string
   source?: string
 }
+
+export type Role = 'owner' | 'editor' | 'viewer'
 
 export interface SearchHit {
   note: Note
@@ -77,8 +81,61 @@ export interface Status {
   assets: number
   last_scan: string
   regex_search: boolean
+  regex_version?: string
+  accounts: boolean
   daily: { pattern: string; template: string }
   git?: { available: boolean; commits: number; last_commit: string; errors: number }
+  sync?: { loaded: number; dirty: number; writebacks: number; readins: number; watching: boolean }
+  trash?: { retention_days: number }
+}
+
+export interface Session {
+  id: string
+  label: string
+  created_at: string
+  last_used_at: string
+  expires_at: string
+  revoked_at?: string | null
+  current: boolean
+}
+
+export interface Account {
+  id: string
+  username: string
+  is_owner: boolean
+  created_at: string
+}
+
+export interface SpaceInfo {
+  name: string
+  label: string
+  notes: number
+}
+
+export interface SpaceMember {
+  /** The reference as written in .space.yml: a username or an id. */
+  user: string
+  role: Role
+  id?: string
+  username?: string
+}
+
+export interface SpaceDetail {
+  name: string
+  label: string
+  role: Role
+  /** Present for space owners only. */
+  members?: SpaceMember[]
+}
+
+export interface AgentKey {
+  id: string
+  label: string
+  spaces: string[]
+  can_write: boolean
+  created_at: string
+  last_used_at: string
+  revoked_at?: string | null
 }
 
 export interface TrashEntry {
@@ -192,8 +249,24 @@ export const api = {
   restoreNote: (id: string, revision: string, path: string) =>
     post<{ ok: boolean }>(`/api/notes/${encodeURIComponent(id)}/history/restore`, { revision, path }),
   gitSnapshot: () => post<{ ok: boolean; commits: number }>('/api/git/snapshot', {}),
-  spaces: () => get<{ spaces: { name: string; label: string; notes: number }[] }>('/api/spaces'),
+  spaces: () => get<{ spaces: SpaceInfo[] }>('/api/spaces'),
+  space: (name: string) => get<SpaceDetail>(`/api/spaces/${encodeURIComponent(name)}`),
   createSpace: (name: string) => post<{ name: string }>('/api/spaces', { name }),
+  updateSpace: (space: string, name: string, members: Array<{ user: string; role: Role }>) =>
+    post<{ ok: boolean }>(`/api/spaces/${encodeURIComponent(space)}`, { name, members }, 'PATCH'),
+  deleteSpace: (space: string) => post<{ ok: boolean }>(`/api/spaces/${encodeURIComponent(space)}`, {}, 'DELETE'),
+  sessions: () => get<{ sessions: Session[] }>('/api/auth/sessions'),
+  revokeSession: (id: string) => post<{ ok: boolean }>(`/api/auth/sessions/${encodeURIComponent(id)}`, {}, 'DELETE'),
+  users: () => get<{ users: Account[] }>('/api/users'),
+  createUser: (username: string, password: string) =>
+    post<{ id: string; username: string; is_owner: boolean }>('/api/users', { username, password }),
+  deleteUser: (id: string) => post<{ ok: boolean }>(`/api/users/${encodeURIComponent(id)}`, {}, 'DELETE'),
+  setPassword: (id: string, password: string) =>
+    post<{ ok: boolean }>(`/api/users/${encodeURIComponent(id)}/password`, { password }),
+  agents: () => get<{ agents: AgentKey[] }>('/api/agents'),
+  createAgent: (label: string, spaces: string[], canWrite: boolean) =>
+    post<AgentKey & { token: string }>('/api/agents', { label, spaces, can_write: canWrite }),
+  revokeAgent: (id: string) => post<{ ok: boolean }>(`/api/agents/${encodeURIComponent(id)}`, {}, 'DELETE'),
   daily: (space: string, date: string) =>
     post<{ id: string; path: string; created: boolean }>('/api/notes/daily', { space, date }),
   render: (markdown: string) => post<{ html: string }>('/api/render', { markdown }),

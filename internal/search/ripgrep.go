@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -34,6 +35,9 @@ type Ripgrep struct {
 	bin     string
 	root    string
 	timeout time.Duration
+
+	versionOnce sync.Once
+	version     string
 }
 
 // NewRipgrep locates rg on PATH. enabled=false yields a searcher that
@@ -51,6 +55,26 @@ func NewRipgrep(root string, enabled bool, timeout time.Duration) *Ripgrep {
 
 // Available reports whether regex search can run.
 func (r *Ripgrep) Available() bool { return r.bin != "" }
+
+// Version reports the installed rg's version ("14.1.0"), read once, or
+// "" when rg is not available or will not say.
+func (r *Ripgrep) Version() string {
+	if r.bin == "" {
+		return ""
+	}
+	r.versionOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, r.bin, "--version").Output()
+		if err != nil {
+			return
+		}
+		// The first line is "ripgrep 14.1.0" followed by build details.
+		first, _, _ := strings.Cut(string(out), "\n")
+		r.version = strings.TrimSpace(strings.TrimPrefix(first, "ripgrep"))
+	})
+	return r.version
+}
 
 // Search runs pattern over the root (or one space beneath it) and returns
 // up to limit matching lines. Dot-prefixed files and directories are never

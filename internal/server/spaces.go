@@ -6,6 +6,8 @@
 package server
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -35,14 +37,15 @@ func (s *Server) handleSpaces(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// The owner sees every space, the root included (notes loose in
+	// the tree root); everyone else sees the spaces they belong to.
+	if isAll {
+		writeJSON(w, http.StatusOK, map[string]any{"spaces": all})
+		return
+	}
 	allowed := map[string]bool{}
 	for _, sp := range member {
 		allowed[sp] = true
-	}
-	// The root itself is a space only the owner sees (notes loose in
-	// the tree root).
-	if isAll {
-		allowed[""] = true
 	}
 	out := make([]index.SpaceRow, 0, len(all))
 	for _, sp := range all {
@@ -89,27 +92,102 @@ func (s *Server) handleSpaceCreate(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// The watcher would cache the file within a cycle; caching it now
+	// means the listing that follows the create already has it.
+	if _, err := s.DB.SyncSpaceSpec(r.Context(), clean, spec, s.Log); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"name": clean})
 }
 
+// spaceMember is one member row as the settings page shows it: the
+// reference as written in .space.yml plus the account it resolves to,
+// when it resolves to one.
+type spaceMember struct {
+	User     string `json:"user"`
+	Role     string `json:"role"`
+	ID       string `json:"id,omitempty"`
+	Username string `json:"username,omitempty"`
+}
+
 // handleSpaceGet shows one space: its label, the identity's role, and
-// (for space owners) the member list.
+// (for space owners) the member list, read from .space.yml itself so a
+// hand edit shows the moment it lands.
 func (s *Server) handleSpaceGet(w http.ResponseWriter, r *http.Request) {
 	space, ok := s.spacePath(w, r)
 	if !ok {
 		return
 	}
+	role := spaces.RoleOwner
 	if s.Auth != nil {
-		id := s.ident(r)
-		role, err := s.Auth.AuthorizeSpace(r.Context(), id, space)
+		var err error
+		role, err = s.Auth.AuthorizeSpace(r.Context(), s.ident(r), space)
 		if err != nil {
 			writeError(w, http.StatusNotFound, "no such space")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"name": space, "role": role})
+	}
+	abs, _, err := s.Root.Resolve(space)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no such space")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"name": space, "role": spaces.RoleOwner})
+	if st, err := os.Stat(abs); err != nil || !st.IsDir() {
+		writeError(w, http.StatusNotFound, "no such space")
+		return
+	}
+	spec, err := s.readSpaceFile(space)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	label := spec.Name
+	if label == "" {
+		label = space
+	}
+	resp := map[string]any{"name": space, "label": label, "role": role}
+	if role == spaces.RoleOwner {
+		members := make([]spaceMember, 0, len(spec.Members))
+		for _, m := range spec.Members {
+			row := spaceMember{User: m.User, Role: m.Role}
+			if s.Auth != nil {
+				u, err := s.DB.GetUser(r.Context(), m.User)
+				if err != nil {
+					u, err = s.DB.GetUserByName(r.Context(), m.User)
+				}
+				if err == nil {
+					row.ID, row.Username = u.ID, u.Username
+				}
+			}
+			members = append(members, row)
+		}
+		resp["members"] = members
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// readSpaceFile parses a space's .space.yml; a space without one is an
+// empty spec (owner-only, named after its directory).
+func (s *Server) readSpaceFile(space string) (spaces.Spec, error) {
+	abs, _, err := s.Root.Resolve(spaces.FileRel(space))
+	if err != nil {
+		return spaces.Spec{}, err
+	}
+	data, err := os.ReadFile(abs)
+	if errors.Is(err, os.ErrNotExist) {
+		return spaces.Spec{}, nil
+	}
+	if err != nil {
+		return spaces.Spec{}, err
+	}
+	spec, err := spaces.Parse(data)
+	if err != nil {
+		// A file someone is mid-edit on still has a directory behind it;
+		// show it as empty rather than failing the page.
+		return spaces.Spec{}, nil
+	}
+	return spec, nil
 }
 
 // handleSpaceUpdate rewrites .space.yml (label and members) for users
@@ -145,6 +223,12 @@ func (s *Server) handleSpaceUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.writeSpaceFile(space, spec); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// Cache the new membership now so the next request already sees it;
+	// the watcher's own pass lands the same rows again.
+	if _, err := s.DB.SyncSpaceSpec(r.Context(), space, spec, s.Log); err != nil {
 		s.fail(w, r, err)
 		return
 	}
@@ -192,6 +276,10 @@ func (s *Server) handleSpaceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := os.Remove(abs); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.DB.Write(r.Context(), func(tx *sql.Tx) error { return index.RetireSpace(tx, space) }); err != nil {
 		s.fail(w, r, err)
 		return
 	}

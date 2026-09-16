@@ -12,6 +12,7 @@ import * as prefs from './prefs'
 import './app.css'
 
 prefs.applyTheme()
+prefs.applyAppearance()
 
 type Phase = 'loading' | 'setup' | 'signin' | 'app'
 

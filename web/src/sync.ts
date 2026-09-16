@@ -8,7 +8,8 @@ import * as Y from 'yjs'
 import { encode, decode } from '@msgpack/msgpack'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
 
-import { tryRefresh, user, wsURL } from './auth'
+import { expire, tryRefresh, user, wsURL } from './auth'
+import { displayName } from './prefs'
 
 /** Client-to-server frame. Field names are the wire keys in docs/realtime.md. */
 interface ClientFrame {
@@ -64,9 +65,11 @@ const BACKOFF_MIN_MS = 500
 const BACKOFF_MAX_MS = 8000
 const KEEPALIVE_MS = 25_000
 
-/** A stable per-browser identity when the server runs without accounts. */
+/** A stable per-browser identity when the server runs without accounts:
+ * the display name from settings, else a generated one kept in storage. */
 function localAuthor(): PresenceUser {
-  let name = ''
+  let name = displayName()
+  if (name) return withColor(name)
   try {
     name = localStorage.getItem('yana.author') ?? ''
     if (!name) {
@@ -89,10 +92,12 @@ function withColor(name: string): PresenceUser {
   return { name, color, colorLight: color + '33' }
 }
 
-/** Presence identity: the signed-in account, or the local fallback. */
+/** Presence identity: the display name from settings when set, else the
+ * signed-in account's username, else the local fallback. */
 export function presence(): PresenceUser {
   const u = user()
-  return u ? withColor(u.username) : localAuthor()
+  if (!u) return localAuthor()
+  return withColor(displayName() || u.username)
 }
 
 export class SyncClient {
@@ -178,12 +183,20 @@ export class SyncClient {
     }
     ws.onclose = () => {
       this.stopKeepalive()
+      const failedEarly = !this.synced
       this.synced = false
       this.ws = null
-      if (!this.destroyed && !this.everSynced) {
+      if (!this.destroyed && failedEarly) {
         // A handshake rejection is often an expired token; renew it so
-        // the next attempt carries a fresh one.
-        void tryRefresh()
+        // the next attempt carries a fresh one. A renewal the server
+        // refuses means this session was revoked: the shell signs out.
+        tryRefresh()
+          .then((ok) => {
+            if (!ok) expire()
+          })
+          .catch(() => {
+            // The server is unreachable; the reconnect loop keeps trying.
+          })
       }
       this.scheduleReconnect()
     }

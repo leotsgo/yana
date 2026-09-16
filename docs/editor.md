@@ -17,13 +17,43 @@ One component tree, three layouts, picked by width:
 
 The sidebar holds search (full text, or a regular expression with the `.*`
 switch when the server has ripgrep), the tree, and the links to the
-unresolved-link report and the trash. Search results replace the tree
-while a query is typed.
+unresolved-link report, the trash, and settings. Search results replace
+the tree while a query is typed. A space you belong to shows in the tree
+even before it holds a note, with the `+` to start one.
 
 Light and dark themes follow the system unless picked in the account menu
-(top right). The choice, the sidebar state, the mode notes open in, the
-hide-syntax switch and the recently opened notes are kept per browser in
-`localStorage` under `yana.*`; nothing else is stored there.
+(top right) or on the Appearance page in settings, which also sets the
+text size (small, normal, large), the line width (narrow, normal, wide),
+the mode notes open in, the hide-syntax switch, and the sidebar density.
+Those, the sidebar state, the display name, the default spaces and the
+recently opened notes are kept per browser in `localStorage` under
+`yana.*`; nothing else is stored there. Everything in `prefs.ts` reads
+the same keys, so a preference set in settings is what the shell and the
+editor use after a reload, and while the page is open.
+
+## Settings
+
+`/settings` — from the account menu, the palette, or the sidebar — is a
+column of sections beside the page on a desktop and a list that opens
+one section at a time on a phone:
+
+- **Account** — the display name shown beside your cursor (and, on a
+  server without accounts, the author of your edits), a password change,
+  and every device signed in with sign-out for one or all others.
+- **People** (owner only) — the accounts: add, remove, reset a password.
+- **Spaces and sharing** — create, rename and remove spaces; each space's
+  members and roles for its owners, your own role otherwise; the space
+  new notes and the daily note go into.
+- **Agents** (owner only) — keys for the MCP endpoint, with the URL and
+  a copy button. See [agents.md](agents.md).
+- **Appearance** — the preferences above.
+- **Data** — exports, the trash and its retention, git history with
+  Snapshot now, and the index: state, last scan, counts, ripgrep
+  availability and version, the server version.
+
+A page an account cannot use says what it is for and who can. A viewer
+in a space sees its notes without the pencil, the title edit or the
+delete action; the toolbar shows a Viewer badge instead.
 
 ## Title
 
@@ -58,7 +88,7 @@ phone, goes back to reading. Split shows the editor and the render side
 by side and is for screens 720px and wider; `Mod+E` toggles it.
 
 The mode a note opens in — read, edit, or split — is a preference in the
-account menu and the palette. A note you just created always opens in
+account menu, the palette and settings. A note you just created always opens in
 the editor with the caret ready. A phone never opens in split; it reads.
 
 Presence chips in the toolbar list the other people who have the note
@@ -151,7 +181,7 @@ intercept them.
 | `Alt+N` | New note: a prompt for the path, then the editor with the caret ready |
 | `Alt+D` | Today's daily note (created on first use) |
 | `Mod+P` | Quick switcher: fuzzy match on title and path; Enter on no match creates that note |
-| `Mod+K` | Command palette: everything above plus rename/move, export, unresolved links, snapshot, theme, sign out |
+| `Mod+K` | Command palette: everything above plus rename/move, delete, unresolved links, trash, settings, theme, sign out |
 | `Mod+Shift+F` or `/` | Focus search |
 | `E` | Edit the open note |
 | `Esc` | Back to reading |
@@ -167,9 +197,10 @@ first. The full list of shortcuts is in the account menu.
 ## Daily note
 
 `Alt+D` (or the palette) opens today's note. The client sends its local
-date to `POST /api/notes/daily` with the space to use — the open note's
-space, or the first one in the tree — and the server answers with the
-existing note or creates it.
+date to `POST /api/notes/daily` with the space to use — the daily-note
+space from settings, else the open note's space, else the default space
+from settings, else the first one in the tree — and the server answers
+with the existing note or creates it.
 
 Two settings shape it, both paths relative to the space:
 

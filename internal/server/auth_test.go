@@ -494,12 +494,48 @@ func TestSpaceCRUD(t *testing.T) {
 		t.Fatal("duplicate space accepted")
 	}
 
-	// Detail shows the role.
-	if code, body := doGet(t, f.ts, "/api/spaces/home", w.samHdr); code != 200 || body["role"] != spaces.RoleEditor {
+	// The owner's list has every space, the root included; sam's has
+	// only home.
+	_, listed := doGet(t, f.ts, "/api/spaces", w.ownerHdr)
+	names := map[string]bool{}
+	for _, sp := range listed["spaces"].([]any) {
+		names[sp.(map[string]any)["name"].(string)] = true
+	}
+	if !names[""] || !names["home"] || !names["work"] || !names["garden"] {
+		t.Fatalf("owner's space list: %v", names)
+	}
+	_, listed = doGet(t, f.ts, "/api/spaces", w.samHdr)
+	if l := listed["spaces"].([]any); len(l) != 1 || l[0].(map[string]any)["name"] != "home" {
+		t.Fatalf("sam's space list: %v", l)
+	}
+
+	// Detail shows the role, and the member list only to a space owner.
+	if code, body := doGet(t, f.ts, "/api/spaces/home", w.samHdr); code != 200 || body["role"] != spaces.RoleEditor || body["members"] != nil {
 		t.Fatalf("space detail: %d %v", code, body)
 	}
 	if code, _ := doGet(t, f.ts, "/api/spaces/work", w.samHdr); code != http.StatusNotFound {
 		t.Fatal("foreign space detail leaked")
+	}
+	if code, _ := doGet(t, f.ts, "/api/spaces/nowhere", w.ownerHdr); code != http.StatusNotFound {
+		t.Fatal("missing space reported as present")
+	}
+	_, detail := doGet(t, f.ts, "/api/spaces/home", w.ownerHdr)
+	members, _ := detail["members"].([]any)
+	if detail["label"] != "home" || len(members) != 2 {
+		t.Fatalf("owner's space detail: %v", detail)
+	}
+	// Members written by id come back with the username resolved.
+	first, _ := members[0].(map[string]any)
+	if first["username"] != "sam" || first["role"] != spaces.RoleEditor || first["id"] != first["user"] {
+		t.Fatalf("member row: %v", first)
+	}
+
+	// A note carries the caller's role in its space.
+	if _, body := doGet(t, f.ts, "/api/notes/"+w.homeID, w.eveHdr); body["role"] != spaces.RoleViewer {
+		t.Fatalf("viewer's note role: %v", body["role"])
+	}
+	if _, body := doGet(t, f.ts, "/api/notes/"+w.homeID, w.ownerHdr); body["role"] != spaces.RoleOwner {
+		t.Fatalf("owner's note role: %v", body["role"])
 	}
 
 	// Only space owners may rewrite membership; an editor cannot.
@@ -519,8 +555,27 @@ func TestSpaceCRUD(t *testing.T) {
 	}
 	// An empty one goes.
 	doPost(t, f.ts, "POST", "/api/spaces", w.ownerHdr, map[string]string{"name": "scratch"})
+	if _, listed := doGet(t, f.ts, "/api/spaces", w.ownerHdr); !strings.Contains(fmt.Sprint(listed["spaces"]), "scratch") {
+		t.Fatalf("a new space is not listed right away: %v", listed)
+	}
+	// An empty space shows in the tree of everyone who belongs to it, and
+	// nobody else's.
+	doPost(t, f.ts, "PATCH", "/api/spaces/scratch", w.ownerHdr, map[string]any{
+		"name": "scratch", "members": []map[string]string{{"user": "sam", "role": "editor"}},
+	})
+	_, tree := doGet(t, f.ts, "/api/tree", w.samHdr)
+	if !strings.Contains(fmt.Sprint(tree["spaces"]), "scratch") {
+		t.Fatalf("sam's tree lacks the empty space shared with them: %v", tree)
+	}
+	_, tree = doGet(t, f.ts, "/api/tree", w.eveHdr)
+	if strings.Contains(fmt.Sprint(tree["spaces"]), "scratch") {
+		t.Fatalf("eve's tree shows a space she is not in: %v", tree)
+	}
 	if code, _ := doPost(t, f.ts, "DELETE", "/api/spaces/scratch", w.ownerHdr, nil); code != http.StatusOK {
 		t.Fatal("empty space not deleted")
+	}
+	if _, listed := doGet(t, f.ts, "/api/spaces", w.ownerHdr); strings.Contains(fmt.Sprint(listed["spaces"]), "scratch") {
+		t.Fatalf("a removed space is still listed: %v", listed)
 	}
 	if _, err := os.Stat(filepath.Join(f.dir, "scratch")); !os.IsNotExist(err) {
 		t.Fatal("scratch directory still on disk")
@@ -739,5 +794,13 @@ func TestSessionRevocationClosesSockets(t *testing.T) {
 	_, _, err = ws.Reader(ctx)
 	if err == nil {
 		t.Fatal("connection stayed open after session revocation")
+	}
+	// The access token the device still holds is refused from the next
+	// request on, not when it expires.
+	if code, _ := doGet(t, f.ts, "/api/notes/"+w.homeID, tok); code != http.StatusUnauthorized {
+		t.Fatalf("revoked session's access token still works: %d", code)
+	}
+	if _, _, err := dialWS(t, f.ts, strings.TrimPrefix(tok, "Bearer ")); err == nil {
+		t.Fatal("revoked session's access token still opens a socket")
 	}
 }
