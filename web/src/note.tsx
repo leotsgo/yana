@@ -106,6 +106,8 @@ export function NotePage(props: NotePageProps) {
         setNote(n)
         onNote(n)
         document.title = `${n.title} — YANA/`
+        // A viewer reads: no pencil, no formatting bar, no title edit.
+        if (n.role === 'viewer') setReadOnly(true)
         if (n.kind !== 'md') return
         client = new SyncClient(id, {
           onStatus(s) {
@@ -181,14 +183,14 @@ export function NotePage(props: NotePageProps) {
       if (isEditable(document.activeElement)) return
       if (shown === 'read' && ev.key === 'e' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
         ev.preventDefault()
-        onMode('edit')
+        if (!readOnly) onMode('edit')
       } else if (shown === 'edit' && ev.key === 'Escape') {
         onMode('read')
       }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [shown, note?.kind, onMode])
+  }, [shown, note?.kind, onMode, readOnly])
 
   // The shell needs to know when the phone keyboard is the point.
   const md = note?.kind === 'md'
@@ -244,15 +246,18 @@ export function NotePage(props: NotePageProps) {
   }
 
   function openOverflow(anchor: HTMLElement): void {
+    const viewer = note?.role === 'viewer'
     onMenu({
       anchor,
       label: 'note actions',
-      items: [
-        { id: 'rename', label: 'Rename or move', icon: 'move', run: onRename },
-        { id: 'export', label: 'Export as HTML', icon: 'download', detail: 'one file', run: onExport },
-        'sep',
-        { id: 'delete', label: 'Delete', icon: 'trash', detail: 'to the trash', danger: true, run: onDelete },
-      ],
+      items: viewer
+        ? [{ id: 'export', label: 'Export as HTML', icon: 'download', detail: 'one file', run: onExport }]
+        : [
+            { id: 'rename', label: 'Rename or move', icon: 'move', run: onRename },
+            { id: 'export', label: 'Export as HTML', icon: 'download', detail: 'one file', run: onExport },
+            'sep',
+            { id: 'delete', label: 'Delete', icon: 'trash', detail: 'to the trash', danger: true, run: onDelete },
+          ],
     })
   }
 
@@ -268,7 +273,7 @@ export function NotePage(props: NotePageProps) {
     return <div class="placeholder muted">Opening…</div>
   }
 
-  const header = <NoteHeader note={note} onCommit={commitTitle} />
+  const header = <NoteHeader note={note} onCommit={commitTitle} readOnly={note.role === 'viewer'} />
   const detailsPane = details && (
     <Details note={note} onOpen={onOpen} overlay={layout !== 'desktop'} onClose={() => setDetails(false)} />
   )
@@ -333,12 +338,22 @@ export function NotePage(props: NotePageProps) {
               <Icon name="check" />
               Done
             </button>
+          ) : note.role === 'viewer' ? (
+            <span class="role-badge" title="Your account reads this space">
+              <Icon name="eye" />
+              Viewer
+            </span>
           ) : (
             <button type="button" class="btn" onClick={() => onMode('edit')} title="Edit (E)" disabled={readOnly}>
               <Icon name="pencil" />
               Edit
             </button>
           )
+        ) : note.role === 'viewer' ? (
+          <span class="role-badge" title="Your account reads this space; an editor role would let you write">
+            <Icon name="eye" />
+            Viewer
+          </span>
         ) : (
           <div class="segmented" role="tablist" aria-label="view">
             {modeBtn('read', 'book-open', 'Read', 'Read (Esc)')}
@@ -443,7 +458,7 @@ function statusTitle(s: SyncStatus): string {
   }
 }
 
-function NoteHeader({ note, onCommit }: { note: Note; onCommit: (title: string) => void }) {
+function NoteHeader({ note, onCommit, readOnly }: { note: Note; onCommit: (title: string) => void; readOnly: boolean }) {
   const el = useRef<HTMLHeadingElement>(null)
   const dir = dirOf(note.path)
 
@@ -468,10 +483,10 @@ function NoteHeader({ note, onCommit }: { note: Note; onCommit: (title: string) 
       )}
       <h1
         ref={el}
-        class="note-title"
-        contentEditable={'plaintext-only' as unknown as boolean}
+        class={'note-title' + (readOnly ? ' static' : '')}
+        contentEditable={readOnly ? false : ('plaintext-only' as unknown as boolean)}
         spellcheck={false}
-        role="textbox"
+        role={readOnly ? undefined : 'textbox'}
         aria-label="Title"
         onKeyDown={(ev) => {
           if (ev.key === 'Enter') {

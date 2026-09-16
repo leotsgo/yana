@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Phase 16 — Settings. `/settings`, from the account menu, the palette
+  and the sidebar: a column of sections on a desktop, a list on a
+  phone. Account: display name (presence, and the edit author without
+  accounts), change password, every signed-in device with sign-out for
+  one or all others. People (owner): add, remove, reset a password.
+  Spaces and sharing: create, rename, remove; members with viewer,
+  editor and owner roles for space owners, your own role otherwise;
+  the default space for new notes and for the daily note. Agents
+  (owner): the MCP URL with a copy button, keys listed with scope and
+  last use, create (the secret shown once, with a client configuration
+  to copy) and revoke. Appearance: theme, text size, line width, how
+  notes open, hide syntax, sidebar density, all in one localStorage
+  module the shell and the editor read. Data: the three exports (moved
+  here from the palette), trash retention, git status and Snapshot now,
+  index state and counts, ripgrep availability and version. A page an
+  account cannot use says what it is for and who can. A viewer sees a
+  note without the pencil. Server: `GET /api/spaces/{space}` returns
+  the label and, for owners, the member list read from `.space.yml`;
+  `GET /api/notes/{id}` carries the caller's role; `/api/status`
+  carries `accounts`, `regex_version` and `trash.retention_days`; a
+  revoked session's access token is refused from the next request, not
+  at expiry; the owner's `GET /api/spaces` lists every space (it listed
+  only the root); a space just created or shared is cached and shown in
+  the tree at once, empty.
 - Phase 15 — Installable and offline. The web client is a PWA: a
   manifest and slash-mark icons install it to a home screen, a service
   worker precaches the shell (never the API) and serves it for every

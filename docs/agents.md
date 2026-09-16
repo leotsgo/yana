@@ -66,7 +66,10 @@ through write-back, and committed to git under the label.
 
 ### Tokens
 
-An agent authenticates with a token, minted by the owner:
+An agent authenticates with a token, minted by the owner on the Agents
+page in settings (`/settings/agents`: the MCP URL with a copy button,
+the keys with their scope and last use, create and revoke) or at the
+API:
 
 ```sh
 curl -X POST -H "Authorization: Bearer $TOKEN" \

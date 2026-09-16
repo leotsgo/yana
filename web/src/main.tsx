@@ -14,6 +14,7 @@ import { initPwa } from './pwa'
 import './app.css'
 
 prefs.applyTheme()
+prefs.applyAppearance()
 initPwa()
 
 type Phase = 'loading' | 'setup' | 'signin' | 'app'

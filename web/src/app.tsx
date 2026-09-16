@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import { api, ApiError, baseOf, dirOf, saveBlob } from './api'
-import type { MoveResult, Note, SpaceTree, Status } from './api'
+import type { MoveResult, Note, SpaceInfo, SpaceTree, Status } from './api'
 import * as auth from './auth'
 import * as cache from './cache'
 import { Confirm } from './confirm'
@@ -28,17 +28,28 @@ import type { PaletteItem, PaletteSpec } from './palette'
 import * as prefs from './prefs'
 import * as pwa from './pwa'
 import { SearchResults } from './search'
+import { SettingsPage, isSection } from './settings'
+import type { Section } from './settings'
 import { SharePage } from './share'
 import { today } from './sharelib'
 import { TrashPage } from './trash'
 import { Tree, flatten } from './tree'
 
-type Route = { kind: 'home' } | { kind: 'note'; id: string } | { kind: 'share' } | { kind: 'links' } | { kind: 'trash' }
+type Route =
+  | { kind: 'home' }
+  | { kind: 'note'; id: string }
+  | { kind: 'share' }
+  | { kind: 'links' }
+  | { kind: 'trash' }
+  | { kind: 'settings'; section: Section | null }
 
 function parseRoute(): Route {
   if (location.pathname === '/share') return { kind: 'share' }
   if (location.pathname === '/links') return { kind: 'links' }
   if (location.pathname === '/trash') return { kind: 'trash' }
+  if (location.pathname === '/settings') return { kind: 'settings', section: null }
+  const st = location.pathname.match(/^\/settings\/([a-z]+)$/)
+  if (st && st[1]) return { kind: 'settings', section: isSection(st[1]) ? st[1] : null }
   const m = location.pathname.match(/^\/n\/([0-9A-Za-z]{26})$/)
   return m && m[1] ? { kind: 'note', id: m[1] } : { kind: 'home' }
 }
@@ -54,6 +65,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const layout = useLayout()
   const [route, setRoute] = useState<Route>(parseRoute)
   const [spaces, setSpaces] = useState<SpaceTree[] | null>(null)
+  const [spaceList, setSpaceList] = useState<SpaceInfo[] | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
   const [staleTree, setStaleTree] = useState(false) // the tree is the last saved copy
   const [status, setStatus] = useState<Status | null>(null)
@@ -103,6 +115,14 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     document.title = 'Trash — YANA/'
   }, [])
 
+  const openSettings = useCallback((section: Section | null = null, push = true) => {
+    const path = section ? `/settings/${section}` : '/settings'
+    if (push && location.pathname !== path) history.pushState(null, '', path)
+    setRoute({ kind: 'settings', section })
+    setDrawer(false)
+    document.title = 'Settings — YANA/'
+  }, [])
+
   useEffect(() => {
     const onPop = () => {
       setRoute(parseRoute())
@@ -116,6 +136,21 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   useEffect(() => {
     if (!narrow) setDrawer(false)
   }, [narrow])
+
+  // A session revoked from another device, or expired for good, puts
+  // this one back at the sign-in screen on its next request.
+  useEffect(() => auth.onSignedOut(onSignOut), [onSignOut])
+
+  // The settings pages write preferences; the shell's copies follow.
+  useEffect(
+    () =>
+      prefs.onChange(() => {
+        setThemePref(prefs.theme())
+        setOpenPref(prefs.openMode())
+        setLive(prefs.livePreview())
+      }),
+    [],
+  )
 
   // --- data --------------------------------------------------------------
 
@@ -143,6 +178,15 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     }
   }, [])
 
+  const loadSpaces = useCallback(async () => {
+    try {
+      const { spaces } = await api.spaces()
+      setSpaceList(spaces)
+    } catch {
+      // The tree carries the names; the settings pages retry on their own.
+    }
+  }, [])
+
   const loadStatus = useCallback(async () => {
     try {
       const s = await api.status()
@@ -159,6 +203,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     void loadTree()
     void loadStatus()
     void outbox.drain()
+    void loadSpaces()
     // Files can change under us; keep the tree fresh without a websocket.
     const t = window.setInterval(() => { void loadTree() }, 30_000)
     const onVis = () => { if (document.visibilityState === 'visible') { void loadTree(); void outbox.drain() } }
@@ -170,7 +215,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       document.removeEventListener('visibilitychange', onVis)
       window.removeEventListener('online', onOnline)
     }
-  }, [loadTree, loadStatus])
+  }, [loadTree, loadStatus, loadSpaces])
 
   const say = useCallback((msg: string) => setToast(msg), [])
   useEffect(() => {
@@ -188,10 +233,20 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   const notes = useMemo(() => flatten(spaces ?? []), [spaces])
 
-  /** The space new things go into: the open note's, else the first one. */
+  /** The space new things go into: the open note's, else the preferred
+   * one from settings, else the first one. */
   function defaultSpace(): string {
     if (current.current) return current.current.space
+    const pref = prefs.defaultSpace()
+    if (pref && spaces?.some((s) => s.name === pref)) return pref
     return spaces?.[0]?.name ?? ''
+  }
+
+  /** The daily note's space: the preference, else the same as new notes. */
+  function dailySpace(): string {
+    const pref = prefs.dailySpace()
+    if (pref && spaces?.some((s) => s.name === pref)) return pref
+    return defaultSpace()
   }
 
   const createNote = useCallback(
@@ -235,7 +290,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const openDaily = useCallback(async () => {
     const date = today()
     try {
-      const res = await api.daily(defaultSpace(), date)
+      const res = await api.daily(dailySpace(), date)
       if (res.created) {
         setFresh(res.id)
         void loadTree()
@@ -243,7 +298,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       navigate(res.id, true, res.created)
     } catch (err) {
       if (cache.networkDown(err)) {
-        void outbox.enqueue({ kind: 'daily', space: defaultSpace(), date })
+        void outbox.enqueue({ kind: 'daily', space: dailySpace(), date })
         say("Offline. Today's note opens when the connection returns.")
       } else {
         say(err instanceof ApiError ? err.message : 'Could not open the daily note.')
@@ -418,20 +473,6 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       })
   }
 
-  function exportSpace(mode: 'site' | 'zip'): void {
-    const space = defaultSpace()
-    const run = mode === 'site' ? api.exportSite(space) : api.exportTree(space)
-    const what = space === '' ? 'the root' : space
-    run
-      .then(({ blob, name }) => {
-        saveBlob(blob, name)
-        say(mode === 'site' ? `Exported ${what} as a static site.` : `Exported ${what} as a zip.`)
-      })
-      .catch((err: unknown) => {
-        say(err instanceof ApiError ? err.message : 'Could not export the space.')
-      })
-  }
-
   function showShortcuts(): void {
     const rows: Array<[string, string]> = [
       ['New note', label(keys.newNote)],
@@ -471,43 +512,19 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     }
     if (current.current) {
       items.push({ id: 'rename', label: 'Rename or move this note', detail: current.current.path, run: renamePrompt })
-      items.push({
-        id: 'export-note',
-        label: 'Export this note as HTML',
-        detail: 'one self-contained file',
-        run: exportNote,
-      })
-      items.push({ id: 'delete', label: 'Delete this note', detail: 'moves it to the trash', run: deleteNotePrompt })
-    }
-    if (spaces && spaces.length > 0) {
-      const space = defaultSpace() || 'the root'
-      items.push({
-        id: 'export-site',
-        label: `Export ${space} as a site`,
-        detail: 'offline HTML with search',
-        run: () => exportSpace('site'),
-      })
-      items.push({
-        id: 'export-zip',
-        label: `Export ${space} as a zip`,
-        detail: 'markdown and assets, unchanged',
-        run: () => exportSpace('zip'),
-      })
+      if (current.current.role !== 'viewer') {
+        items.push({ id: 'delete', label: 'Delete this note', detail: 'moves it to the trash', run: deleteNotePrompt })
+      }
     }
     items.push({ id: 'links', label: 'Unresolved links', detail: 'every wikilink that points nowhere', run: () => openLinks() })
     items.push({ id: 'trash', label: 'Trash', detail: 'deleted notes, kept for 30 days', run: () => openTrash() })
-    if (status?.git?.available) {
-      items.push({
-        id: 'snapshot',
-        label: 'Snapshot history now',
-        detail: 'commit the tree',
-        run: () => {
-          api
-            .gitSnapshot()
-            .then((r) => say(`Committed. ${r.commits} commits in the history.`))
-            .catch(() => say('Could not commit now.'))
-        },
-      })
+    items.push({ id: 'settings', label: 'Settings', detail: 'account, people, spaces, agents, appearance, data', run: () => openSettings(narrow ? null : 'account') })
+    items.push({ id: 'settings-account', label: 'Account settings', detail: 'display name, password, devices', run: () => openSettings('account') })
+    items.push({ id: 'settings-spaces', label: 'Spaces and sharing', detail: 'members and roles, default spaces', run: () => openSettings('spaces') })
+    items.push({ id: 'settings-data', label: 'Export, history, and the index', detail: 'in settings', run: () => openSettings('data') })
+    if (user?.is_owner) {
+      items.push({ id: 'settings-people', label: 'People', detail: 'the accounts on this server', run: () => openSettings('people') })
+      items.push({ id: 'settings-agents', label: 'Agents', detail: 'MCP keys', run: () => openSettings('agents') })
     }
     if (net.canInstall) {
       items.push({ id: 'install', label: 'Install app', detail: 'add to the home screen', run: () => void pwa.promptInstall() })
@@ -515,6 +532,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     items.push({ id: 'theme', label: 'Theme', detail: themePref, run: () => setThemeNext() })
     items.push({ id: 'open', label: 'Open notes in', detail: openLabel(openPref), run: setOpenPrefNext })
     items.push({ id: 'live', label: 'Hide markdown syntax while editing', detail: live ? 'on' : 'off', run: toggleLive })
+    items.push({ id: 'settings-appearance', label: 'Appearance', detail: 'text size, line width, density', run: () => openSettings('appearance') })
     items.push({ id: 'keys', label: 'Keyboard shortcuts', run: showShortcuts })
     if (user) items.push({ id: 'signout', label: 'Sign out', detail: user.username, run: () => void auth.logout().then(onSignOut) })
     setPalette({ mode: 'list', placeholder: 'Type a command', items })
@@ -553,6 +571,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           : [{ id: 'open-split', label: 'Open notes side by side', icon: 'columns' as const, checked: openPref === 'split', run: () => setOpenPrefTo('split') }]),
         { id: 'live', label: 'Hide syntax while editing', icon: 'eye', checked: live, run: toggleLive },
         'sep',
+        { id: 'settings', label: 'Settings', icon: 'settings', run: () => openSettings(narrow ? null : 'account') },
         { id: 'keys', label: 'Keyboard shortcuts', icon: 'keyboard', run: showShortcuts },
         ...(net.canInstall
           ? ['sep' as const, { id: 'install', label: 'Install app', icon: 'share' as const, run: () => void pwa.promptInstall() }]
@@ -763,6 +782,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
                 <Icon name="trash" />
                 Trash
               </a>
+              <a class={'sidebar-link' + (route.kind === 'settings' ? ' selected' : '')} href="/settings" onClick={(ev) => { ev.preventDefault(); openSettings(narrow ? null : 'account') }}>
+                <Icon name="settings" />
+                Settings
+              </a>
             </nav>
           )}
         </aside>
@@ -793,7 +816,24 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
             <TrashPage onOpen={navigate} onToast={say} confirm={setConfirmSpec} onChanged={() => void loadTree()} />
           )}
           {route.kind === 'share' && (
-            <SharePage notes={notes} defaultSpace={defaultSpace()} onOpen={navigate} onToast={say} />
+            <SharePage notes={notes} dailySpace={dailySpace()} onOpen={navigate} onToast={say} />
+          )}
+          {route.kind === 'settings' && (
+            <SettingsPage
+              section={route.section}
+              layout={layout}
+              status={status}
+              spaces={spaceList}
+              notes={notes}
+              onSection={(s) => openSettings(s)}
+              onToast={say}
+              confirm={setConfirmSpec}
+              onChanged={() => { void loadTree(); void loadSpaces() }}
+              onOpen={navigate}
+              onOpenTrash={() => openTrash()}
+              onSignOut={onSignOut}
+              onStatus={() => void loadStatus()}
+            />
           )}
           {route.kind === 'home' && (
             <Home

@@ -61,7 +61,11 @@ limited, live for open clients, and committed to git under its label
  formatting bar above the phone keyboard, per-user undo, drag-and-drop
  and paste for images, and drag to move notes in the tree. New note,
  daily note, quick switcher, and command palette are one key away
- ([docs/editor.md](docs/editor.md)). HTML notes
+ ([docs/editor.md](docs/editor.md)). Settings pages cover the rest
+ without touching a file: your name, password and signed-in devices;
+ the accounts on the server; spaces with members and roles; agent keys;
+ theme, text size and line width; exports, the trash, history and the
+ index. HTML notes
  render on a second origin in a sandboxed frame — sanitized by default,
  runnable as written only after you mark the note trusted — with
  source-only editing that keeps a `name.conflict-<ts>.html` copy when

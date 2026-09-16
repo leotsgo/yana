@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -222,9 +223,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"last_scan":    last,
 		"regex_search": s.Ripgrep != nil && s.Ripgrep.Available(),
 		"daily":        map[string]string{"pattern": daily.Pattern, "template": daily.Template},
+		"accounts":     !s.open(),
+	}
+	if s.Ripgrep != nil && s.Ripgrep.Available() {
+		status["regex_version"] = s.Ripgrep.Version()
 	}
 	if s.Sync != nil {
 		status["sync"] = s.Sync.Stats()
+		status["trash"] = map[string]any{"retention_days": int(s.Sync.Retention().Hours() / 24)}
 	}
 	if s.RT != nil {
 		status["realtime"] = s.RT.Stats()
@@ -241,23 +247,30 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 // not a member of looks exactly like a missing one; errors are already
 // written and reported via ok=false.
 func (s *Server) noteAuthz(w http.ResponseWriter, r *http.Request, id string) (space string, ok bool) {
+	space, _, ok = s.noteRole(w, r, id)
+	return space, ok
+}
+
+// noteRole is noteAuthz plus the caller's role in the note's space, so
+// a page can show a viewer the note without the pencil.
+func (s *Server) noteRole(w http.ResponseWriter, r *http.Request, id string) (space, role string, ok bool) {
 	if !validID(id) {
 		writeError(w, http.StatusBadRequest, "note id must be a 26-character ULID")
-		return "", false
+		return "", "", false
 	}
 	if s.open() {
-		return "", true
+		return "", spaces.RoleOwner, true
 	}
-	space, _, err := s.Auth.AuthorizeNote(r.Context(), s.ident(r), id)
+	space, role, err := s.Auth.AuthorizeNote(r.Context(), s.ident(r), id)
 	if errors.Is(err, auth.ErrForbidden) || errors.Is(err, index.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "no note with that id")
-		return "", false
+		return "", "", false
 	}
 	if err != nil {
 		s.fail(w, r, err)
-		return "", false
+		return "", "", false
 	}
-	return space, true
+	return space, role, true
 }
 
 // spaceAuthz checks the identity's role in one space requested by
@@ -316,7 +329,44 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	if tree == nil {
 		tree = []SpaceTree{}
 	}
+	tree = s.withEmptySpaces(r, space, tree)
 	writeJSON(w, http.StatusOK, map[string]any{"spaces": tree})
+}
+
+// withEmptySpaces adds the spaces the caller belongs to that hold no
+// notes yet, so a space just created or just shared shows up in the
+// sidebar with somewhere to put a first note.
+func (s *Server) withEmptySpaces(r *http.Request, only string, tree []SpaceTree) []SpaceTree {
+	all, err := s.DB.ListSpaces(r.Context())
+	if err != nil {
+		return tree
+	}
+	allowed := func(string) bool { return true }
+	if !s.open() {
+		member, isAll, err := s.Auth.MemberSpaces(r.Context(), s.ident(r))
+		if err != nil {
+			return tree
+		}
+		if !isAll {
+			set := map[string]bool{}
+			for _, sp := range member {
+				set[sp] = true
+			}
+			allowed = func(sp string) bool { return set[sp] }
+		}
+	}
+	have := map[string]bool{}
+	for _, t := range tree {
+		have[t.Name] = true
+	}
+	for _, sp := range all {
+		if sp.Space == "" || sp.Notes > 0 || have[sp.Space] || !allowed(sp.Space) || (only != "" && sp.Space != only) {
+			continue
+		}
+		tree = append(tree, SpaceTree{Name: sp.Space, Children: []*TreeNode{}})
+	}
+	sort.Slice(tree, func(i, j int) bool { return tree[i].Name < tree[j].Name })
+	return tree
 }
 
 // visibleNotes drops notes outside the identity's spaces.
@@ -354,11 +404,13 @@ type NoteResponse struct {
 	HTML     string               `json:"html,omitempty"`
 	Markdown string               `json:"markdown,omitempty"`
 	Source   string               `json:"source,omitempty"` // html notes: raw source
+	Role     string               `json:"role"`             // the caller's role in the note's space
 }
 
 func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, ok := s.noteAuthz(w, r, id); !ok {
+	_, role, ok := s.noteRole(w, r, id)
+	if !ok {
 		return
 	}
 	n, err := s.DB.GetNote(r.Context(), id)
@@ -400,7 +452,7 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 	if links == nil {
 		links = []index.OutboundLink{}
 	}
-	resp := NoteResponse{Note: n, Tags: tags, Links: links, Base: path.Dir(n.RelPath)}
+	resp := NoteResponse{Note: n, Tags: tags, Links: links, Base: path.Dir(n.RelPath), Role: role}
 	if resp.Base == "." {
 		resp.Base = ""
 	}

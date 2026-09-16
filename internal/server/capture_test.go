@@ -217,3 +217,20 @@ func TestStatusCarriesDailyConfig(t *testing.T) {
 		t.Fatalf("status daily = %+v", st.Daily)
 	}
 }
+
+func TestStatusCarriesSettingsFacts(t *testing.T) {
+	e := newLinksEnv(t, true, nil)
+	var st struct {
+		Accounts bool `json:"accounts"`
+		Trash    struct {
+			RetentionDays int `json:"retention_days"`
+		} `json:"trash"`
+	}
+	e.get(t, "/api/status", &st)
+	if st.Accounts {
+		t.Fatal("an open server reported accounts")
+	}
+	if st.Trash.RetentionDays != 30 {
+		t.Fatalf("trash retention = %d days", st.Trash.RetentionDays)
+	}
+}
