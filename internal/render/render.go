@@ -6,6 +6,7 @@ package render
 import (
 	"bytes"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -14,6 +15,7 @@ import (
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	east "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/renderer/html"
@@ -38,6 +40,7 @@ func engine() goldmark.Markdown {
 					highlighting.WithFormatOptions(chromahtml.WithClasses(true)),
 				),
 				&wikilinkExt{},
+				&taskLineExt{},
 			),
 			goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 			goldmark.WithRendererOptions(html.WithHardWraps()),
@@ -240,4 +243,48 @@ func (r *wikilinkRenderer) render(w util.BufWriter, source []byte, node ast.Node
 	_, _ = w.Write(util.EscapeHTML(n.Display))
 	_, _ = w.WriteString(`</span>`)
 	return ast.WalkSkipChildren, nil
+}
+
+// --- task checkboxes ---------------------------------------------------
+
+// taskLineExt replaces the GFM checkbox renderer with one that also emits
+// the line the `[ ]` sits on, counted from the start of the rendered
+// body. The client uses it to flip the character through the CRDT when
+// the box is ticked in the read view; the input stays disabled in the
+// markup so a plain render (an export, a client that does not wire it)
+// shows it inert.
+type taskLineExt struct{}
+
+func (e *taskLineExt) Extend(m goldmark.Markdown) {
+	m.Renderer().AddOptions(renderer.WithNodeRenderers(util.Prioritized(&taskLineRenderer{}, 100)))
+}
+
+type taskLineRenderer struct{}
+
+func (r *taskLineRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(east.KindTaskCheckBox, r.render)
+}
+
+func (r *taskLineRenderer) render(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*east.TaskCheckBox)
+	_, _ = w.WriteString(`<input type="checkbox" disabled=""`)
+	if n.IsChecked {
+		_, _ = w.WriteString(` checked=""`)
+	}
+	// The box is the first thing in its list item, so the item's first
+	// line is the line the marker is on.
+	if p := n.Parent(); p != nil && p.Lines().Len() > 0 {
+		start := p.Lines().At(0).Start
+		if start <= len(source) {
+			line := bytes.Count(source[:start], []byte{'\n'})
+			_, _ = w.WriteString(` data-line="`)
+			_, _ = w.WriteString(strconv.Itoa(line))
+			_, _ = w.WriteString(`"`)
+		}
+	}
+	_, _ = w.WriteString("> ")
+	return ast.WalkContinue, nil
 }

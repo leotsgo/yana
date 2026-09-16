@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Phase 14 — Reading mode and mobile editing. A note opens as its
+  rendered view, and task boxes in it are live: a tick rewrites the
+  `[ ]` through the CRDT, so it shows on every open client and lands in
+  the file. Edit is a mode: the pencil, `e`, or a click on the body on a
+  desktop; Escape or Done comes back. Split stays on wide screens. The
+  mode notes open in is a preference. On a phone the editor gets a
+  formatting bar above the keyboard (bold, italic, heading, list, task,
+  quote, code, link, image from the camera or the library, undo, redo),
+  the shell follows the visual viewport so the caret stays above the
+  keys, autocorrect is off, and nothing scrolls sideways. Presence
+  chips list other people only. Optional, off by default: hide the
+  markdown syntax on lines the caret is not on.
 - Phase 13 — The web client works on a phone, and looks like it was
   meant to. One shell, three layouts: a drawer and a bottom bar under
   720px, a collapsible column above 1024px, the in-between for tablets.

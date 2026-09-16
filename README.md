@@ -56,10 +56,12 @@ writing files (bind-mount the tree, follow the space's
 space-scoped, revocable agent token; every agent write is authored, rate
 limited, live for open clients, and committed to git under its label
  ([docs/agents.md](docs/agents.md)). The client works on a phone and a
- desktop and has a dark theme. The editor is CodeMirror with a live
- preview, per-user undo, drag-and-drop and paste for images, and drag to
- move notes in the tree. New note, daily note, quick switcher, and command
- palette are one key away ([docs/editor.md](docs/editor.md)). HTML notes
+ desktop and has a dark theme. A note opens to read, with task boxes you
+ can tick from any device; the editor is a mode, CodeMirror with a
+ formatting bar above the phone keyboard, per-user undo, drag-and-drop
+ and paste for images, and drag to move notes in the tree. New note,
+ daily note, quick switcher, and command palette are one key away
+ ([docs/editor.md](docs/editor.md)). HTML notes
  render on a second origin in a sandboxed frame — sanitized by default,
  runnable as written only after you mark the note trusted — with
  source-only editing that keeps a `name.conflict-<ts>.html` copy when
