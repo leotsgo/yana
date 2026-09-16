@@ -43,17 +43,26 @@ export interface NotePageProps {
   onNote: (note: Note | null) => void
   onToast: (msg: string) => void
   onMenu: (spec: MenuSpec | null) => void
-  /** True when the note was just created: focus the editor on open. */
+  /** True when the note was just created: focus the title, then the
+   * editor once the title is committed. */
   fresh: boolean
   onDelete: () => void
   onRename: () => void
+  /** Pick a folder for the note; the phone's way to move one. */
+  onMove: () => void
   onExport: () => void
   /** The note was renamed from the title; the tree needs a refresh. */
   onMoved: (res: MoveResult) => void
+  /** Open the page for a tag. */
+  onTag: (tag: string) => void
+  pinned: boolean
+  onPin: () => void
+  /** Text to scroll into view once the note renders (a search hit). */
+  highlight: string | null
 }
 
 export function NotePage(props: NotePageProps) {
-  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, onDelete, onRename, onExport, onMoved } = props
+  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, onDelete, onRename, onMove, onExport, onMoved, onTag, pinned, onPin, highlight } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -65,6 +74,10 @@ export function NotePage(props: NotePageProps) {
   const [notice, setNotice] = useState<string | null>(null)
   const [details, setDetails] = useState(false)
   const [view, setView] = useState<EditorView | null>(null)
+  // A fresh note starts in the title; Enter there hands focus to the editor.
+  const [titleDone, setTitleDone] = useState(!fresh)
+  // A search hit stays marked while reading; editing clears it.
+  const [hitShown, setHitShown] = useState(highlight)
   const phone = layout === 'phone'
   // Split needs the width; a phone in split mode reads.
   const shown: OpenMode = phone && mode === 'split' ? 'read' : mode
@@ -192,6 +205,10 @@ export function NotePage(props: NotePageProps) {
     return () => document.removeEventListener('keydown', onKey)
   }, [shown, note?.kind, onMode, readOnly])
 
+  useEffect(() => {
+    if (shown === 'edit') setHitShown(null)
+  }, [shown])
+
   // The shell needs to know when the phone keyboard is the point.
   const md = note?.kind === 'md'
   useEffect(() => {
@@ -231,11 +248,12 @@ export function NotePage(props: NotePageProps) {
     const to = dir ? `${dir}/${next}` : next
     expectMove.current = to
     // The index may not have seen the new heading yet; the title we just
-    // wrote wins over whatever the move response carries.
+    // wrote wins over whatever the move response carries. The response
+    // is the bare index row: tags, links, base and role carry over.
     api
       .moveNote(note.id, to)
       .then((res) => {
-        apply({ ...res.note, title })
+        apply({ ...note, ...res.note, title })
         onMoved(res)
       })
       .catch((err: unknown) => {
@@ -251,9 +269,14 @@ export function NotePage(props: NotePageProps) {
       anchor,
       label: 'note actions',
       items: viewer
-        ? [{ id: 'export', label: 'Export as HTML', icon: 'download', detail: 'one file', run: onExport }]
+        ? [
+            { id: 'pin', label: pinned ? 'Unpin from the sidebar' : 'Pin to the sidebar', icon: pinned ? 'pin-off' : 'pin', run: onPin },
+            { id: 'export', label: 'Export as HTML', icon: 'download', detail: 'one file', run: onExport },
+          ]
         : [
-            { id: 'rename', label: 'Rename or move', icon: 'move', run: onRename },
+            { id: 'pin', label: pinned ? 'Unpin from the sidebar' : 'Pin to the sidebar', icon: pinned ? 'pin-off' : 'pin', run: onPin },
+            { id: 'move', label: 'Move to a folder', icon: 'move', run: onMove },
+            { id: 'rename', label: 'Rename or move by path', icon: 'pencil', run: onRename },
             { id: 'export', label: 'Export as HTML', icon: 'download', detail: 'one file', run: onExport },
             'sep',
             { id: 'delete', label: 'Delete', icon: 'trash', detail: 'to the trash', danger: true, run: onDelete },
@@ -273,7 +296,16 @@ export function NotePage(props: NotePageProps) {
     return <div class="placeholder muted">Opening…</div>
   }
 
-  const header = <NoteHeader note={note} onCommit={commitTitle} readOnly={note.role === 'viewer'} />
+  const header = (
+    <NoteHeader
+      note={note}
+      onCommit={commitTitle}
+      readOnly={note.role === 'viewer'}
+      autofocus={fresh && !titleDone}
+      onNext={() => setTitleDone(true)}
+      onTag={onTag}
+    />
+  )
   const detailsPane = details && (
     <Details note={note} onOpen={onOpen} overlay={layout !== 'desktop'} onClose={() => setDetails(false)} />
   )
@@ -376,7 +408,7 @@ export function NotePage(props: NotePageProps) {
               sync={sync}
               note={note}
               readOnly={readOnly}
-              autofocus={fresh || shown === 'edit'}
+              autofocus={fresh ? titleDone : shown === 'edit'}
               atEnd={fresh || phone}
               phone={phone}
               live={live}
@@ -395,6 +427,8 @@ export function NotePage(props: NotePageProps) {
             readOnly={readOnly}
             cls={split ? 'preview' : 'reader'}
             onOpen={onOpen}
+            onTag={onTag}
+            highlight={hitShown}
             onEdit={!split && layout === 'desktop' && !coarsePointer && !readOnly ? () => onMode('edit') : undefined}
           />
         )}
@@ -429,7 +463,7 @@ function findHeading(text: string): { from: number; length: number } | null {
 /** A file name for a title: the characters a path cannot hold are dropped. */
 function fileName(title: string): string {
   return title
-    .replace(/[\\/:*?"<>| -]/g, '')
+    .replace(/[\\/:*?"<>|\x00-\x1f]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^\.+/, '')
@@ -458,7 +492,18 @@ function statusTitle(s: SyncStatus): string {
   }
 }
 
-function NoteHeader({ note, onCommit, readOnly }: { note: Note; onCommit: (title: string) => void; readOnly: boolean }) {
+interface NoteHeaderProps {
+  note: Note
+  onCommit: (title: string) => void
+  readOnly: boolean
+  /** Focus the title with its text selected: a new note is named first. */
+  autofocus: boolean
+  /** Enter in the title: the body is next. */
+  onNext: () => void
+  onTag: (tag: string) => void
+}
+
+function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag }: NoteHeaderProps) {
   const el = useRef<HTMLHeadingElement>(null)
   const dir = dirOf(note.path)
 
@@ -467,6 +512,17 @@ function NoteHeader({ note, onCommit, readOnly }: { note: Note; onCommit: (title
     const h = el.current
     if (h && h.textContent !== note.title) h.textContent = note.title
   }, [note.title])
+
+  useEffect(() => {
+    const h = el.current
+    if (!h || !autofocus) return
+    h.focus()
+    const range = document.createRange()
+    range.selectNodeContents(h)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+  }, [autofocus])
 
   return (
     <header class="note-header">
@@ -492,6 +548,7 @@ function NoteHeader({ note, onCommit, readOnly }: { note: Note; onCommit: (title
           if (ev.key === 'Enter') {
             ev.preventDefault()
             ;(ev.currentTarget as HTMLElement).blur()
+            onNext()
           } else if (ev.key === 'Escape') {
             ev.preventDefault()
             const h = ev.currentTarget as HTMLElement
@@ -511,6 +568,15 @@ function NoteHeader({ note, onCommit, readOnly }: { note: Note; onCommit: (title
           else onCommit(v)
         }}
       />
+      {note.tags.length > 0 && (
+        <div class="note-tags" aria-label="tags">
+          {note.tags.map((t) => (
+            <a key={t} class="tag" href={`/tags/${encodeURIComponent(t)}`} onClick={(ev) => { ev.preventDefault(); onTag(t) }}>
+              #{t}
+            </a>
+          ))}
+        </div>
+      )}
     </header>
   )
 }
@@ -523,6 +589,9 @@ interface ReaderProps {
   readOnly: boolean
   cls: 'reader' | 'preview'
   onOpen: (id: string) => void
+  onTag: (tag: string) => void
+  /** Text to scroll to and mark on the first render. */
+  highlight: string | null
   /** A click on the body (not a link or a box) opens the editor. */
   onEdit?: () => void
 }
@@ -531,15 +600,25 @@ interface ReaderProps {
 // it matches every other render (same goldmark, same wikilink handling);
 // a short debounce keeps it from rendering every keystroke. Task boxes
 // carry the line their marker is on and flip it through the CRDT.
-function Reader({ html, sync, note, readOnly, cls, onOpen, onEdit }: ReaderProps) {
+function Reader({ html, sync, note, readOnly, cls, onOpen, onTag, highlight, onEdit }: ReaderProps) {
   const host = useRef<HTMLDivElement>(null)
+  // The search hit is marked on every render (the live one replaces the
+  // first) and scrolled to once, on whichever render lands first.
+  const scrolled = useRef(false)
+
+  const wire = (el: HTMLElement) => {
+    rewriteRelative(el, note.base)
+    wireWikiLinks(el, note, onOpen)
+    wireTags(el, onTag)
+    if (highlight && markText(el, highlight, !scrolled.current)) scrolled.current = true
+  }
 
   useEffect(() => {
     const el = host.current
     if (!el || sync) return
     el.innerHTML = html
-    rewriteRelative(el, note.base)
-    wireWikiLinks(el, note, onOpen)
+    wire(el)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [html, sync, note, onOpen])
 
   useEffect(() => {
@@ -558,8 +637,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onEdit }: ReaderProps
         .then(({ html }) => {
           if (mine !== seq) return
           el.innerHTML = html
-          rewriteRelative(el, note.base)
-          wireWikiLinks(el, note, onOpen)
+          wire(el)
           if (!readOnly) wireTasks(el, sync, () => { last = ''; render() })
         })
         .catch(() => {
@@ -577,6 +655,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onEdit }: ReaderProps
       window.clearTimeout(timer)
       seq++
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync, note, readOnly, onOpen])
 
   return (
@@ -588,7 +667,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onEdit }: ReaderProps
         onEdit &&
         ((ev) => {
           const t = ev.target as HTMLElement
-          if (t.closest('a, input, button, summary, .wikilink')) return
+          if (t.closest('a, input, button, summary, .wikilink, .tag')) return
           // A drag to select text is not a request to edit.
           if (!(window.getSelection()?.isCollapsed ?? true)) return
           onEdit()
@@ -596,6 +675,57 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onEdit }: ReaderProps
       }
     />
   )
+}
+
+/** Inline #tags render as spans carrying the tag; a click opens its page. */
+function wireTags(el: HTMLElement, onTag: (tag: string) => void): void {
+  for (const span of el.querySelectorAll<HTMLElement>('span.tag[data-tag]')) {
+    const tag = span.dataset['tag'] ?? ''
+    if (!tag) continue
+    span.setAttribute('role', 'link')
+    span.setAttribute('tabindex', '0')
+    span.title = `Notes tagged #${tag}`
+    const go = () => onTag(tag)
+    span.addEventListener('click', go)
+    span.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault()
+        go()
+      }
+    })
+  }
+}
+
+/** Wraps the first occurrence of needle in the rendered text in a mark
+ * and, when asked, scrolls it into view. Matching is case-insensitive
+ * and stays inside one text node, which is where a search snippet's
+ * words sit. Returns whether anything was found. */
+function markText(el: HTMLElement, needle: string, scroll: boolean): boolean {
+  const q = needle.trim().toLowerCase()
+  if (!q) return false
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+  // The whole phrase first, then its first word, so a snippet that
+  // spans a line break still lands near the right place.
+  for (const want of [q, q.split(/\s+/)[0] ?? q]) {
+    if (!want) continue
+    walker.currentNode = el
+    let node: Node | null
+    while ((node = walker.nextNode())) {
+      const text = node as Text
+      if (text.parentElement?.closest('pre, code') && want !== q) continue
+      const i = text.data.toLowerCase().indexOf(want)
+      if (i < 0) continue
+      const hit = text.splitText(i)
+      hit.splitText(want.length)
+      const mark = document.createElement('mark')
+      mark.className = 'hit-mark'
+      hit.replaceWith(mark)
+      mark.append(hit)
+      if (scroll) mark.scrollIntoView({ block: 'center' })
+      return true
+    }
+  }
+  return false
 }
 
 /** Lines taken by a frontmatter block at the top of the text, 0 when

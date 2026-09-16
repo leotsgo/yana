@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Phase 17 — Capture and everyday use. New note never asks for a path:
+  an untitled note opens with the title selected, and the file follows
+  the title on Enter (the path prompt survives in the palette). Capture,
+  from the home page, the phone's bottom bar, the top bar and `Alt+C`,
+  appends a line to today's note without opening it, with Undo in the
+  toast; the share target uses the same path. Pinned notes and folders
+  at the top of the sidebar and on the home page, a per-browser
+  preference. Tags: `#tags` render as links, chips under the title, a
+  `/tags` index and a page per tag, and the switcher matches `#tag`.
+  Tree actions from a right-click, the hover `⋯`, or a long press on a
+  phone: open, pin, move to a folder, rename, delete for notes; new note
+  here, new folder, pin, rename, move, delete for folders. Folders are
+  real directories: `POST /api/dirs` makes one (the tree lists empty
+  ones), `POST /api/dirs/move` renames or moves one through the note
+  move so every inbound link is rewritten, `DELETE /api/dirs` trashes
+  the notes and removes the empty shell. Search on a phone is a page
+  with recent queries; a result opens in read mode with the match
+  scrolled into view and marked. The keyboard shortcuts are one palette
+  entry. Server: `GET /api/tags`, `GET /api/tags/{tag}`, tags on tree
+  rows, inline tag spans in the render.
 - Phase 16 — Settings. `/settings`, from the account menu, the palette
   and the sidebar: a column of sections on a desktop, a list on a
   phone. Account: display name (presence, and the edit author without

@@ -73,7 +73,9 @@ The page shows the line it will add — `- [title](url)`, the text quoted
 under it when there was more than a name — and adds it to today's daily
 note through that note's CRDT document, so every open client sees it
 land. "Choose a note" picks any note in the tree instead. Offline, the
-share queues and lands when the connection returns.
+share queues and lands when the connection returns. Quick capture in
+the app (Capture on the home page and the bottom bar) is the same code
+path with a line you type; see [editor.md](editor.md).
 
 ### On iOS
 

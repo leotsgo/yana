@@ -59,8 +59,13 @@ limited, live for open clients, and committed to git under its label
  desktop and has a dark theme. A note opens to read, with task boxes you
  can tick from any device; the editor is a mode, CodeMirror with a
  formatting bar above the phone keyboard, per-user undo, drag-and-drop
- and paste for images, and drag to move notes in the tree. New note,
- daily note, quick switcher, and command palette are one key away
+ and paste for images, and drag to move notes and folders in the tree. New note,
+ daily note, quick switcher, and command palette are one key away; New
+ never asks for a path (name the note by its title), Capture drops a
+ line into today's note without opening it, notes and folders pin to
+ the top of the sidebar, every `#tag` is a link to the notes carrying
+ it, and the tree has folder actions — new, rename, move, delete —
+ behind a right-click or a long press
  ([docs/editor.md](docs/editor.md)). Settings pages cover the rest
  without touching a file: your name, password and signed-in devices;
  the accounts on the server; spaces with members and roles; agent keys;

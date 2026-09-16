@@ -1,6 +1,6 @@
 // Per-browser preferences: theme, text size and measure, editor layout,
 // sidebar state, default spaces, the display name, recently opened
-// notes. Everything lives in localStorage under one prefix and is read
+// notes, pinned notes and folders, recent searches. Everything lives in localStorage under one prefix and is read
 // through here so the shell, the editor and the settings pages agree on
 // the keys. Storage can be unavailable (private windows, blocked site
 // data); every access is guarded and falls back to the default. A change
@@ -19,6 +19,7 @@ export type Density = 'comfortable' | 'compact'
 
 const PREFIX = 'yana.'
 const RECENTS_MAX = 12
+const QUERIES_MAX = 8
 
 const listeners = new Set<() => void>()
 
@@ -201,4 +202,82 @@ export function touchRecent(id: string): void {
 
 export function forgetRecent(id: string): void {
   write('recents', JSON.stringify(recents().filter((x) => x !== id)))
+}
+
+// --- pins ----------------------------------------------------------------
+
+/** A pinned note (by id) or folder (by path). Pins are a preference of
+ * this browser, not a file in the tree: the tree is the folders and the
+ * notes, nothing else (invariant 2). */
+export type Pin = { kind: 'note'; id: string } | { kind: 'dir'; path: string }
+
+export function pins(): Pin[] {
+  const raw = read('pins')
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw) as unknown
+    if (!Array.isArray(v)) return []
+    return v.filter(
+      (x): x is Pin =>
+        typeof x === 'object' &&
+        x !== null &&
+        ((x as Pin).kind === 'note' ? typeof (x as { id?: unknown }).id === 'string' : (x as Pin).kind === 'dir' && typeof (x as { path?: unknown }).path === 'string'),
+    )
+  } catch {
+    return []
+  }
+}
+
+function samePin(a: Pin, b: Pin): boolean {
+  return a.kind === b.kind && (a.kind === 'note' ? a.id === (b as { id: string }).id : a.path === (b as { path: string }).path)
+}
+
+export function isPinned(pin: Pin): boolean {
+  return pins().some((p) => samePin(p, pin))
+}
+
+/** Adds the pin at the top, or removes it when it is already there. */
+export function togglePin(pin: Pin): boolean {
+  const rest = pins().filter((p) => !samePin(p, pin))
+  const on = rest.length === pins().length
+  write('pins', JSON.stringify(on ? [pin, ...rest] : rest))
+  return on
+}
+
+/** A moved or deleted folder takes its pin along, or with it. */
+export function repinDir(from: string, to: string | null): void {
+  const next = pins().flatMap((p) => {
+    if (p.kind !== 'dir' || (p.path !== from && !p.path.startsWith(from + '/'))) return [p]
+    if (to === null) return []
+    return [{ kind: 'dir' as const, path: to + p.path.slice(from.length) }]
+  })
+  write('pins', JSON.stringify(next))
+}
+
+export function forgetPin(pin: Pin): void {
+  write('pins', JSON.stringify(pins().filter((p) => !samePin(p, pin))))
+}
+
+// --- recent searches ------------------------------------------------------
+
+export function recentQueries(): string[] {
+  const raw = read('queries')
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw) as unknown
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function touchQuery(q: string): void {
+  const v = q.trim()
+  if (!v) return
+  const list = [v, ...recentQueries().filter((x) => x !== v)].slice(0, QUERIES_MAX)
+  write('queries', JSON.stringify(list))
+}
+
+export function forgetQuery(q: string): void {
+  write('queries', JSON.stringify(recentQueries().filter((x) => x !== q)))
 }

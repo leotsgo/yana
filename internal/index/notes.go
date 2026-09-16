@@ -434,3 +434,80 @@ func (db *DB) Body(ctx context.Context, id string) (string, error) {
 	}
 	return body, err
 }
+
+// TagCount is one tag and how many notes carry it.
+type TagCount struct {
+	Tag   string `json:"tag"`
+	Count int    `json:"count"`
+}
+
+// ListTags returns every tag with its note count, most used first, then
+// by name. allowed, when not nil, restricts the count to those spaces.
+func (db *DB) ListTags(ctx context.Context, allowed []string) ([]TagCount, error) {
+	q := `SELECT t.tag, COUNT(*) FROM tags t JOIN notes n ON n.id = t.note_id`
+	var args []any
+	if allowed != nil {
+		if len(allowed) == 0 {
+			return []TagCount{}, nil
+		}
+		ph := make([]string, len(allowed))
+		for i, sp := range allowed {
+			ph[i] = "?"
+			args = append(args, sp)
+		}
+		q += ` WHERE n.space IN (` + strings.Join(ph, ",") + `)`
+	}
+	q += ` GROUP BY t.tag ORDER BY COUNT(*) DESC, t.tag`
+	rows, err := db.readers.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []TagCount{}
+	for rows.Next() {
+		var t TagCount
+		if err := rows.Scan(&t.Tag, &t.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// NotesByTag returns every note carrying one tag, ordered by path.
+func (db *DB) NotesByTag(ctx context.Context, tag string) ([]Note, error) {
+	rows, err := db.readers.QueryContext(ctx,
+		`SELECT `+prefixed(noteColumns, "n.")+` FROM notes n JOIN tags t ON t.note_id = n.id WHERE t.tag = ? ORDER BY n.rel_path`, tag)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Note{}
+	for rows.Next() {
+		n, err := scanNote(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// AllTags returns the tags of every note, keyed by note id, in one
+// query; the tree endpoint stamps them onto its rows.
+func (db *DB) AllTags(ctx context.Context) (map[string][]string, error) {
+	rows, err := db.readers.QueryContext(ctx, `SELECT note_id, tag FROM tags ORDER BY note_id, tag`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var id, t string
+		if err := rows.Scan(&id, &t); err != nil {
+			return nil, err
+		}
+		out[id] = append(out[id], t)
+	}
+	return out, rows.Err()
+}

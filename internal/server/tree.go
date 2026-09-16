@@ -1,6 +1,8 @@
 package server
 
 import (
+	"io/fs"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -16,6 +18,7 @@ type TreeNode struct {
 	Title    string      `json:"title,omitempty"`
 	Kind     string      `json:"kind,omitempty"`
 	Order    *int        `json:"order,omitempty"`
+	Tags     []string    `json:"tags,omitempty"`
 	Children []*TreeNode `json:"children,omitempty"`
 }
 
@@ -27,8 +30,9 @@ type SpaceTree struct {
 }
 
 // buildTree nests a flat, path-sorted note list into directories. Notes
-// loose in the root land in a space named "".
-func buildTree(notes []index.Note) []SpaceTree {
+// loose in the root land in a space named "". tags, keyed by note id,
+// ride along on the note rows so the switcher can match on them.
+func buildTree(notes []index.Note, tags map[string][]string) []SpaceTree {
 	type spaceAcc struct {
 		root  *TreeNode
 		count int
@@ -54,11 +58,11 @@ func buildTree(notes []index.Note) []SpaceTree {
 			if n.Space != "" {
 				dirPath = n.Space + "/" + dirPath
 			}
-			cur = childDir(cur, part, dirPath)
+			cur, _ = childDir(cur, part, dirPath)
 		}
 		cur.Children = append(cur.Children, &TreeNode{
 			Type: "note", Name: parts[len(parts)-1], Path: n.RelPath,
-			ID: n.ID, Title: n.Title, Kind: n.Kind, Order: n.Order,
+			ID: n.ID, Title: n.Title, Kind: n.Kind, Order: n.Order, Tags: tags[n.ID],
 		})
 	}
 	sort.Strings(order)
@@ -71,15 +75,64 @@ func buildTree(notes []index.Note) []SpaceTree {
 	return out
 }
 
-func childDir(parent *TreeNode, name, path string) *TreeNode {
+// withEmptyDirs adds the directories on disk that hold no notes yet (a
+// folder just made, or one whose notes were all deleted) to the tree of
+// their space, so a folder exists in the sidebar as soon as it exists
+// on disk. Only spaces already in the tree are walked, which keeps the
+// visibility rules where they are.
+func (s *Server) withEmptyDirs(tree []SpaceTree) {
+	for i := range tree {
+		sp := &tree[i]
+		if sp.Name == "" {
+			continue
+		}
+		root := &TreeNode{Type: "dir", Name: sp.Name, Path: sp.Name, Children: sp.Children}
+		base := filepath.Join(s.Root.Dir(), filepath.FromSlash(sp.Name))
+		changed := false
+		_ = filepath.WalkDir(base, func(abs string, d fs.DirEntry, err error) error {
+			if err != nil || !d.IsDir() || abs == base {
+				return nil
+			}
+			name := d.Name()
+			if strings.HasPrefix(name, ".") || name == "_assets" {
+				return fs.SkipDir
+			}
+			rel, err := filepath.Rel(s.Root.Dir(), abs)
+			if err != nil {
+				return fs.SkipDir
+			}
+			rel = filepath.ToSlash(rel)
+			if _, err := s.Root.Clean(rel); err != nil {
+				return fs.SkipDir
+			}
+			parts := strings.Split(strings.TrimPrefix(rel, sp.Name+"/"), "/")
+			cur := root
+			for j, part := range parts {
+				dirPath := sp.Name + "/" + strings.Join(parts[:j+1], "/")
+				var made bool
+				cur, made = childDir(cur, part, dirPath)
+				changed = changed || made
+			}
+			return nil
+		})
+		if changed {
+			sortTree(root)
+		}
+		sp.Children = root.Children
+	}
+}
+
+// childDir returns the directory node under parent named name, making it
+// when it is missing; made reports which.
+func childDir(parent *TreeNode, name, path string) (d *TreeNode, made bool) {
 	for _, c := range parent.Children {
 		if c.Type == "dir" && c.Name == name {
-			return c
+			return c, false
 		}
 	}
-	d := &TreeNode{Type: "dir", Name: name, Path: path}
+	d = &TreeNode{Type: "dir", Name: name, Path: path}
 	parent.Children = append(parent.Children, d)
-	return d
+	return d, true
 }
 
 // sortTree orders directories first (by name), then notes by explicit

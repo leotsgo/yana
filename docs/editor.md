@@ -16,10 +16,23 @@ One component tree, three layouts, picked by width:
 | 1024px and up | Desktop. The sidebar is a column that collapses from the top-left button; Split puts the editor beside the render. |
 
 The sidebar holds search (full text, or a regular expression with the `.*`
-switch when the server has ripgrep), the tree, and the links to the
-unresolved-link report, the trash, and settings. Search results replace
-the tree while a query is typed. A space you belong to shows in the tree
-even before it holds a note, with the `+` to start one.
+switch when the server has ripgrep), the tree, and the links to the tag
+index, the unresolved-link report, the trash, and settings. Search
+results replace the tree while a query is typed. A space you belong to
+shows in the tree even before it holds a note, with the `+` to start one,
+and so does a folder that holds no note yet.
+
+Pinned notes and folders sit at the top of the tree, above the spaces.
+A pinned folder is the folder, collapsible, with everything in it. Pins
+are a preference of the browser (`yana.pins` in `localStorage`, beside
+the recents), never a file in the tree: the tree is the folders and the
+notes and nothing else. Pin from a note's overflow menu, the palette,
+or the row's actions in the tree; the home page lists the pins too.
+
+The home page is the three things people come here to do — New note,
+Capture, Today — then the pins and the recently opened notes. The
+shortcuts are one palette entry (Keyboard shortcuts), not a panel on the
+home page.
 
 Light and dark themes follow the system unless picked in the account menu
 (top right) or on the Appearance page in settings, which also sets the
@@ -55,6 +68,86 @@ A page an account cannot use says what it is for and who can. A viewer
 in a space sees its notes without the pencil, the title edit or the
 delete action; the toolbar shows a Viewer badge instead.
 
+## New note
+
+New — the button, `Alt+N`, the `+` on a space, "New note here" on a
+folder — never asks for a path. It creates `Untitled.md` (then
+`Untitled 2.md`, and so on) beside the open note, or at the top of the
+default space, opens it in the editor with the title selected, and
+waits. Type the title and press Enter: the heading is written, the file
+is renamed to match, and the caret lands in the body. A note left
+untitled stays `Untitled.md`, which is what it is.
+
+The path prompt survives for people who want it: "New note at a path" in
+the palette takes a name or a path like `projects/kiln`, and the quick
+switcher still creates the note you typed when nothing matches.
+
+Moving a note between folders is a drag in the tree on a desktop, and
+"Move to a folder" — a list of every folder — in the note's overflow
+menu, the palette, and the row's actions. "Rename or move by path" is the
+same move endpoint with the path typed out.
+
+## Capture
+
+Capture — the button on the home page, in the phone's bottom bar and the
+top bar elsewhere, `Alt+C`, or the palette — takes one line and appends
+it to the end of today's daily note without opening it. The line lands
+as `- text` through the note's CRDT document (`POST /api/notes/daily`
+for the note, then a short realtime session to write the line), so a
+client with the note open sees it arrive. The toast that follows has
+Undo, which takes the line out again wherever it now sits. Offline, the
+line queues in the outbox and lands when the connection returns. The
+share target ([pwa.md](pwa.md)) uses the same code path.
+
+## Tags
+
+A `#tag` in a note body is a tag: letters, digits, `_`, `/` and `-`,
+after a space, a `(` or the start of a line, not a plain number, not in
+code. The renderer marks each one (`<span class="tag" data-tag="…">`)
+and the client makes it a link to the tag's page; the note's tags also
+sit as chips under the title. `/tags` lists every tag with a count
+across the spaces you can see (`GET /api/tags`); `/tags/<tag>` lists
+every note carrying one (`GET /api/tags/{tag}`). The quick switcher
+matches on tags too: type `#kiln` and the notes tagged kiln come up.
+Tags are not folders and do not move anything; a note's folder is where
+its file is.
+
+## Tree actions
+
+Every row in the tree has actions: right-click, or the `⋯` that shows on
+hover, on a desktop; hold the row on a phone, which opens a sheet with
+the row's name and path at the top. A note has Open, Pin, Move to a
+folder, Rename or move by path, and Delete. A folder has New note here,
+New folder inside, Pin, Rename, Move to a folder, and Delete. A space
+heading has New note here and New folder.
+
+Folders are real directories, so the actions are file operations:
+
+- **New folder** is `POST /api/dirs` `{path}`, a `mkdir`. The tree lists
+  empty directories, so the folder is there at once, with "New note
+  here" under it.
+- **Rename** and **Move** go through `POST /api/dirs/move` `{path, to}`,
+  which moves every note under the folder through the same reconciler
+  path a single note takes (`docs/links.md`), so every inbound wikilink
+  is rewritten; then whatever else the directory held — `_assets/`, files
+  the scanner ignores — follows, and the empty shell is removed. The
+  toast reports how many notes moved and how many links were rewritten.
+  A folder can also be dragged onto another folder or a space heading.
+- **Delete** is `DELETE /api/dirs?path=…`: every note under the folder
+  goes to the trash the way a single delete does, and the directories
+  left empty are removed. Assets stay (a restored note may need them),
+  so a folder holding some keeps its shell.
+
+## Search on a phone
+
+On a phone, Search in the bottom bar (or `/`) opens a page of its own:
+the box at the top with the keyboard up, the queries typed before it
+underneath until something is typed, results after that. Recent queries
+are kept per browser (`yana.queries`, the last eight). A result opens
+the note in read mode with the matched text scrolled into view and
+marked; the mark stays while reading and clears on entering the editor.
+Wider screens keep search in the sidebar and open results the same way.
+
 ## Title
 
 The heading at the top of a note is its title and is edited in place.
@@ -65,8 +158,8 @@ a path cannot hold. The rename goes through `POST /api/notes/{id}/move`,
 so wikilinks follow. A note whose title comes from its file name (no
 heading) is only renamed. Escape puts the old title back.
 
-Path, dates, size and tags live in the Details drawer beside the note,
-with the backlinks and the history.
+Path, dates and size live in the Details drawer beside the note, with the
+backlinks and the history; the tags sit under the title.
 
 ## Read, edit, split
 
@@ -167,8 +260,9 @@ Because an `<img>` cannot send an `Authorization` header, `GET
 Dragging a note from the sidebar tree onto a directory, a space heading, or
 another note moves it there. That is a `mv` on disk through
 `POST /api/notes/{id}/move`, so wikilinks pointing at the note are
-rewritten (`docs/links.md`); the toast reports how many. Dragging a note
-into the editor inserts a wikilink to it.
+rewritten (`docs/links.md`); the toast reports how many. Dragging a
+folder does the same for everything in it (`POST /api/dirs/move`).
+Dragging a note into the editor inserts a wikilink to it.
 
 ## Hotkeys
 
@@ -178,10 +272,11 @@ intercept them.
 
 | Key | Does |
 |---|---|
-| `Alt+N` | New note: a prompt for the path, then the editor with the caret ready |
+| `Alt+N` | New note: an untitled note with the title selected; Enter in the title moves to the body |
+| `Alt+C` | Capture: one line onto the end of today's note, without opening it |
 | `Alt+D` | Today's daily note (created on first use) |
-| `Mod+P` | Quick switcher: fuzzy match on title and path; Enter on no match creates that note |
-| `Mod+K` | Command palette: everything above plus rename/move, delete, unresolved links, trash, settings, theme, sign out |
+| `Mod+P` | Quick switcher: fuzzy match on title, path and `#tag`; Enter on no match creates that note |
+| `Mod+K` | Command palette: everything above plus new note at a path, new folder, pin, move, rename, delete, tags, unresolved links, trash, settings, theme, sign out |
 | `Mod+Shift+F` or `/` | Focus search |
 | `E` | Edit the open note |
 | `Esc` | Back to reading |
@@ -192,7 +287,8 @@ intercept them.
 
 The switcher and the palette list every note in the tree and filter as you
 type; arrows move, Enter picks. The switcher puts recently opened notes
-first. The full list of shortcuts is in the account menu.
+first. The full list of shortcuts is one palette entry, also in the
+account menu.
 
 ## Daily note
 
@@ -221,6 +317,14 @@ of its own like any other file.
 | `PUT /api/files/{path}` | Upload one file under an `_assets/` directory; body is the file, response carries the path written |
 | `POST /api/notes/daily` | `{space, date}` → today's note, created from the template if missing |
 | `POST /api/render` | `{markdown}` → `{html}` for the read view and the preview |
+| `GET /api/tags` | Every tag with its note count, across the spaces the account can see |
+| `GET /api/tags/{tag}` | Every note carrying one tag |
+| `POST /api/dirs` | `{path}` → make an empty folder |
+| `POST /api/dirs/move` | `{path, to}` → move every note under a folder (links rewritten), then the rest, then remove the shell |
+| `DELETE /api/dirs?path=` | Trash every note under a folder and remove the directories left empty |
+
+`GET /api/tree` lists empty directories as well as the notes, and each
+note row carries its `tags`.
 
 `GET /api/status` now includes `daily` with the effective pattern and
 template.
