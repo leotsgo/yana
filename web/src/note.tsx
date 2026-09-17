@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { EditorView } from '@codemirror/view'
 
-import { api, ApiError, baseOf, dirOf } from './api'
+import { api, ApiError, dirOf } from './api'
 import type { MoveResult, Note } from './api'
 import * as cache from './cache'
 import { fmtBytes, fmtDate } from './dom'
@@ -26,6 +26,7 @@ import { coarsePointer } from './layout'
 import type { Layout } from './layout'
 import type { MenuSpec } from './menu'
 import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
+import { resolveTitle } from './paths'
 import type { OpenMode } from './prefs'
 import { SyncClient, presence } from './sync'
 import type { PresenceState, PresenceUser, SyncStatus } from './sync'
@@ -46,10 +47,14 @@ export interface NotePageProps {
   /** True when the note was just created: focus the title, then the
    * editor once the title is committed. */
   fresh: boolean
+  /** Goes up each time the title is asked for again on the same note. */
+  freshSeq: number
   onDelete: () => void
   onRename: () => void
-  /** Pick a folder for the note; the phone's way to move one. */
+  /** Pick a folder for the note: the crumbs, the overflow menu, the phone's way to move one. */
   onMove: () => void
+  /** True when a folder exists in the tree; the title hint says when it will be made. */
+  hasDir: (path: string) => boolean
   onExport: () => void
   /** The note was renamed from the title; the tree needs a refresh. */
   onMoved: (res: MoveResult) => void
@@ -62,7 +67,7 @@ export interface NotePageProps {
 }
 
 export function NotePage(props: NotePageProps) {
-  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, onDelete, onRename, onMove, onExport, onMoved, onTag, pinned, onPin, highlight } = props
+  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onMoved, onTag, pinned, onPin, highlight } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -75,7 +80,11 @@ export function NotePage(props: NotePageProps) {
   const [details, setDetails] = useState(false)
   const [view, setView] = useState<EditorView | null>(null)
   // A fresh note starts in the title; Enter there hands focus to the editor.
+  // A double-click in the tree asks for the title again on an open note.
   const [titleDone, setTitleDone] = useState(!fresh)
+  useEffect(() => {
+    if (fresh) setTitleDone(false)
+  }, [fresh, freshSeq])
   // A search hit stays marked while reading; editing clears it.
   const [hitShown, setHitShown] = useState(highlight)
   const phone = layout === 'phone'
@@ -217,11 +226,13 @@ export function NotePage(props: NotePageProps) {
   }, [phone, md, shown, onEditing])
 
   // The title edit: the H1 in the document follows, then the file name.
+  // Slashes in the title place the note: `projects/kiln` moves it into
+  // projects/ (made if it is not there) and calls it kiln.
   function commitTitle(raw: string): void {
     if (!note) return
-    const title = raw.replace(/\s+/g, ' ').trim()
-    if (title === '' || title === note.title) return
-    if (note.kind === 'md' && sync) {
+    const { title, path: to } = resolveTitle(note.path, note.title, raw)
+    if (title === '' || (title === note.title && to === note.path)) return
+    if (title !== note.title && note.kind === 'md' && sync) {
       const text = sync.text.toString()
       const h1 = findHeading(text)
       if (h1) {
@@ -236,16 +247,10 @@ export function NotePage(props: NotePageProps) {
       onNote(n)
       document.title = `${n.title} — YANA/`
     }
-    const base = baseOf(note.path)
-    const dot = base.lastIndexOf('.')
-    const ext = dot > 0 ? base.slice(dot) : ''
-    const next = fileName(title) + ext
-    if (next === base) {
+    if (to === note.path) {
       apply({ ...note, title })
       return
     }
-    const dir = dirOf(note.path)
-    const to = dir ? `${dir}/${next}` : next
     expectMove.current = to
     // The index may not have seen the new heading yet; the title we just
     // wrote wins over whatever the move response carries. The response
@@ -258,7 +263,7 @@ export function NotePage(props: NotePageProps) {
       })
       .catch((err: unknown) => {
         expectMove.current = null
-        apply({ ...note })
+        apply({ ...note, title })
         onToast(err instanceof ApiError ? err.message : 'Could not rename the file.')
       })
   }
@@ -304,10 +309,12 @@ export function NotePage(props: NotePageProps) {
       autofocus={fresh && !titleDone}
       onNext={() => setTitleDone(true)}
       onTag={onTag}
+      onLocation={onMove}
+      hasDir={hasDir}
     />
   )
   const detailsPane = details && (
-    <Details note={note} onOpen={onOpen} overlay={layout !== 'desktop'} onClose={() => setDetails(false)} />
+    <Details note={note} onOpen={onOpen} overlay={layout !== 'desktop'} onClose={() => setDetails(false)} onRename={onRename} />
   )
 
   if (note.kind === 'html') {
@@ -460,16 +467,6 @@ function findHeading(text: string): { from: number; length: number } | null {
   return { from, length: m[2].length }
 }
 
-/** A file name for a title: the characters a path cannot hold are dropped. */
-function fileName(title: string): string {
-  return title
-    .replace(/[\\/:*?"<>|\x00-\x1f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^\.+/, '')
-    .slice(0, 120) || 'untitled'
-}
-
 function statusLabel(s: SyncStatus): string {
   switch (s) {
     case 'synced':
@@ -501,11 +498,17 @@ interface NoteHeaderProps {
   /** Enter in the title: the body is next. */
   onNext: () => void
   onTag: (tag: string) => void
+  /** The crumbs are a button: pick another folder for the note. */
+  onLocation: () => void
+  hasDir: (path: string) => boolean
 }
 
-function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag }: NoteHeaderProps) {
+function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLocation, hasDir }: NoteHeaderProps) {
   const el = useRef<HTMLHeadingElement>(null)
   const dir = dirOf(note.path)
+  // What the title says while it is being typed; a slash in it places
+  // the note, and the hint under the title says where.
+  const [draft, setDraft] = useState<string | null>(null)
 
   // The heading is editable text, not an input, so it wraps like a title.
   useEffect(() => {
@@ -524,19 +527,33 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag }: Note
     sel?.addRange(range)
   }, [autofocus])
 
+  const target = draft !== null && draft.includes('/') ? resolveTitle(note.path, note.title, draft) : null
+  const crumbs = dir === '' ? [] : dir.split('/')
+
   return (
     <header class="note-header">
-      {dir && (
-        <nav class="crumbs" aria-label="folder">
+      <nav class="crumbs" aria-label="folder">
+        <button
+          type="button"
+          class="crumbs-btn"
+          title={readOnly ? 'The folder this note is in' : 'Move to another folder'}
+          disabled={readOnly}
+          onClick={onLocation}
+        >
           <Icon name="folder" />
-          {dir.split('/').map((p, i) => (
-            <span key={i}>
-              {i > 0 && <span class="crumb-sep">/</span>}
-              {p}
-            </span>
-          ))}
-        </nav>
-      )}
+          {crumbs.length === 0 ? (
+            <span>/</span>
+          ) : (
+            crumbs.map((p, i) => (
+              <span key={i}>
+                {i > 0 && <span class="crumb-sep">/</span>}
+                {p}
+              </span>
+            ))
+          )}
+          {!readOnly && <Icon name="chevron-down" class="crumbs-caret" size={12} />}
+        </button>
+      </nav>
       <h1
         ref={el}
         class={'note-title' + (readOnly ? ' static' : '')}
@@ -544,6 +561,7 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag }: Note
         spellcheck={false}
         role={readOnly ? undefined : 'textbox'}
         aria-label="Title"
+        onInput={(ev) => setDraft((ev.currentTarget as HTMLElement).textContent ?? '')}
         onKeyDown={(ev) => {
           if (ev.key === 'Enter') {
             ev.preventDefault()
@@ -553,6 +571,7 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag }: Note
             ev.preventDefault()
             const h = ev.currentTarget as HTMLElement
             h.textContent = note.title
+            setDraft(null)
             h.blur()
           }
         }}
@@ -564,10 +583,32 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag }: Note
         onBlur={(ev) => {
           const h = ev.currentTarget as HTMLElement
           const v = h.textContent ?? ''
-          if (v.trim() === '') h.textContent = note.title
-          else onCommit(v)
+          setDraft(null)
+          if (v.trim() === '') {
+            h.textContent = note.title
+            return
+          }
+          // The heading shows the name, not the path that placed it.
+          h.textContent = resolveTitle(note.path, note.title, v).title
+          onCommit(v)
         }}
       />
+      {target && (
+        <p class="title-hint" aria-live="polite">
+          <Icon name={target.moves ? 'move' : 'folder'} size={13} />
+          {target.moves ? (
+            <>
+              Moves to <b>{target.dir || '/'}</b>
+              {target.dir && !hasDir(target.dir) && <span class="title-hint-new">new folder</span>}
+              {' '}as <b>{target.title || 'Untitled'}</b>
+            </>
+          ) : (
+            <>
+              Stays in <b>{dir || '/'}</b> as <b>{target.title || 'Untitled'}</b>
+            </>
+          )}
+        </p>
+      )}
       {note.tags.length > 0 && (
         <div class="note-tags" aria-label="tags">
           {note.tags.map((t) => (
@@ -784,9 +825,11 @@ interface DetailsProps {
   onOpen: (id: string) => void
   overlay: boolean
   onClose: () => void
+  /** The path is a button: rename or move by path. */
+  onRename: () => void
 }
 
-function Details({ note, onOpen, overlay, onClose }: DetailsProps) {
+function Details({ note, onOpen, overlay, onClose, onRename }: DetailsProps) {
   const host = useRef<HTMLDivElement>(null)
   const me = useMemo(() => note, [note])
   useEffect(() => {
@@ -807,7 +850,11 @@ function Details({ note, onOpen, overlay, onClose }: DetailsProps) {
       </div>
       <dl class="meta">
         <dt>Path</dt>
-        <dd class="mono">{note.path}</dd>
+        <dd class="mono">
+          <button type="button" class="meta-path" title="Rename or move by path" onClick={onRename}>
+            {note.path}
+          </button>
+        </dd>
         <dt>Created</dt>
         <dd>{fmtDate(note.created)}</dd>
         <dt>Modified</dt>

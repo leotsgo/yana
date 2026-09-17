@@ -61,7 +61,8 @@ limited, live for open clients, and committed to git under its label
  formatting bar above the phone keyboard, per-user undo, drag-and-drop
  and paste for images, and drag to move notes and folders in the tree. New note,
  daily note, quick switcher, and command palette are one key away; New
- never asks for a path (name the note by its title), Capture drops a
+ never asks for a path (name the note by its title; a slash in the
+ title moves it into a folder, made on the spot), Capture drops a
  line into today's note without opening it, notes and folders pin to
  the top of the sidebar, every `#tag` is a link to the notes carrying
  it, and the tree has folder actions — new, rename, move, delete —

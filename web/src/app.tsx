@@ -19,7 +19,7 @@ import type { ConfirmSpec } from './confirm'
 import { isEditable, keys, label, matches } from './hotkeys'
 import { Icon } from './icons'
 import { useVisualViewport } from './keyboard'
-import { useLayout } from './layout'
+import { coarsePointer, useLayout } from './layout'
 import { renderUnresolvedReport } from './links'
 import { Menu } from './menu'
 import type { MenuItem, MenuSpec } from './menu'
@@ -27,6 +27,7 @@ import { NotePage } from './note'
 import * as outbox from './outbox'
 import { Palette } from './palette'
 import type { PaletteItem, PaletteSpec } from './palette'
+import { resolveDir } from './paths'
 import * as prefs from './prefs'
 import * as pwa from './pwa'
 import { SearchPage, SearchResults } from './search'
@@ -37,7 +38,7 @@ import { appendToNote, composeShareBlock, today } from './sharelib'
 import { TagPage, TagsIndex } from './tags'
 import { TrashPage } from './trash'
 import { Tree, flatten, folders } from './tree'
-import type { FlatNote, TreeTarget } from './tree'
+import type { FlatNote, TreeEdit, TreeTarget } from './tree'
 
 type Route =
   | { kind: 'home' }
@@ -105,7 +106,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const [editing, setEditing] = useState(false) // the phone is showing an editor
   const [collapsed, setCollapsed] = useState(prefs.sidebarCollapsed) // desktop column
   const [drawer, setDrawer] = useState(false) // phone and tablet
-  const [fresh, setFresh] = useState<string | null>(null)
+  // The note whose title should be focused: a new one, or one a person
+  // double-clicked in the tree. The count makes a repeat on the open note count.
+  const [fresh, setFresh] = useState<{ id: string; seq: number } | null>(null)
+  const [treeEdit, setTreeEdit] = useState<TreeEdit | null>(null) // a folder input open in the tree
   const [themePref, setThemePref] = useState(prefs.theme)
   const [pinList, setPinList] = useState(prefs.pins)
   const [rev, setRev] = useState(0) // bumps to reopen the current note after a move
@@ -116,6 +120,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const current = useRef<Note | null>(null)
   const user = auth.user()
   const narrow = layout !== 'desktop'
+  const sidebarShown = narrow ? drawer : !collapsed
 
   // --- navigation --------------------------------------------------------
 
@@ -281,6 +286,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   const notes = useMemo(() => flatten(spaces ?? []), [spaces])
   const dirs = useMemo(() => folders(spaces ?? []), [spaces])
+  const hasDir = useCallback((path: string) => dirs.some((d) => d.path === path), [dirs])
 
   /** The space new things go into: the open note's, else the preferred
    * one from settings, else the first one. */
@@ -313,7 +319,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       const seed = `# ${title}\n\n`
       try {
         const res = await api.createNote(p, seed)
-        setFresh(res.id)
+        setFresh((f) => ({ id: res.id, seq: (f?.seq ?? 0) + 1 }))
         navigate(res.id, true, true)
         void loadTree()
       } catch (err) {
@@ -362,7 +368,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     try {
       const res = await api.daily(dailySpace(), date)
       if (res.created) {
-        setFresh(res.id)
+        setFresh((f) => ({ id: res.id, seq: (f?.seq ?? 0) + 1 }))
         void loadTree()
       }
       navigate(res.id, true, res.created)
@@ -474,8 +480,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     })
   }
 
-  /** A list of folders to move something into. */
-  function folderPicker(placeholder: string, exclude: (path: string) => boolean, pick: (dir: string) => void): void {
+  /** A list of folders to move something into. Typing a folder that is
+   * not there makes it: relative to base, or from the root with a
+   * leading slash. */
+  function folderPicker(placeholder: string, base: string, exclude: (path: string) => boolean, pick: (dir: string) => void): void {
     const items: PaletteItem[] = dirs
       .filter((d) => !exclude(d.path))
       .map((d) => ({
@@ -484,16 +492,36 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         detail: d.depth > 0 ? d.path : undefined,
         run: () => pick(d.path),
       }))
-    setPalette({ mode: 'list', placeholder, items, limit: 200 })
+    setPalette({
+      mode: 'list',
+      placeholder,
+      items,
+      limit: 200,
+      createHint: 'new folder',
+      onCreate: (q) => {
+        const dir = resolveDir(base, q)
+        if (dir === '' || exclude(dir)) {
+          if (dir === '') say('A folder lives inside a space.')
+          return
+        }
+        pick(dir)
+      },
+    })
   }
 
   function moveNotePicker(note?: NoteRef): void {
     const n = note ?? current.current
     if (!n) return
     const from = dirOf(n.path)
-    folderPicker(`Move ${n.title || baseOf(n.path)} to`, (d) => d === from, (dir) => {
+    folderPicker(`Move ${n.title || baseOf(n.path)} to`, from, (d) => d === from, (dir) => {
       void moveNote(n.id, n.path, dir ? `${dir}/${baseOf(n.path)}` : baseOf(n.path))
     })
+  }
+
+  /** Open a note with its title selected: rename it from the tree. */
+  function openTitle(id: string): void {
+    setFresh((f) => ({ id, seq: (f?.seq ?? 0) + 1 }))
+    navigate(id, true, true)
   }
 
   // Deleting shows the note's inbound links first: whoever points at it
@@ -540,7 +568,26 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // --- folders -----------------------------------------------------------
 
+  const createDir = useCallback(
+    (path: string) => {
+      api
+        .createDir(path)
+        .then(() => {
+          void loadTree()
+          say(`Made ${path}/.`)
+        })
+        .catch((err: unknown) => say(err instanceof ApiError ? err.message : 'Could not make the folder.'))
+    },
+    [loadTree, say],
+  )
+
+  // A new folder is an input row in the tree where it will sit. On a
+  // phone, or with the sidebar away, the prompt asks instead.
   function newFolderPrompt(parent: string): void {
+    if (!coarsePointer && sidebarShown) {
+      setTreeEdit({ kind: 'new-dir', parent })
+      return
+    }
     setPalette({
       mode: 'prompt',
       placeholder: 'Name for the new folder',
@@ -549,14 +596,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       onSubmit: (v) => {
         const name = v.trim().replace(/^\/+|\/+$/g, '')
         if (!name) return
-        const path = parent ? `${parent}/${name}` : name
-        api
-          .createDir(path)
-          .then(() => {
-            void loadTree()
-            say(`Made ${path}/.`)
-          })
-          .catch((err: unknown) => say(err instanceof ApiError ? err.message : 'Could not make the folder.'))
+        createDir(parent ? `${parent}/${name}` : name)
       },
     })
   }
@@ -592,19 +632,25 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     [loadTree, say],
   )
 
-  function renameDirPrompt(node: TreeNode): void {
+  function renameDir(node: TreeNode, name: string): void {
     const parent = dirOf(node.path)
+    if (!name || name === node.name) return
+    void moveDir(node.path, parent ? `${parent}/${name}` : name)
+  }
+
+  // Renaming a folder happens in its row; the prompt is the phone's way.
+  function renameDirPrompt(node: TreeNode): void {
+    if (!coarsePointer && sidebarShown) {
+      setTreeEdit({ kind: 'rename-dir', path: node.path })
+      return
+    }
     setPalette({
       mode: 'prompt',
       placeholder: 'New name for the folder',
       initial: node.name,
       select: [0, node.name.length],
       hint: 'Every note inside moves with it; wikilinks that point at them are rewritten.',
-      onSubmit: (v) => {
-        const name = v.trim().replace(/^\/+|\/+$/g, '')
-        if (!name || name === node.name) return
-        void moveDir(node.path, parent ? `${parent}/${name}` : name)
-      },
+      onSubmit: (v) => renameDir(node, v.trim().replace(/^\/+|\/+$/g, '')),
     })
   }
 
@@ -612,6 +658,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     const parent = dirOf(node.path)
     folderPicker(
       `Move ${node.name}/ to`,
+      parent,
       (d) => d === parent || d === node.path || d.startsWith(node.path + '/') || d === '',
       (dir) => void moveDir(node.path, `${dir}/${node.name}`),
     )
@@ -968,7 +1015,6 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   }, [])
   const searching = query.trim() !== ''
   const selected = route.kind === 'note' ? route.id : null
-  const sidebarShown = narrow ? drawer : !collapsed
   const currentPinned = route.kind === 'note' && pinList.some((p) => p.kind === 'note' && p.id === route.id)
 
   // While the phone keyboard is up the shell is sized to what is left
@@ -1119,9 +1165,16 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
                       selected={selected}
                       pins={pinList}
                       onOpen={navigate}
+                      onOpenTitle={openTitle}
                       onMove={(id, from, dir) => void moveNote(id, from, dir ? `${dir}/${baseOf(from)}` : baseOf(from))}
                       onMoveDir={(path, dir) => void moveDir(path, `${dir}/${baseOf(path)}`)}
                       onNew={newNote}
+                      onNewFolder={newFolderPrompt}
+                      onRenameFolder={renameDirPrompt}
+                      edit={treeEdit}
+                      onCreateDir={createDir}
+                      onRenameDir={renameDir}
+                      onEditDone={() => setTreeEdit(null)}
                       onContext={treeContext}
                     />
                   </>
@@ -1165,10 +1218,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               onNote={onNote}
               onToast={say}
               onMenu={setMenu}
-              fresh={fresh === route.id}
+              fresh={fresh?.id === route.id}
+              freshSeq={fresh?.seq ?? 0}
               onDelete={() => deleteNotePrompt()}
               onRename={() => renamePrompt()}
               onMove={() => moveNotePicker()}
+              hasDir={hasDir}
               onExport={exportNote}
               onMoved={onMoved}
               onTag={openTag}

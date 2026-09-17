@@ -78,14 +78,25 @@ waits. Type the title and press Enter: the heading is written, the file
 is renamed to match, and the caret lands in the body. A note left
 untitled stays `Untitled.md`, which is what it is.
 
+The title is also where the note goes. A slash in it places the note:
+`projects/kiln` moves it into `projects/` beside where it was (the folder
+is made if it is not there) and calls it kiln; `/work/plan` starts from
+the root, so it can change space; `../kiln` steps up a folder; `archive/`
+with nothing after the slash moves the note and keeps its name. While
+you type, a line under the title says where the note will land and
+marks a folder that does not exist yet. The heading in the body only
+ever gets the name, never the path.
+
+The crumbs above the title are a button: the folder the note is in, and
+a click opens "Move to a folder". That list is every folder; typing one
+that is not there offers to make it, relative to the note's folder or
+from the root with a leading slash. The path in the Details panel is a
+button too, for "Rename or move by path", the same move with the path
+typed out. On a desktop a note also drags to a folder in the tree.
+
 The path prompt survives for people who want it: "New note at a path" in
 the palette takes a name or a path like `projects/kiln`, and the quick
 switcher still creates the note you typed when nothing matches.
-
-Moving a note between folders is a drag in the tree on a desktop, and
-"Move to a folder" — a list of every folder — in the note's overflow
-menu, the palette, and the row's actions. "Rename or move by path" is the
-same move endpoint with the path typed out.
 
 ## Capture
 
@@ -119,7 +130,15 @@ hover, on a desktop; hold the row on a phone, which opens a sheet with
 the row's name and path at the top. A note has Open, Pin, Move to a
 folder, Rename or move by path, and Delete. A folder has New note here,
 New folder inside, Pin, Rename, Move to a folder, and Delete. A space
-heading has New note here and New folder.
+heading has New note here and New folder, and carries both as buttons.
+
+New folder and Rename happen in the tree: an input row where the folder
+is, or the folder's own name turned into one. Enter keeps it, Escape
+drops it, and a click elsewhere keeps it too. A double-click on a folder
+renames it; a double-click on a note opens it with the title selected,
+which is how a note is renamed from the tree. On a phone, where there is
+no double-click and the sidebar is a drawer, the same actions ask in a
+prompt instead.
 
 Folders are real directories, so the actions are file operations:
 
