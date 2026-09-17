@@ -88,11 +88,16 @@ marks a folder that does not exist yet. The heading in the body only
 ever gets the name, never the path.
 
 The crumbs above the title are a button: the folder the note is in, and
-a click opens "Move to a folder". That list is every folder; typing one
-that is not there offers to make it, relative to the note's folder or
-from the root with a leading slash. The path in the Details panel is a
-button too, for "Rename or move by path", the same move with the path
-typed out. On a desktop a note also drags to a folder in the tree.
+a click opens "Move to a folder". The input holds the note's current
+folder path, to edit by hand or leave alone; under it is every folder,
+indented as in the tree, with the current one marked. Pick one with the
+arrows, a click or a tap, or edit the path: the list narrows to the
+folders under what is typed, and a path that is not there yet is made on
+Enter. A bare name like `archive` lands inside the note's own space;
+`work/archive` names the space. The same picker moves folders. The path
+in the Details panel is a button too, for "Rename or move by path", the
+same move with the file name included. On a desktop a note also drags to
+a folder in the tree.
 
 The path prompt survives for people who want it: "New note at a path" in
 the palette takes a name or a path like `projects/kiln`, and the quick

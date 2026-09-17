@@ -480,28 +480,48 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     })
   }
 
-  /** A list of folders to move something into. Typing a folder that is
-   * not there makes it: relative to base, or from the root with a
-   * leading slash. */
-  function folderPicker(placeholder: string, base: string, exclude: (path: string) => boolean, pick: (dir: string) => void): void {
+  /** The folder picker: the current folder in the input, to edit by
+   * hand or leave alone, and the tree of folders under it to pick from.
+   * A path that is not there yet is made on Enter; a bare name lands in
+   * the thing's own space. */
+  function folderPicker(placeholder: string, here: string, exclude: (path: string) => boolean, pick: (dir: string) => void): void {
     const items: PaletteItem[] = dirs
-      .filter((d) => !exclude(d.path))
+      .filter((d) => d.path === here || !exclude(d.path))
       .map((d) => ({
         id: d.path || '/',
-        label: (d.depth > 0 ? '  '.repeat(d.depth) : '') + (d.path === '' ? '/' : d.depth === 0 ? d.path + '/' : baseOf(d.path)),
-        detail: d.depth > 0 ? d.path : undefined,
+        label: d.path === '' ? '/' : d.depth === 0 ? d.path + '/' : baseOf(d.path),
+        path: d.path,
+        depth: d.depth,
+        here: d.path === here,
         run: () => pick(d.path),
       }))
+    const spaceNames = new Set((spaces ?? []).map((sp) => sp.name))
+    const space = here.split('/')[0] ?? ''
+    // Typed from the root, unless the first part is not a space: then it
+    // sits inside the thing's own space.
+    const resolve = (q: string) => {
+      const first = q.split('/')[0] ?? ''
+      return resolveDir(spaceNames.has(first) || !space ? '' : space, q)
+    }
     setPalette({
       mode: 'list',
+      match: 'path',
       placeholder,
+      initial: here,
       items,
-      limit: 200,
+      limit: 400,
       createHint: 'new folder',
+      createLabel: (q) => `Make ${resolve(q) || q}/`,
+      hint: 'Edit the path, or pick a folder below. A path that is not there yet is made.',
       onCreate: (q) => {
-        const dir = resolveDir(base, q)
-        if (dir === '' || exclude(dir)) {
-          if (dir === '') say('A folder lives inside a space.')
+        const dir = resolve(q)
+        if (!dir.includes('/')) {
+          say(dir ? `${dir}/ is a space. A folder lives inside one, like ${dir}/archive.` : 'A folder lives inside a space.')
+          return
+        }
+        if (dir === here) return
+        if (exclude(dir)) {
+          say('A folder cannot move into itself.')
           return
         }
         pick(dir)
