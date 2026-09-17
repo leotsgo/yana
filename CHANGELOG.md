@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Backup remotes. Settings → Data → Backups lists the git repositories
+  the server pushes the history to, each with its own schedule (after
+  every commit, hourly, or nightly at an hour), its last push, and the
+  newest error's message when a push failed. HTTPS remotes take a
+  token, stored encrypted and handed to git through an in-memory
+  credential helper so it never lands in a URL, a command line, or a
+  log; SSH and bare-path remotes work too, and the image now ships
+  `openssh-client`. `YANA_GIT_REMOTE` seeds the list on first start.
+  The History block names the newest git error instead of pointing at
+  the log. Fix: git commands now run with `safe.directory` set for the
+  notes root, so a container running as root over a bind mount owned by
+  another user commits instead of failing every window with "dubious
+  ownership".
 - Phase 17 — Capture and everyday use. New note never asks for a path:
   an untitled note opens with the title selected, and the file follows
   the title on Enter (the path prompt survives in the palette). Capture,

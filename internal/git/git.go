@@ -53,10 +53,17 @@ type Options struct {
 	// Interval bounds how long a continuously edited tree can go
 	// uncommitted (1h).
 	Interval time.Duration
-	// Remote is an optional git URL pushed nightly. Empty disables push.
+	// Remote is an optional git URL from the environment. With a DB it
+	// seeds the remotes table on first run (nightly at PushHour) and the
+	// table owns pushes from then on; without one it is the only remote
+	// and PushNow pushes to it.
 	Remote string
 	// PushHour is the local hour of the nightly push (2).
 	PushHour int
+	// SecretPath is the file holding the key remote credentials are
+	// sealed with; created on first use. Empty disables stored
+	// credentials.
+	SecretPath string
 	// HumanName and HumanEmail identify human edits in git. Until Phase 4
 	// there is one account-shaped hole where a user goes, so every
 	// non-agent edit commits under this identity ("yana user").
@@ -99,6 +106,12 @@ type Stats struct {
 	Pushes     int64     `json:"pushes"`
 	LastPush   time.Time `json:"last_push"`
 	Errors     int64     `json:"errors"`
+	// LastError is the newest failure's message, so the UI can say what
+	// went wrong instead of pointing at the log.
+	LastError   string    `json:"last_error"`
+	LastErrorAt time.Time `json:"last_error_at"`
+	// Remotes is how many enabled backup remotes the layer pushes to.
+	Remotes int `json:"remotes"`
 }
 
 // LogEntry is one revision of a note's history.
@@ -125,6 +138,15 @@ type Layer struct {
 	lastCommit   time.Time
 	lastActivity time.Time
 	lastPush     time.Time
+	// lastMade is when a commit was last actually created (lastCommit
+	// also advances on empty windows), so a push knows if it has work.
+	lastMade    time.Time
+	lastError   string
+	lastErrorAt time.Time
+	// retryAfter holds remotes whose last push failed back for a while.
+	retryAfter map[string]time.Time
+	remotes    int
+	sealKey    []byte
 	// windowAuthors maps a relative path to the raw authors (user:*,
 	// agent:*, filesystem) whose edits are pending in the open window.
 	windowAuthors map[string]map[string]struct{}
@@ -132,8 +154,8 @@ type Layer struct {
 	commits       int64
 	pushes        int64
 	errors        int64
-	// committing is held while a commit cycle runs so Snapshot and the
-	// loop serialise.
+	// committing is held while a commit cycle or a push runs so Snapshot,
+	// the loop, and the push endpoints serialise.
 	committing sync.Mutex
 
 	flush func(context.Context)
@@ -157,6 +179,7 @@ func New(root string, opts Options, log *slog.Logger) *Layer {
 		opts:          opts,
 		log:           log.With("component", "git"),
 		windowAuthors: map[string]map[string]struct{}{},
+		retryAfter:    map[string]time.Time{},
 		ctx:           ctx,
 		cancel:        cancel,
 	}
@@ -225,11 +248,21 @@ func (l *Layer) Ensure(ctx context.Context) error {
 	if err := l.loadWindowState(); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		l.log.Warn("git state unreadable; the window opens at the last commit", "err", err)
 	}
+	last := l.lastCommitUnix(ctx)
 	l.mu.Lock()
 	if l.lastCommit.IsZero() {
-		l.lastCommit = time.Unix(l.lastCommitUnix(ctx)+1, 0)
+		l.lastCommit = time.Unix(last+1, 0)
+	}
+	if last > 0 {
+		l.lastMade = time.Unix(last, 0)
 	}
 	l.mu.Unlock()
+	if err := l.loadSealKey(); err != nil {
+		l.log.Warn("remote credentials are unavailable", "err", err)
+	}
+	if err := l.seedRemote(ctx); err != nil {
+		l.log.Warn("could not seed the remote from the environment", "err", err)
+	}
 	return nil
 }
 
@@ -334,6 +367,7 @@ func (l *Layer) Stats() Stats {
 	return Stats{
 		Available: l.available, Commits: l.commits, LastCommit: l.lastCommit,
 		Pushes: l.pushes, LastPush: l.lastPush, Errors: l.errors,
+		LastError: l.lastError, LastErrorAt: l.lastErrorAt, Remotes: l.remotes,
 	}
 }
 
@@ -354,7 +388,6 @@ func (l *Layer) loop() {
 	}
 	tick := time.NewTicker(check)
 	defer tick.Stop()
-	nextPush := l.nextPushAfter(l.opts.Now())
 	for {
 		select {
 		case <-l.ctx.Done():
@@ -374,48 +407,9 @@ func (l *Layer) loop() {
 				}
 				cancel()
 			}
-			if !nextPush.After(now) {
-				nextPush = l.nextPushAfter(now)
-				ctx, cancel := context.WithTimeout(l.ctx, 10*time.Minute)
-				if err := l.PushNow(ctx); err != nil {
-					l.log.Error("nightly push failed", "remote", l.opts.Remote, "err", err)
-				}
-				cancel()
-			}
+			l.pushDue(now)
 		}
 	}
-}
-
-// nextPushAfter returns the next nightly push time on or after t.
-func (l *Layer) nextPushAfter(t time.Time) time.Time {
-	if l.opts.Remote == "" {
-		return t.AddDate(100, 0, 0) // never
-	}
-	next := time.Date(t.Year(), t.Month(), t.Day(), l.opts.PushHour, 0, 0, 0, t.Location())
-	if !next.After(t) {
-		next = next.AddDate(0, 0, 1)
-	}
-	return next
-}
-
-// PushNow pushes HEAD to the configured remote. It reports nil when no
-// remote is configured. The nightly tick and tests call it directly.
-func (l *Layer) PushNow(ctx context.Context) error {
-	if l.opts.Remote == "" {
-		return nil
-	}
-	l.committing.Lock()
-	defer l.committing.Unlock()
-	if _, err := l.git(ctx, "push", l.opts.Remote, "HEAD"); err != nil {
-		l.countError()
-		return err
-	}
-	l.mu.Lock()
-	l.pushes++
-	l.lastPush = l.opts.Now()
-	l.mu.Unlock()
-	l.log.Info("pushed", "remote", l.opts.Remote)
-	return nil
 }
 
 // --- committing --------------------------------------------------------------
@@ -438,7 +432,7 @@ func (l *Layer) commitPending(ctx context.Context, reason string) (int, error) {
 	}
 	changes, err := l.status(ctx)
 	if err != nil {
-		l.countError()
+		l.fail(err)
 		return 0, err
 	}
 	if len(changes) == 0 {
@@ -510,13 +504,13 @@ func (l *Layer) commitPending(ctx context.Context, reason string) (int, error) {
 		paths := groups[key]
 		args := append([]string{"add", "-A", "--"}, paths...)
 		if _, err := l.git(ctx, args...); err != nil {
-			l.countError()
+			l.fail(err)
 			l.log.Error("staging failed", "err", err, "paths", paths)
 			continue
 		}
 		staged, err := l.stagedCount(ctx)
 		if err != nil {
-			l.countError()
+			l.fail(err)
 			continue
 		}
 		if staged == 0 {
@@ -535,7 +529,7 @@ func (l *Layer) commitPending(ctx context.Context, reason string) (int, error) {
 			"commit", "--author="+name+" <"+email+">",
 			"-m", subject,
 		); err != nil {
-			l.countError()
+			l.fail(err)
 			l.log.Error("commit failed", "err", err, "author", name)
 			continue
 		}
@@ -546,6 +540,7 @@ func (l *Layer) commitPending(ctx context.Context, reason string) (int, error) {
 	l.mu.Lock()
 	if made > 0 {
 		l.commits += int64(made)
+		l.lastMade = now
 	}
 	l.lastCommit = now
 	l.dirty = false
@@ -633,9 +628,14 @@ func (l *Layer) stagedCount(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-func (l *Layer) countError() {
+// fail counts an error and keeps its message for the status report.
+func (l *Layer) fail(err error) {
 	l.mu.Lock()
 	l.errors++
+	if err != nil {
+		l.lastError = err.Error()
+		l.lastErrorAt = l.opts.Now()
+	}
 	l.mu.Unlock()
 }
 
@@ -734,10 +734,27 @@ func (l *Layer) Show(ctx context.Context, rev, rel string) ([]byte, error) {
 
 // git runs one git command in the notes root and returns its stdout.
 func (l *Layer) git(ctx context.Context, args ...string) (string, error) {
+	return l.gitEnv(ctx, nil, nil, args...)
+}
+
+// gitEnv is git with extra configuration entries (key=value pairs applied
+// as if by -c, but carried in the environment so a secret never shows on
+// a command line) and extra environment variables.
+func (l *Layer) gitEnv(ctx context.Context, config []string, env []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = l.root
 	// Never stop for a credential prompt; a push that needs one fails.
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	// Mark the root safe: in Docker the process often runs as root over a
+	// bind mount owned by another uid, and git >= 2.35.2 otherwise refuses
+	// every command with "dubious ownership". The setting rides in the
+	// environment, so it never touches the user's git config.
+	config = append([]string{"safe.directory=*"}, config...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", fmt.Sprintf("GIT_CONFIG_COUNT=%d", len(config)))
+	for i, kv := range config {
+		k, v, _ := strings.Cut(kv, "=")
+		cmd.Env = append(cmd.Env, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, k), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i, v))
+	}
+	cmd.Env = append(cmd.Env, env...)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	err := cmd.Run()
