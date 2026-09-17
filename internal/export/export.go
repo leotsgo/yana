@@ -37,6 +37,9 @@ type Deps struct {
 	// plus a small bootstrap) copied into static site exports. nil
 	// builds a site without the search page.
 	SearchJS []byte
+	// Favicon is the 32px PNG mark: a file beside a static site, a data
+	// URI inside a single-file export. nil leaves both without an icon.
+	Favicon []byte
 	// Now stamps the exported pages; nil is time.Now.
 	Now func() time.Time
 }

@@ -359,7 +359,7 @@ template.
 binary embeds. Bundle names carry a content hash (`assets/app-XXXX.js`)
 and `index.html` is rewritten to match, so the long immutable cache
 lifetime the server puts on `/assets/` is safe across releases. The same
-build rasterises the install icons, writes `manifest.webmanifest`, and
+build copies the icons from `web/icons/`, writes `manifest.webmanifest`, and
 fills `sw.template.js` into `sw.js` with the hashed names and a version
 stamp — the installable-app side of the client
 ([pwa.md](pwa.md)). `npm run watch` skips the worker so development is

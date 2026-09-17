@@ -10,9 +10,13 @@ This page is what it does and where each piece lives.
 `manifest.webmanifest` (written into `web/dist` by `web/build.mjs`) names
 the app, its colours (`theme_color` follows the light theme; the page
 keeps the `theme-color` meta in step with the dark one at runtime), the
-slash-mark icons at 192 and 512 plus maskable variants, `display:
-standalone`, and `start_url: /`. The icons are rasterised from the same
-geometry as the favicon at build time — no image assets are checked in.
+icons at 192 and 512 plus maskable variants, `display: standalone`, and
+`start_url: /`. The icons are the sticky-note mark, checked in under
+`web/icons/` with the favicon (`.ico` and 16/32 PNG) and the apple-touch
+icon; the build copies the set into `dist/`. The maskable variants and
+the apple-touch icon are opaque — the mark on the app's background
+colour, inside the safe zone — because both Android's adaptive masks
+and iOS paint transparency black.
 
 Where the browser offers an install prompt (Chrome and Edge on Android
 and desktop, Safari on desktop), the app surfaces it: an Install button
@@ -115,7 +119,7 @@ hashed asset names mean nothing stale can ride along.
 
 ## Building
 
-`npm run build` in `web/` writes the icons, the manifest, and `sw.js`
+`npm run build` in `web/` copies the icons, writes the manifest and `sw.js`
 alongside the hashed bundles; `sw.template.js` is the worker's source. In
 `npm run watch` the worker is skipped (`__PWA__` is false), so development
 against a running server is never shadowed by a cache. The server sends

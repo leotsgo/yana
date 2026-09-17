@@ -72,6 +72,9 @@ type Deps struct {
 	// SearchJS is the bundled client-side search runtime embedded in
 	// static site exports; nil exports sites without a search page.
 	SearchJS []byte
+	// Favicon is the 32px PNG mark embedded in exports; nil exports
+	// pages without an icon.
+	Favicon []byte
 	// CanWrite decides whether a request may change a space. nil allows
 	// everything; when Auth is set the role check below runs instead.
 	CanWrite func(r *http.Request, space string) error

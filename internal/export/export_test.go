@@ -53,7 +53,7 @@ func newExportEnv(t *testing.T, files map[string]string) *exportEnv {
 		t.Fatal(err)
 	}
 	fixed := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
-	deps := &Deps{DB: db, Root: root, SearchJS: []byte("// search runtime stub\n"), Now: func() time.Time { return fixed }}
+	deps := &Deps{DB: db, Root: root, SearchJS: []byte("// search runtime stub\n"), Favicon: []byte("PNG-ICON"), Now: func() time.Time { return fixed }}
 	return &exportEnv{dir: dir, root: root, db: db, deps: deps}
 }
 
@@ -153,6 +153,9 @@ func TestSingleNoteInlinesImagesAndCSS(t *testing.T) {
 	if !strings.Contains(page, "<title>Hello — YANA/</title>") {
 		t.Error("title is wrong")
 	}
+	if !strings.Contains(page, `<link rel="icon" type="image/png" href="data:image/png;base64,UE5HLUlDT04=">`) {
+		t.Error("favicon is not inlined")
+	}
 	if strings.Contains(page, "id: 01JQ") {
 		t.Error("frontmatter leaked into the export")
 	}
@@ -206,7 +209,7 @@ func TestSiteZip(t *testing.T) {
 		"index.html": false, "site.css": false, "search.html": false,
 		"search.js": false, "search-index.js": false,
 		"hello.html": false, "sub/second.html": false, "dash.html": false,
-		"_assets/pic.png": false,
+		"_assets/pic.png": false, "favicon.png": false,
 	}
 	for _, n := range names {
 		if _, ok := want[n]; ok {
@@ -251,6 +254,9 @@ func TestSiteZip(t *testing.T) {
 	second := readSite(t, dir, "sub/second.html")
 	if !strings.Contains(second, `href="../hello.html"`) {
 		t.Error("link from a nested page is not relative to it")
+	}
+	if !strings.Contains(second, `<link rel="icon" type="image/png" href="../favicon.png">`) {
+		t.Error("favicon link from a nested page is not relative to it")
 	}
 	dash := readSite(t, dir, "dash.html")
 	if !strings.Contains(dash, `<a href="hello.html"`) {

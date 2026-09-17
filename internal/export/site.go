@@ -92,9 +92,14 @@ func (d *Deps) writeSite(ctx context.Context, zw *zip.Writer, space, subtree str
 		stats.Pages++
 	}
 
-	// The shared stylesheet.
+	// The shared stylesheet and the icon.
 	if err := put(zw, "site.css", now, []byte(siteCSS)); err != nil {
 		return stats, err
+	}
+	if len(d.Favicon) > 0 {
+		if err := put(zw, "favicon.png", now, d.Favicon); err != nil {
+			return stats, err
+		}
 	}
 
 	// The home page: navigation plus every note as a plain list.
@@ -247,6 +252,15 @@ func (d *Deps) sitePage(ctx context.Context, sn *siteNote, tree *siteTree, byID 
 	return d.siteChrome(sn.sitePath, titleOf(sn), tree, content, now), nil
 }
 
+// markImg is the mark beside the wordmark, or nothing when there is no
+// icon to show.
+func markImg(src string) string {
+	if src == "" {
+		return ""
+	}
+	return `<img class="mark" src="` + src + `" alt="" width="18" height="18">`
+}
+
 // siteChrome wraps content in the site document: the title, stylesheet,
 // navigation tree, and search link.
 func (d *Deps) siteChrome(pagePath, title string, tree *siteTree, content string, now time.Time) []byte {
@@ -255,8 +269,13 @@ func (d *Deps) siteChrome(pagePath, title string, tree *siteTree, content string
 	b.WriteString("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
 	b.WriteString("<title>" + esc(title) + "</title>\n")
 	b.WriteString("<link rel=\"stylesheet\" href=\"" + hrefBetween(pagePath, "site.css") + "\">\n")
+	icon := ""
+	if len(d.Favicon) > 0 {
+		icon = hrefBetween(pagePath, "favicon.png")
+		b.WriteString("<link rel=\"icon\" type=\"image/png\" href=\"" + icon + "\">\n")
+	}
 	b.WriteString("</head>\n<body>\n<div class=\"x-layout\">\n<nav class=\"x-nav\">\n")
-	b.WriteString(`<div class="x-nav-head"><a class="wordmark" href="` + hrefBetween(pagePath, "index.html") + `">YANA/</a>`)
+	b.WriteString(`<div class="x-nav-head"><a class="wordmark" href="` + hrefBetween(pagePath, "index.html") + `">` + markImg(icon) + `YANA/</a>`)
 	if len(d.SearchJS) > 0 {
 		b.WriteString(`<a class="x-search-link" href="` + hrefBetween(pagePath, "search.html") + `">Search</a>`)
 	}

@@ -7,6 +7,7 @@ package export
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"html"
@@ -55,9 +56,14 @@ func (d *Deps) SingleNote(ctx context.Context, id string) ([]byte, error) {
 	b.WriteString("<meta charset=\"utf-8\">\n")
 	b.WriteString("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
 	b.WriteString("<title>" + esc(n.Title) + " — YANA/</title>\n")
+	icon := ""
+	if len(d.Favicon) > 0 {
+		icon = "data:image/png;base64," + base64.StdEncoding.EncodeToString(d.Favicon)
+		b.WriteString("<link rel=\"icon\" type=\"image/png\" href=\"" + icon + "\">\n")
+	}
 	b.WriteString("<style>" + siteCSS + "</style>\n")
 	b.WriteString("</head>\n<body class=\"export-single\">\n")
-	b.WriteString("<header class=\"x-header\"><span class=\"wordmark\">YANA/</span>")
+	b.WriteString("<header class=\"x-header\"><span class=\"wordmark\">" + markImg(icon) + "YANA/</span>")
 	b.WriteString("<span class=\"x-meta\">" + esc(n.RelPath) + " · exported " + d.now().Format("2006-01-02") + "</span></header>\n")
 	b.WriteString("<main class=\"x-main x-note\">\n")
 	b.Write(body)

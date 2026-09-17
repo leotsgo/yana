@@ -8,7 +8,6 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 
 import { App } from './app'
 import * as auth from './auth'
-import { Icon } from './icons'
 import * as prefs from './prefs'
 import { initPwa } from './pwa'
 import './app.css'
@@ -127,9 +126,7 @@ function AuthForm({ title, passwordLabel, passwordAutocomplete, button, submit, 
             .finally(() => setBusy(false))
         }}
       >
-        <div class="auth-mark" aria-hidden="true">
-          <Icon name="slash" size={40} />
-        </div>
+        <img class="auth-mark" src="/icon-192.png" alt="" width={72} height={72} />
         <h1 class="wordmark large">YANA/</h1>
         <p class="auth-sub">{title}</p>
         <label class="field">

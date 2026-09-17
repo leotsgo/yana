@@ -20,9 +20,11 @@ body {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .wordmark {
+  display: inline-flex; align-items: center; gap: 6px;
   font-family: var(--mono); font-weight: 600; font-size: 16px;
   letter-spacing: 0.02em; color: var(--ink);
 }
+.wordmark .mark { width: 18px; height: 18px; }
 .wordmark:hover { color: var(--accent); text-decoration: none; }
 
 /* layout */

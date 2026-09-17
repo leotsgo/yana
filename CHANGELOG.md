@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The logo. YANA/ has a mark — a sticky note with a slash — and it is
+  now the favicon, the install icon on every platform (with opaque
+  maskable and apple-touch variants), the mark beside the wordmark in
+  the top bar, on the home page and the sign-in screen, and the icon
+  and header mark in single-file and site exports. The icon set is
+  checked in under `web/icons/`; the build copies it rather than
+  rasterising the old slash mark.
 - Backup remotes. Settings → Data → Backups lists the git repositories
   the server pushes the history to, each with its own schedule (after
   every commit, hourly, or nightly at an hour), its last push, and the

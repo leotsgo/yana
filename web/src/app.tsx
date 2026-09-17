@@ -1081,6 +1081,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           <Icon name={narrow ? 'menu' : 'panel-left'} size={18} />
         </button>
         <a class="wordmark" href="/" onClick={(ev) => { ev.preventDefault(); navigate(null) }}>
+          <img class="mark" src="/icon-192.png" alt="" width={20} height={20} />
           YANA/
         </a>
         {netLabel && (
@@ -1395,9 +1396,7 @@ function Home({ notes, pins, spaces, loading, onOpen, onNew, onCapture, onDaily,
 
   return (
     <div class="home">
-      <div class="home-mark" aria-hidden="true">
-        <Icon name="slash" size={56} />
-      </div>
+      <img class="home-mark" src="/icon-192.png" alt="" width={96} height={96} />
       <h1 class="home-title">YANA/</h1>
       <p class="home-sub">Everything you expect. Nothing you don't.</p>
       <div class="home-actions">

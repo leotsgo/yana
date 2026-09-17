@@ -23,6 +23,16 @@ func Dist() fs.FS {
 	return sub
 }
 
+// Favicon returns the 32px PNG favicon from the built client, or nil
+// when this build has no web client; exports then carry no icon.
+func Favicon() []byte {
+	b, err := dist.ReadFile("dist/favicon-32x32.png")
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
 // ExportSearchJS returns the bundled client-side search runtime that
 // static site exports carry (minisearch plus the search page's wiring),
 // or nil when this build has no web client; exports then ship without a

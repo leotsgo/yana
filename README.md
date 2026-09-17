@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/yana_w_bg.png" alt="YANA — Yet Another Notes App" width="360">
+</p>
+
 # YANA/
 
 YANA/ is a self-hosted notes app. Your notes are markdown files in folders.
