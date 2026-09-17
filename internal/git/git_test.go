@@ -52,6 +52,15 @@ func runGit(t testing.TB, dir string, args ...string) string {
 	return out.String()
 }
 
+// gitOutput runs git in dir and returns its combined output without
+// failing the test, for polling.
+func gitOutput(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
 func authors(t testing.TB, dir string) []string {
 	t.Helper()
 	out := runGit(t, dir, "log", "--format=%an <%ae>")
@@ -251,30 +260,5 @@ func TestLogFollowsRenamesAndShowFindsOldContent(t *testing.T) {
 	}
 	if !git.ValidRevision(entries[0].Hash) {
 		t.Fatal("revision validation rejects a real hash")
-	}
-}
-
-func TestPushToRemote(t *testing.T) {
-	remote := filepath.Join(t.TempDir(), "remote.git")
-	if err := os.MkdirAll(remote, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	runGit(t, remote, "init", "--bare", "-b", "main")
-
-	opts := testOptions()
-	opts.Remote = remote
-	l := git.New(t.TempDir(), opts, nil)
-	ctx := context.Background()
-	if err := l.Ensure(ctx); err != nil {
-		t.Fatal(err)
-	}
-	write(t, l, "home/pushed.md", "content\n")
-	l.Snapshot(ctx)
-	if err := l.PushNow(ctx); err != nil {
-		t.Fatalf("push: %v", err)
-	}
-	out := runGit(t, remote, "log", "--format=%s")
-	if !strings.Contains(out, "file") {
-		t.Fatalf("remote log looks empty: %q", out)
 	}
 }

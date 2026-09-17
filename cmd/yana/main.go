@@ -123,6 +123,7 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 			PushHour:   cfg.GitPushHour,
 			HumanName:  cfg.GitUserName,
 			HumanEmail: cfg.GitUserEmail,
+			SecretPath: cfg.GitSecretPath(),
 			DB:         db,
 		}, base)
 		if err := gl.Ensure(ctx); err != nil {

@@ -55,7 +55,7 @@ func newGitEnv(t *testing.T) *gitEnv {
 	if _, err := sc.Scan(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	gl := git.New(dir, git.Options{Quiet: time.Hour, Interval: time.Hour, DB: db}, nil)
+	gl := git.New(dir, git.Options{Quiet: time.Hour, Interval: time.Hour, DB: db, SecretPath: filepath.Join(dir, ".sync", "git_secret")}, nil)
 	if err := gl.Ensure(context.Background()); err != nil {
 		t.Fatal(err)
 	}

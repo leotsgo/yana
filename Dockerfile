@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}"
 # works too and only loses the `raw=` search endpoint (501 without rg)
 # and git history (501s, no commits, no pushes).
 FROM alpine:3.21
-RUN apk add --no-cache ripgrep git ca-certificates tzdata \
+RUN apk add --no-cache ripgrep git openssh-client ca-certificates tzdata \
     && mkdir -p /notes
 COPY --from=build /out/yana /usr/local/bin/yana
 ENV YANA_NOTES_ROOT=/notes \

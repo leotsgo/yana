@@ -1,11 +1,14 @@
 // Git history endpoints: per-note revision log, diff between revisions,
-// restore, and the explicit snapshot.
+// restore, the explicit snapshot, and the backup remotes.
 package server
 
 import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
+	"strings"
+	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/git"
@@ -171,4 +174,253 @@ func (s *Server) handleGitSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "commits": commits})
+}
+
+// --- backup remotes ------------------------------------------------------------
+//
+// Remotes are owner-only like snapshots: a push carries every space.
+// Responses never include the credential, only whether one is stored.
+
+func (s *Server) gitOwnerOnly(w http.ResponseWriter, r *http.Request) bool {
+	if s.gitUnavailable(w) {
+		return false
+	}
+	if s.Auth != nil && !s.ident(r).Owner {
+		writeError(w, http.StatusForbidden, "backup remotes are managed by the owner account")
+		return false
+	}
+	return true
+}
+
+var remoteNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$`)
+
+// remoteBody is the request shape for creating and editing a remote.
+type remoteBody struct {
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	Schedule string `json:"schedule"`
+	PushHour *int   `json:"push_hour"`
+	// Username left out of an edit keeps the stored one; "" clears it.
+	Username *string `json:"username"`
+	// Token is the credential. On an edit an empty token keeps the stored
+	// one unless ClearToken is set.
+	Token      string `json:"token"`
+	ClearToken bool   `json:"clear_token"`
+	Enabled    *bool  `json:"enabled"`
+}
+
+// applyRemoteBody validates body onto r. It reports whether the stored
+// credential should be kept as is.
+func (s *Server) applyRemoteBody(w http.ResponseWriter, body remoteBody, r *index.GitRemote, create bool) (keepSecret bool, ok bool) {
+	name := strings.TrimSpace(body.Name)
+	if !remoteNamePattern.MatchString(name) {
+		writeError(w, http.StatusBadRequest, "name must be 1 to 48 letters, digits, spaces, dots, underscores or dashes")
+		return false, false
+	}
+	clean, urlUser, urlPass, err := git.ParseRemoteURL(body.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return false, false
+	}
+	schedule := body.Schedule
+	if schedule == "" {
+		schedule = git.ScheduleNightly
+	}
+	if !git.ValidSchedule(schedule) {
+		writeError(w, http.StatusBadRequest, "schedule must be commit, hourly, or nightly")
+		return false, false
+	}
+	if body.PushHour != nil {
+		if *body.PushHour < 0 || *body.PushHour > 23 {
+			writeError(w, http.StatusBadRequest, "push_hour must be 0 to 23")
+			return false, false
+		}
+		r.PushHour = *body.PushHour
+	} else if create {
+		r.PushHour = 2
+	}
+	r.Name, r.URL, r.Schedule = name, clean, schedule
+	if body.Username != nil {
+		r.Username = strings.TrimSpace(*body.Username)
+	}
+	if urlUser != "" {
+		r.Username = urlUser
+	}
+	if body.Enabled != nil {
+		r.Enabled = *body.Enabled
+	} else if create {
+		r.Enabled = true
+	}
+	token := body.Token
+	if token == "" {
+		token = urlPass
+	}
+	switch {
+	case token != "":
+		if strings.ContainsAny(token, "\r\n\x00") {
+			writeError(w, http.StatusBadRequest, "token must be a single line")
+			return false, false
+		}
+		sealed, err := s.Git.Seal(token)
+		if err != nil {
+			writeError(w, http.StatusNotImplemented, err.Error())
+			return false, false
+		}
+		r.Secret = sealed
+		r.HasSecret = true
+		return false, true
+	case body.ClearToken || create:
+		r.Secret = nil
+		r.HasSecret = false
+		return false, true
+	default:
+		return true, true
+	}
+}
+
+func (s *Server) handleGitRemotes(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	remotes, err := s.DB.ListGitRemotes(r.Context())
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if remotes == nil {
+		remotes = []index.GitRemote{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"remotes": remotes})
+}
+
+func (s *Server) handleGitRemoteCreate(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	var body remoteBody
+	if err := decodeBody(w, r, &body); err != nil {
+		return
+	}
+	remote := index.GitRemote{ID: git.NewRemoteID(), CreatedAt: time.Now().UTC()}
+	if _, ok := s.applyRemoteBody(w, body, &remote, true); !ok {
+		return
+	}
+	if err := s.DB.CreateGitRemote(r.Context(), remote); err != nil {
+		writeRemoteError(w, r, s, err)
+		return
+	}
+	s.Git.Reload(r.Context())
+	remote.Secret = nil
+	writeJSON(w, http.StatusCreated, remote)
+}
+
+func (s *Server) handleGitRemoteUpdate(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	remote, err := s.DB.GetGitRemote(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeRemoteError(w, r, s, err)
+		return
+	}
+	var body remoteBody
+	if err := decodeBody(w, r, &body); err != nil {
+		return
+	}
+	// Fields the body leaves out keep their values.
+	if body.Name == "" {
+		body.Name = remote.Name
+	}
+	if body.URL == "" {
+		body.URL = remote.URL
+	}
+	if body.Schedule == "" {
+		body.Schedule = remote.Schedule
+	}
+	keep, ok := s.applyRemoteBody(w, body, &remote, false)
+	if !ok {
+		return
+	}
+	if err := s.DB.UpdateGitRemote(r.Context(), remote, keep); err != nil {
+		writeRemoteError(w, r, s, err)
+		return
+	}
+	s.Git.Reload(r.Context())
+	remote, err = s.DB.GetGitRemote(r.Context(), remote.ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	remote.Secret = nil
+	writeJSON(w, http.StatusOK, remote)
+}
+
+func (s *Server) handleGitRemoteDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	if err := s.DB.DeleteGitRemote(r.Context(), r.PathValue("id")); err != nil {
+		writeRemoteError(w, r, s, err)
+		return
+	}
+	s.Git.Reload(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleGitRemotePush commits what is pending, then pushes to one remote
+// now. The push error, when there is one, is the response: it is the
+// thing the owner needs to read.
+func (s *Server) handleGitRemotePush(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	remote, err := s.DB.GetGitRemote(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeRemoteError(w, r, s, err)
+		return
+	}
+	if _, err := s.Git.Snapshot(r.Context()); err != nil {
+		writeError(w, http.StatusBadGateway, "commit before push failed: "+err.Error())
+		return
+	}
+	if err := s.Git.Push(r.Context(), remote); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	remote, err = s.DB.GetGitRemote(r.Context(), remote.ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	remote.Secret = nil
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "remote": remote})
+}
+
+// handleGitRemoteTest checks the remote is reachable with its credentials.
+func (s *Server) handleGitRemoteTest(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	remote, err := s.DB.GetGitRemote(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeRemoteError(w, r, s, err)
+		return
+	}
+	refs, err := s.Git.Test(r.Context(), remote)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "branches": refs})
+}
+
+func writeRemoteError(w http.ResponseWriter, r *http.Request, s *Server, err error) {
+	switch {
+	case errors.Is(err, index.ErrGitRemoteNotFound):
+		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, index.ErrGitRemoteNameTaken):
+		writeError(w, http.StatusConflict, err.Error())
+	default:
+		s.fail(w, r, err)
+	}
 }

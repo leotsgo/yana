@@ -86,7 +86,7 @@ export interface Status {
   regex_version?: string
   accounts: boolean
   daily: { pattern: string; template: string }
-  git?: { available: boolean; commits: number; last_commit: string; errors: number }
+  git?: { available: boolean; commits: number; last_commit: string; errors: number; last_error: string; last_error_at: string; pushes: number; last_push: string; remotes: number }
   sync?: { loaded: number; dirty: number; writebacks: number; readins: number; watching: boolean }
   trash?: { retention_days: number }
 }
@@ -138,6 +138,35 @@ export interface AgentKey {
   created_at: string
   last_used_at: string
   revoked_at?: string | null
+}
+
+export type RemoteSchedule = 'commit' | 'hourly' | 'nightly'
+
+export interface GitRemote {
+  id: string
+  name: string
+  url: string
+  schedule: RemoteSchedule
+  push_hour: number
+  username: string
+  has_secret: boolean
+  enabled: boolean
+  created_at: string
+  pushes: number
+  last_push: string
+  last_error: string
+  last_error_at: string
+}
+
+export interface GitRemoteInput {
+  name?: string
+  url?: string
+  schedule?: RemoteSchedule
+  push_hour?: number
+  username?: string
+  token?: string
+  clear_token?: boolean
+  enabled?: boolean
 }
 
 export interface TrashEntry {
@@ -270,6 +299,12 @@ export const api = {
   restoreNote: (id: string, revision: string, path: string) =>
     post<{ ok: boolean }>(`/api/notes/${encodeURIComponent(id)}/history/restore`, { revision, path }),
   gitSnapshot: () => post<{ ok: boolean; commits: number }>('/api/git/snapshot', {}),
+  gitRemotes: () => get<{ remotes: GitRemote[] }>('/api/git/remotes'),
+  createGitRemote: (input: GitRemoteInput) => post<GitRemote>('/api/git/remotes', input),
+  updateGitRemote: (id: string, input: GitRemoteInput) => post<GitRemote>(`/api/git/remotes/${encodeURIComponent(id)}`, input, 'PUT'),
+  deleteGitRemote: (id: string) => post<{ ok: boolean }>(`/api/git/remotes/${encodeURIComponent(id)}`, {}, 'DELETE'),
+  pushGitRemote: (id: string) => post<{ ok: boolean; remote: GitRemote }>(`/api/git/remotes/${encodeURIComponent(id)}/push`, {}),
+  testGitRemote: (id: string) => post<{ ok: boolean; branches: number }>(`/api/git/remotes/${encodeURIComponent(id)}/test`, {}),
   spaces: () => get<{ spaces: SpaceInfo[] }>('/api/spaces'),
   space: (name: string) => get<SpaceDetail>(`/api/spaces/${encodeURIComponent(name)}`),
   createSpace: (name: string) => post<{ name: string }>('/api/spaces', { name }),

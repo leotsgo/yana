@@ -10,7 +10,7 @@ import type { ComponentChildren } from 'preact'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 
 import { api, ApiError, saveBlob } from './api'
-import type { Account, AgentKey, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
+import type { Account, AgentKey, GitRemote, GitRemoteInput, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
 import * as auth from './auth'
 import type { ConfirmSpec } from './confirm'
 import { fmtDate } from './dom'
@@ -1208,6 +1208,289 @@ function AgentsSection({ ctx }: { ctx: Ctx }) {
   )
 }
 
+// --- backups -----------------------------------------------------------------
+
+const SCHEDULES: Array<{ value: RemoteSchedule; label: string; hint?: string }> = [
+  { value: 'commit', label: 'After every commit' },
+  { value: 'hourly', label: 'Hourly' },
+  { value: 'nightly', label: 'Nightly' },
+]
+
+function scheduleLabel(r: GitRemote): string {
+  switch (r.schedule) {
+    case 'commit':
+      return 'after every commit'
+    case 'hourly':
+      return 'hourly'
+    default:
+      return `nightly at ${String(r.push_hour).padStart(2, '0')}:00`
+  }
+}
+
+interface RemoteDraft {
+  name: string
+  url: string
+  schedule: RemoteSchedule
+  pushHour: number
+  username: string
+  token: string
+  clearToken: boolean
+  enabled: boolean
+}
+
+const emptyDraft: RemoteDraft = { name: '', url: '', schedule: 'nightly', pushHour: 2, username: '', token: '', clearToken: false, enabled: true }
+
+function draftOf(r: GitRemote): RemoteDraft {
+  return { name: r.name, url: r.url, schedule: r.schedule, pushHour: r.push_hour, username: r.username, token: '', clearToken: false, enabled: r.enabled }
+}
+
+/** Backup remotes: where the history is pushed, and when. Owner-only. */
+function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null; say: Ctx['say']; confirm: Ctx['confirm']; onStatus: () => void }) {
+  const owner = !user || user.is_owner
+  const [remotes, setRemotes] = useState<GitRemote[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | 'new' | null>(null)
+  const [draft, setDraft] = useState<RemoteDraft>(emptyDraft)
+  const [msg, setMsg] = useState('')
+
+  const reload = useCallback(async () => {
+    try {
+      const r = await api.gitRemotes()
+      setRemotes(r.remotes)
+      setError(null)
+    } catch (err) {
+      setError(msgOf(err, 'Could not load the remotes.'))
+    }
+  }, [])
+  useEffect(() => {
+    if (owner) void reload()
+  }, [owner, reload])
+
+  if (!owner) {
+    return (
+      <Block title="Backups" lead="The history can be pushed to other git repositories as an off-site copy.">
+        <p class="muted">The owner account manages backup remotes.</p>
+      </Block>
+    )
+  }
+
+  const startNew = () => {
+    setDraft(emptyDraft)
+    setMsg('')
+    setEditing('new')
+  }
+  const startEdit = (r: GitRemote) => {
+    setDraft(draftOf(r))
+    setMsg('')
+    setEditing(r.id)
+  }
+  const cancel = () => {
+    setEditing(null)
+    setMsg('')
+  }
+
+  const save = (ev: Event) => {
+    ev.preventDefault()
+    if (editing === null) return
+    const input: GitRemoteInput = {
+      name: draft.name.trim(),
+      url: draft.url.trim(),
+      schedule: draft.schedule,
+      push_hour: draft.pushHour,
+      username: draft.username.trim(),
+      enabled: draft.enabled,
+    }
+    if (draft.token !== '') input.token = draft.token
+    else if (draft.clearToken) input.clear_token = true
+    setBusy('save')
+    setMsg('')
+    const p = editing === 'new' ? api.createGitRemote(input) : api.updateGitRemote(editing, input)
+    p.then((r) => {
+      say(editing === 'new' ? `Added ${r.name}.` : `Saved ${r.name}.`)
+      setEditing(null)
+      void reload()
+      onStatus()
+    })
+      .catch((err: unknown) => setMsg(msgOf(err, 'Could not save the remote.')))
+      .finally(() => setBusy(null))
+  }
+
+  const push = (r: GitRemote) => {
+    setBusy(r.id)
+    api
+      .pushGitRemote(r.id)
+      .then(() => say(`Pushed to ${r.name}.`))
+      .catch((err: unknown) => say(msgOf(err, `Could not push to ${r.name}.`)))
+      .finally(() => {
+        setBusy(null)
+        void reload()
+        onStatus()
+      })
+  }
+
+  const test = (r: GitRemote) => {
+    setBusy(r.id)
+    api
+      .testGitRemote(r.id)
+      .then((res) => say(res.branches === 0 ? `${r.name} is reachable and empty.` : `${r.name} is reachable with ${res.branches} ${res.branches === 1 ? 'branch' : 'branches'}.`))
+      .catch((err: unknown) => say(msgOf(err, `Could not reach ${r.name}.`)))
+      .finally(() => setBusy(null))
+  }
+
+  const remove = (r: GitRemote) => {
+    confirm({
+      title: `Remove ${r.name}?`,
+      body: 'The server stops pushing to it. Nothing already pushed is touched, and the local history stays as it is.',
+      confirmLabel: 'Remove',
+      danger: true,
+      onConfirm: () => {
+        setBusy(r.id)
+        api
+          .deleteGitRemote(r.id)
+          .then(() => {
+            say(`Removed ${r.name}.`)
+            if (editing === r.id) setEditing(null)
+            void reload()
+            onStatus()
+          })
+          .catch((err: unknown) => say(msgOf(err, 'Could not remove the remote.')))
+          .finally(() => setBusy(null))
+      },
+    })
+  }
+
+  const current = editing !== 'new' ? remotes?.find((r) => r.id === editing) : undefined
+  const form = (
+    <form class="settings-form" onSubmit={save}>
+      <label class="field">
+        <span class="field-label">Name</span>
+        <input class="input" type="text" required maxLength={48} placeholder="github" value={draft.name} onInput={(ev) => setDraft({ ...draft, name: (ev.target as HTMLInputElement).value })} />
+      </label>
+      <label class="field">
+        <span class="field-label">Repository URL</span>
+        <input class="input" type="text" required placeholder="https://github.com/you/notes.git" value={draft.url} onInput={(ev) => setDraft({ ...draft, url: (ev.target as HTMLInputElement).value })} />
+        <span class="field-hint">HTTPS with a token, SSH with a key the server can read, or a path to a bare repository on a mounted disk.</span>
+      </label>
+      <Choice label="Push" value={draft.schedule} options={SCHEDULES} onChange={(v) => setDraft({ ...draft, schedule: v })} />
+      {draft.schedule === 'nightly' && (
+        <label class="field">
+          <span class="field-label">At (hour, server time)</span>
+          <input class="input narrow" type="number" min={0} max={23} value={draft.pushHour} onInput={(ev) => setDraft({ ...draft, pushHour: Number((ev.target as HTMLInputElement).value) })} />
+        </label>
+      )}
+      <label class="field">
+        <span class="field-label">Username</span>
+        <input class="input" type="text" autocomplete="off" placeholder="optional; any name works with a token" value={draft.username} onInput={(ev) => setDraft({ ...draft, username: (ev.target as HTMLInputElement).value })} />
+      </label>
+      <label class="field">
+        <span class="field-label">Token</span>
+        <input
+          class="input"
+          type="password"
+          autocomplete="new-password"
+          placeholder={current?.has_secret ? 'unchanged' : 'a personal access token with write access to this one repository'}
+          value={draft.token}
+          onInput={(ev) => setDraft({ ...draft, token: (ev.target as HTMLInputElement).value })}
+        />
+        <span class="field-hint">Stored encrypted on the server and never shown again. Not needed for SSH or a local path.</span>
+      </label>
+      {current?.has_secret && draft.token === '' && (
+        <label class="check">
+          <input type="checkbox" checked={draft.clearToken} onChange={(ev) => setDraft({ ...draft, clearToken: (ev.target as HTMLInputElement).checked })} />
+          Remove the stored token
+        </label>
+      )}
+      {editing !== 'new' && (
+        <label class="check">
+          <input type="checkbox" checked={draft.enabled} onChange={(ev) => setDraft({ ...draft, enabled: (ev.target as HTMLInputElement).checked })} />
+          Enabled
+        </label>
+      )}
+      <p class="form-msg" role="status">
+        {msg}
+      </p>
+      <div class="form-actions">
+        <button type="submit" class="btn primary" disabled={busy !== null || draft.name.trim() === '' || draft.url.trim() === ''}>
+          <Icon name="save" />
+          {editing === 'new' ? 'Add remote' : 'Save'}
+        </button>
+        <button type="button" class="btn" onClick={cancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+
+  return (
+    <Block
+      title="Backups"
+      lead="Push the history to other git repositories: a private GitHub or Gitea repository, or a bare repository on another disk. Each push carries only the commits that remote has not seen."
+    >
+      {error ? (
+        <p class="error">{error}</p>
+      ) : !remotes ? (
+        <p class="muted">Loading…</p>
+      ) : remotes.length === 0 && editing !== 'new' ? (
+        <p class="muted">No remotes yet. The history lives only on this server's disk.</p>
+      ) : (
+        <ul class="settings-list">
+          {remotes.map((r) => (
+            <li key={r.id} class="settings-row remote-row">
+              <Icon name="commit" class="settings-row-icon" />
+              <div class="settings-row-main">
+                <span class="settings-row-title">
+                  {r.name}
+                  <span class="badge">{scheduleLabel(r)}</span>
+                  {!r.enabled && <span class="badge warn">off</span>}
+                  {r.has_secret && <span class="badge">token</span>}
+                </span>
+                <span class="settings-row-sub">
+                  <code>{r.url}</code> · {r.pushes > 0 ? `pushed ${r.pushes} ${r.pushes === 1 ? 'time' : 'times'}, last ${fmtDate(r.last_push)}` : 'never pushed'}
+                </span>
+                {r.last_error && (
+                  <span class="settings-row-sub error">
+                    {fmtDate(r.last_error_at)}: {r.last_error}
+                  </span>
+                )}
+              </div>
+              <div class="settings-row-actions">
+                <button type="button" class="btn small" disabled={busy !== null} onClick={() => push(r)}>
+                  <Icon name="commit" />
+                  Push now
+                </button>
+                <button type="button" class="btn small" disabled={busy !== null} onClick={() => test(r)}>
+                  <Icon name="link" />
+                  Test
+                </button>
+                <button type="button" class="btn small" disabled={busy !== null} onClick={() => startEdit(r)}>
+                  <Icon name="pencil" />
+                  Edit
+                </button>
+                <button type="button" class="btn small danger" disabled={busy !== null} onClick={() => remove(r)}>
+                  <Icon name="x" />
+                  Remove
+                </button>
+              </div>
+              {editing === r.id && <div class="remote-form">{form}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {editing === 'new' ? (
+        <div class="remote-form">{form}</div>
+      ) : (
+        <div class="form-actions start">
+          <button type="button" class="btn" disabled={busy !== null} onClick={startNew}>
+            <Icon name="plus" />
+            Add a remote
+          </button>
+        </div>
+      )}
+    </Block>
+  )
+}
+
 // --- appearance --------------------------------------------------------------
 
 function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
@@ -1309,7 +1592,7 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
 // --- data --------------------------------------------------------------------
 
 function DataSection({ ctx }: { ctx: Ctx }) {
-  const { status, spaces, notes, say, onOpenTrash, onStatus } = ctx
+  const { user, status, spaces, notes, say, confirm, onOpenTrash, onStatus } = ctx
   const recent = useMemo(() => {
     const byId = new Map(notes.map((n) => [n.id, n]))
     return prefs.recents().map((id) => byId.get(id)).find((n) => n !== undefined)
@@ -1403,11 +1686,24 @@ function DataSection({ ctx }: { ctx: Ctx }) {
               <dt>Commits</dt>
               <dd>{git.commits}</dd>
               <dt>Last commit</dt>
-              <dd>{git.last_commit ? fmtDate(git.last_commit) : 'none yet'}</dd>
+              <dd>{git.last_commit && git.commits > 0 ? fmtDate(git.last_commit) : 'none yet'}</dd>
+              {git.remotes > 0 && (
+                <>
+                  <dt>Last push</dt>
+                  <dd>{git.pushes > 0 && git.last_push ? fmtDate(git.last_push) : 'none yet'}</dd>
+                </>
+              )}
               {git.errors > 0 && (
                 <>
                   <dt>Errors</dt>
-                  <dd class="error">{git.errors}; see the server log</dd>
+                  <dd class="error">
+                    {git.errors} since the server started
+                    {git.last_error && (
+                      <>
+                        ; the latest, {fmtDate(git.last_error_at)}: <code class="error-detail">{git.last_error}</code>
+                      </>
+                    )}
+                  </dd>
                 </>
               )}
             </dl>
@@ -1426,6 +1722,7 @@ function DataSection({ ctx }: { ctx: Ctx }) {
           </div>
         )}
       </Block>
+      {git?.available && <BackupsBlock user={user} say={say} confirm={confirm} onStatus={onStatus} />}
       <Block title="Index" lead="What the server knows about the tree. The files are the truth; the index can be deleted and rebuilt at any time.">
         {status ? (
           <dl class="meta facts">

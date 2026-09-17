@@ -66,8 +66,8 @@ ripgrep: true
 | `YANA_GIT` | `true` | Keep a git history of the notes root |
 | `YANA_GIT_QUIET` | `5m` | How long the tree must be unchanged before the window commits |
 | `YANA_GIT_INTERVAL` | `1h` | Bound on how long a continuously edited tree goes uncommitted |
-| `YANA_GIT_REMOTE` | unset | Remote pushed nightly; unset disables push |
-| `YANA_GIT_PUSH_HOUR` | `2` | Local hour of the nightly push |
+| `YANA_GIT_REMOTE` | unset | Seeds the backup remotes list on first run (see below); settings own it after that |
+| `YANA_GIT_PUSH_HOUR` | `2` | Local hour the seeded remote pushes at |
 | `YANA_GIT_USER_NAME` | `yana user` | Git identity human edits commit under |
 | `YANA_GIT_USER_EMAIL` | `user@yana.local` | Its email |
 | `YANA_ACCESS_TTL` | `15m` | Access token lifetime |
@@ -145,7 +145,8 @@ by root. Once the directory is yours, you can drop root altogether with
   filesystem watcher is running; and a `realtime` object: live editing
   connections, rooms, updates relayed and dropped, and slow connections
   closed; and a `git` object: whether the history layer is available,
-  commits made, the last commit and push times, and errors.
+  commits made, the last commit and push times, how many backup remotes
+  are enabled, the error count and the newest error's message.
 
 ## Reverse proxy
 
@@ -293,18 +294,54 @@ text back as an edit through the live sync layer, not as a stomp over the
 file, so other clients converge to it and the restore is itself an
 editable, revertible change.
 
-### Pushing to a remote
-
-Set `YANA_GIT_REMOTE` and the server pushes `HEAD` nightly at
-`YANA_GIT_PUSH_HOUR`. Use SSH or an embedded credential helper for
-authentication; the server never prompts (a push that needs a prompt
-fails and is retried the next night).
+### Backup remotes
 
 Git in the same directory on the same disk protects against bad edits,
-not against a dead drive. For off-box backup, either point
-`YANA_GIT_REMOTE` at a remote on another machine, or skip git remotes
-entirely and use restic or rclone against the notes directory; both see a
-consistent tree because every write is a rename:
+not against a dead drive. The owner adds backup remotes under Settings →
+Data → Backups: any number of repositories the server pushes `HEAD` to,
+each on its own schedule — after every commit, hourly, or nightly at a
+chosen hour. A push carries only commits the remote has not seen, so
+"after every commit" costs one push per quiet window. Every remote shows
+its last push and, when the newest push failed, git's error message;
+"Push now" commits what is pending and pushes, "Test" runs `ls-remote`
+without pushing. The same surface is `GET/POST /api/git/remotes`,
+`PUT/DELETE /api/git/remotes/{id}`, and `POST /api/git/remotes/{id}/push`
+and `/test`, owner-only.
+
+Three kinds of remote work:
+
+- **HTTPS with a token** — a private GitHub, Gitea, GitLab, or Forgejo
+  repository. Create a token scoped to that one repository with write
+  access to its contents (GitHub: a fine-grained personal access token
+  with *Contents: read and write*; Gitea: an access token with
+  `repository` write) and paste it into the Token field. Any username
+  works; the token is what authenticates. The token is encrypted at rest
+  with a key in `.sync/git_secret` and is handed to git through an
+  in-memory credential helper for each push: it never appears in the
+  URL, on a command line, or in a log line. A token pasted into the URL
+  (`https://me:token@host/…`) is moved out of it on save.
+- **SSH** — `git@github.com:you/notes.git` or `ssh://git@host:port/…`.
+  The server needs a key it can read: bind-mount a directory holding
+  `id_ed25519` and `known_hosts` at the container user's `~/.ssh`
+  (`/root/.ssh` by default), or set `GIT_SSH_COMMAND` to point at one.
+  The image ships `openssh-client`; unknown hosts are accepted on first
+  connection and pinned after (`StrictHostKeyChecking=accept-new`).
+- **A path** — an absolute path to a bare repository (`git init --bare`)
+  on a mounted backup disk or network share, seen from inside the
+  container.
+
+The server never prompts for credentials: a push that would need to
+fails, records the error on the remote, and is retried after ten
+minutes by the schedule or at once by "Push now". A rejected
+non-fast-forward push is a real signal — something else wrote to the
+backup repository — and is reported rather than forced over.
+
+`YANA_GIT_REMOTE`, when set, seeds one remote (nightly at
+`YANA_GIT_PUSH_HOUR`) into an empty remotes list on first start; after
+that the settings page owns the list and the variable is ignored.
+
+Remotes are one option. restic or rclone against the notes directory
+also see a consistent tree, because every write is a rename:
 
 ```sh
 restic -r sftp:backup:/srv/restic-yana backup /srv/yana/notes
