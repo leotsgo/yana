@@ -325,6 +325,8 @@ export const api = {
   revokeAgent: (id: string) => post<{ ok: boolean }>(`/api/agents/${encodeURIComponent(id)}`, {}, 'DELETE'),
   daily: (space: string, date: string) =>
     post<{ id: string; path: string; created: boolean }>('/api/notes/daily', { space, date }),
+  /** The starter note: made in the space when it is not there, found otherwise. */
+  guide: (space: string) => post<{ id?: string; path: string; created: boolean }>('/api/guide', { space }),
   render: (markdown: string) => post<{ html: string }>('/api/render', { markdown }),
   noteView: (id: string) =>
     get<{ url: string; expires_at: string }>(`/api/notes/${encodeURIComponent(id)}/view`),
@@ -414,4 +416,9 @@ export function baseOf(path: string): string {
 export function spaceOf(path: string): string {
   const i = path.indexOf('/')
   return i < 0 ? '' : path.slice(0, i)
+}
+
+/** A path or file name without its note extension: the wikilink target. */
+export function stem(path: string): string {
+  return path.replace(/\.(md|markdown|html?)$/i, '')
 }

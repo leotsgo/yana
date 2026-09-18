@@ -257,6 +257,32 @@ user (name, colour) and the editor binding publishes its cursor as a
 relative position. Remote carets draw in the editor with the author's name;
 the bar above the note lists who else is on it.
 
+### Buttons and completion
+
+The same formatting buttons the phone shows above its keyboard sit in
+the toolbar on a desktop while editing (undo and redo are left to the
+keyboard there): bold, italic, heading, list, task, quote, code, link,
+image, tag. Each is a small command on the editor: wrap the selection,
+toggle a line prefix, insert a mark. **Link** turns selected words into
+`[[words]]`, a selected URL into `[](url)`, and with nothing selected
+opens `[[` and the note list. **Tag** inserts `#` and the tags in use.
+
+Typing `[[` offers the notes of the note's space (a link resolves inside
+its space); picking one inserts its file name, or its path from the space
+root when two notes share a file name, and closes the brackets. Typing
+`#` at the start of a word offers the tags already in use. Escape closes
+the list without leaving the editor; Mod-Space opens it by hand.
+
+### The starter note
+
+The owner's first sign-in seeds an empty tree with `Start here.md`, `A
+linked note.md` and `_assets/yana.png`: ordinary files that show links
+(one resolved, one not), a picture, tasks, tags, a table and a footnote
+by using them, with a heading per feature saying how on a desktop and on
+a phone. A tree that already holds a note is never seeded. Help lists
+"how do I" entries that open the note at the matching heading, and
+re-creates it in the default space when it is gone (`POST /api/guide`).
+
 ## Rendering
 
 The read view and the split preview render the live document through
@@ -340,6 +366,7 @@ of its own like any other file.
 |---|---|
 | `PUT /api/files/{path}` | Upload one file under an `_assets/` directory; body is the file, response carries the path written |
 | `POST /api/notes/daily` | `{space, date}` → today's note, created from the template if missing |
+| `POST /api/guide` | `{space}` → the starter note in that space, written first when missing (`201`), found otherwise (`200`); editors and up |
 | `POST /api/render` | `{markdown}` → `{html}` for the read view and the preview |
 | `GET /api/tags` | Every tag with its note count, across the spaces the account can see |
 | `GET /api/tags/{tag}` | Every note carrying one tag |

@@ -13,6 +13,11 @@ None of this is novel. That's sort of the point.
 
 *Yet Another Notes App.*
 
+New to it? [docs/using.md](docs/using.md) is the short version for a
+person, not an implementer: sign in, write, link, add a picture, tick a
+task, capture on a phone, find things, share. The first sign-in also
+seeds a **Start here** note that shows each of these by doing it.
+
 ## Invariants
 
 These hold in every version. If a change would break one, the change is wrong.

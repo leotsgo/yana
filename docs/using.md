@@ -1,0 +1,96 @@
+# Using it
+
+How to do the everyday things, for someone who was handed a sign-in and
+nothing else. The same material lives inside the app: the first sign-in
+seeds a note called **Start here** that shows every feature by using it,
+and Help (in the account menu and the command palette) opens it at the
+right section.
+
+## Sign in
+
+Open the address you were given and sign in with the username and
+password the owner made for you. On a phone, add the app to the home
+screen when it offers (or from the account menu): it opens full screen
+and works offline.
+
+## Write a note
+
+**New note** on the home screen, at the top of the window, or in the
+sidebar beside a space name. Type a title, press Enter, and write. The
+file is named after the title and lands in the space you were looking at.
+
+A note is markdown. Text is a paragraph; a line starting with `#` is a
+heading; `- ` starts a list; `**bold**`, `_italic_`, and `` `code` ``. On
+a desktop the buttons in the bar above the editor insert all of these for
+you; on a phone the same buttons sit above the keyboard. Press **E** to
+edit and **Esc** to go back to reading; on a phone tap **Edit** and
+**Done**.
+
+## Link two notes
+
+Type `[[` and start typing a note's name; pick it from the list and the
+link is finished. The Link button does the same. To show different text,
+`[[Note name|the words to show]]`. A link to a note that does not exist
+yet is shown dashed; click it and the note is created. Details (the
+panel button above the note) lists every note that links to the one you
+are reading.
+
+## Add a picture
+
+Drag an image onto the editor, paste one, or use the Image button (on a
+phone it opens the photo picker or the camera). The file is stored beside
+the note in an `_assets` folder and the line that shows it is written for
+you. Other kinds of file upload the same way and become a plain link.
+
+## Tasks
+
+A list item starting with `[ ]` is a task; the Task button makes one.
+Tick the box while reading and the file is updated.
+
+## Tags
+
+A word with `#` in front is a tag, anywhere in the note. Tags are
+clickable, every tag has a page listing its notes, and the switcher finds
+notes by tag when you type `#`.
+
+## Today and capture
+
+**Today** opens today's daily note, making it if needed. **Capture**
+takes one line and appends it to today's note without opening it, which
+is the quickest way to write something down on a phone.
+
+## Find things
+
+The search box in the sidebar searches titles and bodies (on a phone,
+search is a tab in the bottom bar). The switcher opens a note by name or
+tag. Recently opened and pinned notes are on the home screen; pin a note
+from its menu.
+
+## Move, rename, delete
+
+Drag a note onto a folder in the sidebar, or use **Move to a folder** in
+the note's menu. Rename by editing the title. Delete from the menu; the
+note goes to the trash for thirty days and can be brought back. Links to
+a moved or renamed note are rewritten for you.
+
+## History
+
+Details shows every saved version of the note; open one to see what
+changed and restore it if you want.
+
+## Share a space
+
+The top-level folders are spaces. The owner adds a person under Settings
+→ People and gives them a role in a space under Settings → Spaces. That
+person signs in and sees exactly the spaces they belong to.
+
+## Agents
+
+An agent can read and write notes through the files, or from another
+machine through MCP with a key from Settings → Agents. Its changes show
+up live and are attributed to it in the history. See
+[agents.md](agents.md).
+
+## Keyboard
+
+Help, in the account menu and the command palette, lists every shortcut.

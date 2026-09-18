@@ -160,6 +160,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/files/{path...}", s.authed(s.handleFile))
 	s.mux.HandleFunc("PUT /api/files/{path...}", s.authed(s.handleFileUpload))
 	s.mux.HandleFunc("POST /api/notes/daily", s.authed(s.handleDailyNote))
+	s.mux.HandleFunc("POST /api/guide", s.authed(s.handleGuide))
 	s.mux.HandleFunc("POST /api/render", s.authed(s.handleRender))
 	s.mux.HandleFunc("GET /api/notes/{id}/backlinks", s.authed(s.handleBacklinks))
 	s.mux.HandleFunc("GET /api/links/unresolved", s.authed(s.handleUnresolvedLinks))

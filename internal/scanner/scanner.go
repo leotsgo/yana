@@ -154,8 +154,10 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 		}
 		if d.IsDir() {
 			// Top-level directories are the spaces; remember them so the
-			// scan can reload every .space.yml it finds.
-			if parent := filepath.Dir(abs); parent == rootDir && name != ".sync" {
+			// scan can reload every .space.yml it finds. An _assets
+			// directory holds files for the loose notes beside it and
+			// can never hold a note, so it is not a space.
+			if parent := filepath.Dir(abs); parent == rootDir && name != ".sync" && name != "_assets" {
 				spaceDirs[name] = struct{}{}
 			}
 			return nil

@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
-import { api, ApiError, baseOf, dirOf, saveBlob } from './api'
+import { api, ApiError, baseOf, dirOf, saveBlob, spaceOf, stem } from './api'
 import type { MoveResult, Note, SpaceInfo, SpaceTree, Status, TreeNode } from './api'
 import * as auth from './auth'
 import * as cache from './cache'
@@ -23,6 +23,7 @@ import { coarsePointer, useLayout } from './layout'
 import { renderUnresolvedReport } from './links'
 import { Menu } from './menu'
 import type { MenuItem, MenuSpec } from './menu'
+import type { Completions, LinkTarget } from './editor'
 import { NotePage } from './note'
 import * as outbox from './outbox'
 import { Palette } from './palette'
@@ -287,6 +288,56 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const notes = useMemo(() => flatten(spaces ?? []), [spaces])
   const dirs = useMemo(() => folders(spaces ?? []), [spaces])
   const hasDir = useCallback((path: string) => dirs.some((d) => d.path === path), [dirs])
+
+  // What the editor offers after `[[` and `#`: the notes of the space
+  // (a link resolves within its space) and every tag in use. A note
+  // links by its file name; twins in one space link by their path.
+  const completions = useMemo(() => {
+    const bySpace = new Map<string, LinkTarget[]>()
+    const tags = new Set<string>()
+    const counts = new Map<string, number>()
+    for (const n of notes) {
+      const key = spaceOf(n.path) + '\0' + stem(n.name).toLowerCase()
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+      for (const t of n.tags) tags.add(t)
+    }
+    for (const n of notes) {
+      const space = spaceOf(n.path)
+      const twins = (counts.get(space + '\0' + stem(n.name).toLowerCase()) ?? 0) > 1
+      const inSpace = space ? n.path.slice(space.length + 1) : n.path
+      const target = twins ? stem(inSpace) : stem(n.name)
+      const list = bySpace.get(space) ?? []
+      list.push({ target, title: n.title, path: n.path })
+      bySpace.set(space, list)
+    }
+    const sortedTags = [...tags].sort((a, b) => a.localeCompare(b))
+    return (space: string): Completions => ({ notes: bySpace.get(space) ?? [], tags: sortedTags })
+  }, [notes])
+
+  /** The starter note, opened at a section; made first when the space
+   * has none (someone deleted it, or this server never seeded one). */
+  function openGuide(section?: string): void {
+    const sp = defaultSpace()
+    const want = sp ? `${sp}/Start here.md` : 'Start here.md'
+    const found = notes.find((n) => n.path === want) ?? notes.find((n) => n.name === 'Start here.md')
+    if (found) {
+      openHit(found.id, section ?? null)
+      return
+    }
+    api
+      .guide(sp)
+      .then((res) => {
+        if (!res.id) {
+          say('The guide is written; it shows up on the next scan.')
+          return
+        }
+        void loadTree()
+        openHit(res.id, section ?? null)
+      })
+      .catch((err: unknown) => {
+        say(err instanceof ApiError ? err.message : 'Could not write the guide.')
+      })
+  }
 
   /** The space new things go into: the open note's, else the preferred
    * one from settings, else the first one. */
@@ -863,8 +914,22 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       })
   }
 
-  // Every shortcut in one list; the home screen does not carry them.
-  function showShortcuts(): void {
+  // Help: how to do the everyday things, each opening the guide at its
+  // section, then every shortcut in one list. The home screen does not
+  // carry them.
+  function showHelp(): void {
+    const how: Array<[string, string, string]> = [
+      ['Make a link to another note', 'type [[ or use the Link button', 'Links between notes'],
+      ['Put a picture in a note', 'drag, paste, or the Image button', 'Pictures and files'],
+      ['Make a task list and tick it', '- [ ] on a line; tick it while reading', 'Tasks'],
+      ['Tag a note', '#word anywhere in it', 'Tags'],
+      ['Write something down fast', 'Capture, into today\'s note', 'Today and capture'],
+      ['Find a note again', 'search, the switcher, tags, recents', 'Finding things'],
+      ['Move a note or make a folder', 'drag in the sidebar, or Move in the menu', 'Folders and moving'],
+      ['See what changed, or bring a note back', 'Details, and the trash', 'History'],
+      ['Share a space with someone', 'People and Spaces in settings', 'Sharing a space'],
+      ['Let an agent read and write notes', 'files, or MCP with a key', 'Agents'],
+    ]
     const rows: Array<[string, string]> = [
       ['New note', label(keys.newNote)],
       ['Capture a line into today\'s note', label(keys.capture)],
@@ -876,16 +941,18 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ['Back to reading', 'Esc'],
       ['Editor and preview side by side', label(keys.split)],
       ['Name a new note, then write', 'Enter in the title'],
+      ['Link to a note while writing', '[[ then a name'],
       ['Undo and redo in the editor', `${label({ key: 'z', mod: true })} / ${label({ key: 'z', mod: true, shift: true })}`],
       ['Find in the open note', label({ key: 'f', mod: true })],
       ['Actions for a note or folder in the tree', 'Right-click, or hold on a phone'],
       ['Close a dialog', 'Esc'],
     ]
-    setPalette({
-      mode: 'list',
-      placeholder: 'Keyboard shortcuts',
-      items: rows.map(([what, key]) => ({ id: what, label: what, hint: key, run: () => undefined })),
-    })
+    const items: PaletteItem[] = [
+      { id: 'guide', label: 'Open the guide', detail: 'a note that shows everything by doing it', run: () => openGuide() },
+      ...how.map(([what, detail, section]) => ({ id: 'how:' + section, label: what, detail, hint: 'in the guide', run: () => openGuide(section) })),
+      ...rows.map(([what, key]) => ({ id: what, label: what, hint: key, run: () => undefined })),
+    ]
+    setPalette({ mode: 'list', placeholder: 'Help: how do I…', items, limit: 40 })
   }
 
   function openPalette(): void {
@@ -937,7 +1004,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     items.push({ id: 'open-in', label: 'Open notes in', detail: openLabel(openPref), run: setOpenPrefNext })
     items.push({ id: 'live', label: 'Hide markdown syntax while editing', detail: live ? 'on' : 'off', run: toggleLive })
     items.push({ id: 'settings-appearance', label: 'Appearance', detail: 'text size, line width, density', run: () => openSettings('appearance') })
-    items.push({ id: 'keys', label: 'Keyboard shortcuts', run: showShortcuts })
+    items.push({ id: 'keys', label: 'Help and keyboard shortcuts', detail: 'how to link, add pictures, tick tasks, share', run: showHelp })
     if (user) items.push({ id: 'signout', label: 'Sign out', detail: user.username, run: () => void auth.logout().then(onSignOut) })
     setPalette({ mode: 'list', placeholder: 'Type a command', items })
   }
@@ -976,7 +1043,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         { id: 'live', label: 'Hide syntax while editing', icon: 'eye', checked: live, run: toggleLive },
         'sep',
         { id: 'settings', label: 'Settings', icon: 'settings', run: () => openSettings(narrow ? null : 'account') },
-        { id: 'keys', label: 'Keyboard shortcuts', icon: 'keyboard', run: showShortcuts },
+        { id: 'keys', label: 'Help and shortcuts', icon: 'keyboard', run: showHelp },
         ...(net.canInstall
           ? ['sep' as const, { id: 'install', label: 'Install app', icon: 'share' as const, run: () => void pwa.promptInstall() }]
           : []),
@@ -1251,6 +1318,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               pinned={currentPinned}
               onPin={() => { if (current.current) pinNote(current.current) }}
               highlight={hit?.text ?? null}
+              lookup={completions}
             />
           )}
           {route.kind === 'links' && <LinksReport onOpen={navigate} />}
@@ -1289,6 +1357,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               onNew={() => newNote()}
               onCapture={capturePrompt}
               onDaily={() => void openDaily()}
+              onGuide={() => openGuide()}
               onInstall={net.canInstall ? () => void pwa.promptInstall() : null}
             />
           )}
@@ -1373,14 +1442,16 @@ interface HomeProps {
   onNew: () => void
   onCapture: () => void
   onDaily: () => void
+  /** The starter note: opened, or made first. */
+  onGuide: () => void
   /** Offered when the browser made an install prompt available. */
   onInstall: (() => void) | null
 }
 
-// The home page: the three things people come here to do, then what
-// they pinned and what they opened last. Shortcuts are in the account
-// menu and the palette.
-function Home({ notes, pins, spaces, loading, onOpen, onNew, onCapture, onDaily, onInstall }: HomeProps) {
+// The home page: the three things people come here to do, each with a
+// line saying what it is, then what they pinned and what they opened
+// last. Shortcuts are in the account menu and the palette.
+function Home({ notes, pins, spaces, loading, onOpen, onNew, onCapture, onDaily, onGuide, onInstall }: HomeProps) {
   const byId = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
   const recent = prefs.recents().map((id) => byId.get(id)).filter((n): n is FlatNote => Boolean(n))
   const pinned = pins
@@ -1393,6 +1464,7 @@ function Home({ notes, pins, spaces, loading, onOpen, onNew, onCapture, onDaily,
       return exists ? { key: 'd' + p.path, title: baseOf(p.path) + '/', path: p.path, run: null } : null
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
+  const guide = notes.find((n) => n.name === 'Start here.md')
 
   return (
     <div class="home">
@@ -1400,29 +1472,47 @@ function Home({ notes, pins, spaces, loading, onOpen, onNew, onCapture, onDaily,
       <h1 class="home-title">YANA/</h1>
       <p class="home-sub">Everything you expect. Nothing you don't.</p>
       <div class="home-actions">
-        <button type="button" class="btn primary large" onClick={onNew}>
+        <button type="button" class="home-action primary" onClick={onNew}>
           <Icon name="plus" size={18} />
-          New note
+          <span class="home-action-text">
+            <span class="home-action-title">New note</span>
+            <span class="home-action-sub">A blank page; name it and write.</span>
+          </span>
         </button>
-        <button type="button" class="btn large" onClick={onCapture}>
+        <button type="button" class="home-action" onClick={onCapture}>
           <Icon name="capture" size={18} />
-          Capture
+          <span class="home-action-text">
+            <span class="home-action-title">Capture</span>
+            <span class="home-action-sub">One line into today's note, without opening it.</span>
+          </span>
         </button>
-        <button type="button" class="btn large" onClick={onDaily}>
+        <button type="button" class="home-action" onClick={onDaily}>
           <Icon name="calendar" size={18} />
-          Today
+          <span class="home-action-text">
+            <span class="home-action-title">Today</span>
+            <span class="home-action-sub">Today's note, made if it is not there yet.</span>
+          </span>
         </button>
         {onInstall && (
-          <button type="button" class="btn large" onClick={onInstall}>
+          <button type="button" class="home-action" onClick={onInstall}>
             <Icon name="share" size={18} />
-            Install app
+            <span class="home-action-text">
+              <span class="home-action-title">Install app</span>
+              <span class="home-action-sub">On the home screen, and it works offline.</span>
+            </span>
           </button>
         )}
       </div>
+      <p class="home-guide">
+        <a href={guide ? `/n/${guide.id}` : '#guide'} onClick={(ev) => { ev.preventDefault(); onGuide() }}>
+          <Icon name="info" size={14} />
+          {guide ? 'Start here: how links, pictures, tasks and tags work' : 'New here? Open the guide'}
+        </a>
+      </p>
       {loading ? (
         <p class="muted">Loading the tree…</p>
       ) : notes.length === 0 ? (
-        <p class="muted">No notes yet. Start one above, or drop a markdown file into the notes directory; it shows up on the next scan.</p>
+        <p class="muted">No notes yet. Start one above, or drop a markdown file into the notes directory; it shows up on the next scan. The guide is a good first note.</p>
       ) : (
         <>
           {pinned.length > 0 && (

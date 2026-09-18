@@ -108,6 +108,13 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, err)
 		return
 	}
+	// A brand-new tree gets the starter note; one that already holds
+	// notes is never touched.
+	if s.treeIsEmpty(r.Context()) {
+		if _, _, err := s.seedGuide(r.Context(), ""); err != nil {
+			s.Log.Warn("could not write the starter note", "err", err)
+		}
+	}
 	s.setRefreshCookie(w, tok.Refresh, tok.RefreshExpi)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"user":   map[string]any{"id": u.ID, "username": u.Username, "is_owner": u.IsOwner},

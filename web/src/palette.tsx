@@ -69,6 +69,13 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
   useEffect(() => {
     const el = input.current
     if (!el) return
+    // One palette opening another (Help from the command list) lands in
+    // the same render, so the box is reset here rather than by a remount.
+    const initial = spec.mode === 'prompt' ? spec.initial : spec.initial ?? ''
+    setQuery(initial)
+    setTouched(false)
+    setCursor(0)
+    el.value = initial
     el.focus()
     if (spec.mode === 'prompt') {
       const [a, b] = spec.select ?? [el.value.length, el.value.length]
