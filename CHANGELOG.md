@@ -14,11 +14,15 @@
   `[[` offers the notes of the space and `#` the tags in use, in the
   editor on every device. Home actions say what they do, an empty space
   in the sidebar offers a first note, and `docs/using.md` is the guide
-  for people rather than implementers. Fixes: a palette opened from
+  for people rather than implementers, and the README is rewritten
+  around what the app does, with screenshots. Fixes: a palette opened from
   another palette no longer keeps the previous query; the fuzzy matcher
   no longer misses a query when its boundary preference skips the only
   run that works ("picture" against "Put a picture in a note"); a
-  top-level `_assets` directory is no longer listed as a space.
+  top-level `_assets` directory is no longer listed as a space; the
+  editor's find-and-replace panel uses the app's own controls, so its
+  buttons are readable in the dark theme and the checkboxes sit on their
+  labels.
 - The logo. YANA/ has a mark — a sticky note with a slash — and it is
   now the favicon, the install icon on every platform (with opaque
   maskable and apple-touch variants), the mark beside the wordmark in
