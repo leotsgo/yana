@@ -292,6 +292,55 @@ everywhere. The render that came with the note is shown first; the live
 one replaces it once the session is up. Rendering runs at most every
 220 ms while typing.
 
+Three constructs go past plain markdown. The server marks each in the
+HTML; the browser draws it, with a bundled copy of the library (no CDN,
+so they work offline and in the exports).
+
+**Diagrams.** A fence with the language `mermaid` renders as a diagram
+(`internal/render/rich.go` emits it as `<pre class="mermaid">`; the
+client swaps in the SVG). The diagram takes its colours from the app
+theme, light or dark. One that fails to parse shows its source with a
+one-line message.
+
+```mermaid
+flowchart LR
+  Router --> Switch --> NAS
+```
+
+**Callouts.** A blockquote whose first line is `[!kind]` renders as a
+callout with an icon and a colour. The kinds are `note`, `tip`,
+`warning`, `danger`, `info` and `question`; anything else is a plain
+callout titled with the kind. Text after the kind is the title. A `-`
+or `+` right after the closing bracket makes the callout foldable,
+folded or open.
+
+```md
+> [!warning] Mind the gap
+> The body is ordinary markdown.
+```
+
+**Math.** `$…$` inline and `$$…$$` on lines of their own render with
+KaTeX. A dollar sign that is not math stays a dollar sign: inline math
+must close on the same line, may not have whitespace directly inside its
+delimiters, may not run into a digit after the closing one, and may not
+cross a backtick. `$5 and $10`, `$HOME` and `` `$x$` `` are left alone.
+
+```md
+The area is $\pi r^2$.
+
+$$
+\int_0^1 x^2 \, dx = \frac{1}{3}
+$$
+```
+
+The libraries are split from the main bundle and fetched the first time
+a note needs one (`web/src/rich-load.ts`); the service worker precaches
+them with the rest of `assets/`, so a diagram drawn once is drawn
+offline too. The exports carry the same libraries as classic scripts
+(`web/src/export-mermaid.ts`, `web/src/export-katex.ts`), copied beside
+a static site's pages or inlined into a single-file export, fonts
+included, only when a page uses them.
+
 ## Files: drag, drop, paste
 
 Dropping files onto the editor, or pasting an image, uploads each one to

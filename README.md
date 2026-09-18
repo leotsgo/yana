@@ -32,7 +32,8 @@ None of this is novel. That's sort of the point.
 ## What it does
 
 **Writing.** Markdown, rendered as you would expect: headings, lists,
-tables, code with highlighting, footnotes, task boxes. A note opens to
+tables, code with highlighting, footnotes, task boxes, plus mermaid
+diagrams, callouts and math, drawn offline. A note opens to
 read; press **E** to edit, **Esc** to go back. Split mode shows the
 editor and the rendered page side by side. Formatting buttons sit in the
 toolbar on a desktop and above the keyboard on a phone, so nobody has to
@@ -256,12 +257,11 @@ merges to `main` publish the image.
 
 ## Roadmap
 
-Planned next, roughly in order: diagrams, callouts and math in the
-renderer; a tasks page listing every open box across a space; an
-activity feed over the git history; PDFs and other attachments with text
-search; public read-only links for one note; importers for markdown
-vaults and Notion exports; search operators; templates with variables;
-vim keys; and an Android app.
+Planned next, roughly in order: a tasks page listing every open box
+across a space; an activity feed over the git history; PDFs and other
+attachments with text search; public read-only links for one note;
+importers for markdown vaults and Notion exports; search operators;
+templates with variables; vim keys; and an Android app.
 
 ## License
 

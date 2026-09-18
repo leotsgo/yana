@@ -1,0 +1,5 @@
+/* KaTeX's stylesheet, with only the woff2 fonts kept (build.mjs strips
+   the woff and ttf fallbacks from the imported file: every browser the
+   app runs in reads woff2, and the exports and the offline cache would
+   otherwise carry three copies of each face). */
+@import "katex/dist/katex.min.css";

@@ -44,3 +44,18 @@ func ExportSearchJS() []byte {
 	}
 	return b
 }
+
+// ExportRich returns the bundled diagram and math runtimes (mermaid.js,
+// katex.js, katex-style.css and katex-fonts/) that exports carry for
+// the pages that need them, or nil when this build has no web client;
+// exports then show a diagram's or an equation's source as text.
+func ExportRich() fs.FS {
+	sub, err := fs.Sub(dist, "dist/export")
+	if err != nil {
+		return nil
+	}
+	if _, err := fs.Stat(sub, "mermaid.js"); err != nil {
+		return nil
+	}
+	return sub
+}

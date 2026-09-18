@@ -34,8 +34,9 @@ Three stores, one rule each.
 
 **The shell** — `sw.js` (also written by the build, with the hashed
 bundle names and a content-hash version baked in) precaches
-`index.html`, the hashed JS and CSS, the manifest, and the icons. Hashed
-assets are immutable and served cache-first; every navigation is
+`index.html`, everything under `assets/` (the app bundle, the mermaid
+and KaTeX chunks, KaTeX's stylesheet and fonts), the manifest, and the
+icons. Hashed assets are immutable and served cache-first; every navigation is
 network-first with the cached shell as the fallback, so a reopened app
 with no network boots straight to yesterday's state and a reopened app
 with network gets the new deploy on the spot. Nothing under `/api` or

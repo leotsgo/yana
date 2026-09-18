@@ -3,6 +3,12 @@
 // assets with a long immutable cache lifetime and still ship updates.
 // `--watch` rebuilds on change for development against a running server.
 //
+// Mermaid and KaTeX are split into their own chunks, loaded the first time
+// a note needs one; KaTeX's stylesheet and fonts are built beside them
+// under assets/. The exports get the same two libraries as classic
+// scripts under dist/export/, which the server embeds and copies into
+// static sites and single-file exports.
+//
 // The same script writes the installable-app files: the icons copied from
 // icons/, manifest.webmanifest, and sw.js (from sw.template.js) with the
 // hashed bundle names and a version stamp baked into its precache list.
@@ -34,10 +40,42 @@ const html = {
   },
 }
 
+// Keeps only the woff2 face of each KaTeX font: the woff and ttf
+// fallbacks would triple what the offline cache and the exports carry.
+const woff2Only = {
+  name: 'katex-woff2-only',
+  setup(build) {
+    build.onLoad({ filter: /katex\.min\.css$/ }, (args) => ({
+      contents: readFileSync(args.path, 'utf8').replace(/,url\([^)]*\.(?:woff|ttf)\) format\("(?:woff|truetype)"\)/g, ''),
+      loader: 'css',
+      resolveDir: args.path.replace(/\/[^/]*$/, ''),
+    }))
+  },
+}
+
+// The KaTeX stylesheet is its own hashed file, linked by the client the
+// first time a note holds math; the fonts land beside it under assets/.
+// It is built first so the app bundle can carry its name.
+const katexCSS = await esbuild.build({
+  entryPoints: { katex: 'src/katex.css' },
+  entryNames: '[name]-[hash]',
+  assetNames: '[name]-[hash]',
+  bundle: true,
+  minify: true,
+  loader: { '.woff2': 'file' },
+  outdir: 'dist/assets',
+  metafile: true,
+  logLevel: 'info',
+  plugins: [woff2Only],
+})
+const katexCSSPath = '/' + Object.keys(katexCSS.metafile.outputs).find((o) => /assets\/katex-[^/]+\.css$/.test(o)).replace(/^dist\//, '')
+
 const ctx = await esbuild.context({
   entryPoints: { app: 'src/main.tsx' },
   entryNames: '[name]-[hash]',
+  chunkNames: '[name]-[hash]',
   bundle: true,
+  splitting: true,
   minify: !watch,
   sourcemap: watch ? 'inline' : false,
   target: ['es2022'],
@@ -47,7 +85,7 @@ const ctx = await esbuild.context({
   outdir: 'dist/assets',
   metafile: true,
   logLevel: 'info',
-  define: { __PWA__: JSON.stringify(!watch) },
+  define: { __PWA__: JSON.stringify(!watch), __KATEX_CSS__: JSON.stringify(katexCSSPath) },
   plugins: [html],
 })
 
@@ -63,6 +101,28 @@ const exportCtx = await esbuild.context({
   format: 'iife',
   outdir: 'dist',
   logLevel: 'info',
+})
+
+// The exports' diagram and math runtimes: mermaid and KaTeX as classic
+// scripts (they work from file://), KaTeX's stylesheet with the fonts
+// beside it at stable names, all under dist/export/. A static site copies
+// what its pages use; the single-file export inlines it.
+const exportRichCtx = await esbuild.context({
+  entryPoints: {
+    mermaid: 'src/export-mermaid.ts',
+    katex: 'src/export-katex.ts',
+    'katex-style': 'src/katex.css',
+  },
+  assetNames: 'katex-fonts/[name]',
+  bundle: true,
+  minify: true,
+  sourcemap: false,
+  target: ['es2020'],
+  format: 'iife',
+  loader: { '.woff2': 'file' },
+  outdir: 'dist/export',
+  logLevel: 'info',
+  plugins: [woff2Only],
 })
 
 // --- icons and manifest ---------------------------------------------------
@@ -98,6 +158,9 @@ writeFileSync('dist/manifest.webmanifest', JSON.stringify(manifest, null, 2) + '
 
 // --- service worker -------------------------------------------------------
 
+// Every file under assets/ is precached: the app bundle, the mermaid and
+// KaTeX chunks, and the KaTeX stylesheet and fonts, so a note with a
+// diagram or an equation renders offline even if none was opened before.
 function writeServiceWorker() {
   const names = readdirSync('dist/assets')
   const js = names.find((f) => /^app-[^/]+\.js$/.test(f))
@@ -112,8 +175,7 @@ function writeServiceWorker() {
   const precache = [
     '/',
     '/index.html',
-    '/assets/' + js,
-    '/assets/' + css,
+    ...names.sort().map((f) => '/assets/' + f),
     '/manifest.webmanifest',
     '/favicon.ico',
     '/favicon-32x32.png',
@@ -135,5 +197,7 @@ if (watch) {
   await ctx.dispose()
   await exportCtx.rebuild()
   await exportCtx.dispose()
+  await exportRichCtx.rebuild()
+  await exportRichCtx.dispose()
   writeServiceWorker()
 }

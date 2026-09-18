@@ -82,6 +82,46 @@ a:hover { text-decoration: underline; }
 .x-note hr { border: 0; border-top: 1px solid var(--line); margin: 1.6em 0; }
 .x-note .footnotes { font-size: 14px; color: var(--ink-2); }
 
+/* callouts: a quote that opens with [!kind] */
+.callout {
+  --callout: var(--ink-2); --callout-soft: var(--bg-3);
+  margin: 0.8em 0; padding: 10px 14px 4px; border-radius: 6px;
+  background: var(--callout-soft); border-left: 3px solid var(--callout);
+}
+.callout-note { --callout: var(--accent); --callout-soft: var(--accent-soft); }
+.callout-info { --callout: #2f6f9f; --callout-soft: #e3eef7; }
+.callout-tip { --callout: #3d6b2e; --callout-soft: #e6efdf; }
+.callout-question { --callout: #6b4fa0; --callout-soft: #ece6f6; }
+.callout-warning { --callout: #a86a12; --callout-soft: #f8ecd4; }
+.callout-danger { --callout: #9a3412; --callout-soft: #f7e5dc; }
+.callout-title {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 6px;
+  font-weight: 600; color: var(--callout);
+}
+summary.callout-title { cursor: pointer; list-style: none; }
+summary.callout-title::-webkit-details-marker { display: none; }
+summary.callout-title::after {
+  content: ""; margin-left: auto; width: 7px; height: 7px;
+  border-right: 1.75px solid currentColor; border-bottom: 1.75px solid currentColor;
+  transform: rotate(-45deg);
+}
+details[open] > summary.callout-title::after { transform: rotate(45deg); }
+details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
+.callout-icon { flex: none; }
+.callout-body > :last-child { margin-bottom: 0.6em; }
+.callout-body > p:first-child { margin-top: 0; }
+
+/* diagrams and math: the source until the runtime draws them */
+.mermaid-figure { margin: 0.8em 0; overflow-x: auto; }
+.mermaid-figure > svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.mermaid-error { border: 1px solid #9a3412; border-radius: 4px; padding: 8px 12px; }
+.mermaid-error .mermaid-message { margin: 0 0 6px; font-size: 13px; color: #9a3412; }
+.mermaid-error pre { margin: 0; border: 0; background: none; padding: 0; }
+.math-display { margin: 0.8em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+.math:not(.math-done) { font-family: var(--mono); font-size: 0.9em; color: var(--ink-2); }
+.math-display:not(.math-done) { white-space: pre-wrap; }
+.katex-display { margin: 0; }
+
 /* chroma highlighting (classes only; warm, low-contrast) */
 .chroma .k, .chroma .kd, .chroma .kn, .chroma .kr, .chroma .kt { color: #8a3d0f; }
 .chroma .s, .chroma .s1, .chroma .s2, .chroma .sb { color: #5f6f2a; }

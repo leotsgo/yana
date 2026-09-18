@@ -204,6 +204,7 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		ContentOrigin: cfg.ContentOrigin,
 		SearchJS:      web.ExportSearchJS(),
 		Favicon:       web.Favicon(),
+		Rich:          web.ExportRich(),
 	})
 	if cfg.ContentListen != "" && cfg.ContentListen != "off" {
 		srv.Deps.Content = server.NewContent(db, root, nil, base)

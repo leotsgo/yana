@@ -28,6 +28,7 @@ import type { Layout } from './layout'
 import type { MenuSpec } from './menu'
 import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
 import { resolveTitle } from './paths'
+import { renderRich } from './rich-load'
 import type { OpenMode } from './prefs'
 import { SyncClient, presence } from './sync'
 import type { PresenceState, PresenceUser, SyncStatus } from './sync'
@@ -656,6 +657,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onTag, highlight, onE
     rewriteRelative(el, note.base)
     wireWikiLinks(el, note, onOpen)
     wireTags(el, onTag)
+    renderRich(el)
     if (highlight && markText(el, highlight, !scrolled.current)) scrolled.current = true
   }
 
