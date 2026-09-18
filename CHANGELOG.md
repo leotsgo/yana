@@ -18,7 +18,10 @@
   another palette no longer keeps the previous query; the fuzzy matcher
   no longer misses a query when its boundary preference skips the only
   run that works ("picture" against "Put a picture in a note"); a
-  top-level `_assets` directory is no longer listed as a space.
+  top-level `_assets` directory is no longer listed as a space; the
+  editor's find-and-replace panel uses the app's own controls, so its
+  buttons are readable in the dark theme and the checkboxes sit on their
+  labels.
 - The logo. YANA/ has a mark — a sticky note with a slash — and it is
   now the favicon, the install icon on every platform (with opaque
   maskable and apple-touch variants), the mark beside the wordmark in

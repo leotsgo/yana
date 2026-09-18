@@ -88,10 +88,25 @@ const theme = EditorView.theme({
   },
   '.cm-selectionMatch': { background: 'var(--mark)' },
   '.cm-placeholder': { color: 'var(--ink-3)', fontStyle: 'normal' },
+  // The find-and-replace panel in the app's own controls. CodeMirror's
+  // defaults draw a light gradient button in both schemes, which under
+  // our light ink is white on white in the dark theme.
   '.cm-panels': { background: 'var(--bg-2)', color: 'var(--ink)', borderColor: 'var(--line)' },
   '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--line)' },
-  '.cm-panel input, .cm-panel button': { font: '13px var(--sans)', color: 'var(--ink)' },
-  '.cm-panel input': { background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)' },
+  '.cm-panel.cm-search': { padding: '6px var(--page-x)', lineHeight: '36px' },
+  '.cm-panel input, .cm-panel button, .cm-panel label': { font: '13px var(--sans)', color: 'var(--ink)', margin: '0 6px 0 0', verticalAlign: 'middle' },
+  '.cm-panel input.cm-textfield': { height: '28px', padding: '0 8px', background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-sm)' },
+  '.cm-panel input.cm-textfield:focus': { outline: 'none', borderColor: 'var(--accent)' },
+  '.cm-panel button.cm-button': {
+    height: '28px', padding: '0 10px', color: 'var(--ink)', background: 'var(--bg)', backgroundImage: 'none',
+    border: '1px solid var(--line-2)', borderRadius: 'var(--r-sm)', cursor: 'pointer', textTransform: 'none',
+  },
+  '.cm-panel button.cm-button:hover': { background: 'var(--bg-3)' },
+  '.cm-panel button.cm-button:active': { background: 'var(--hover)', backgroundImage: 'none' },
+  '.cm-panel.cm-search label': { display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--ink-2)', marginLeft: '4px', fontSize: '12.5px', cursor: 'pointer' },
+  '.cm-panel.cm-search input[type="checkbox"]': { margin: '0', accentColor: 'var(--accent)', width: '14px', height: '14px' },
+  '.cm-panel button[name="close"]': { color: 'var(--ink-3)', fontSize: '18px', top: '6px', right: 'var(--page-x)', cursor: 'pointer', background: 'none', border: '0' },
+  '.cm-panel button[name="close"]:hover': { color: 'var(--ink)' },
   '.cm-searchMatch': { background: 'var(--mark)' },
   '.cm-searchMatch.cm-searchMatch-selected': { background: 'var(--accent-soft)', outline: '1px solid var(--accent)' },
   '.cm-ySelectionInfo': { fontFamily: 'var(--mono)', fontSize: '10px', padding: '1px 4px', borderRadius: '2px', opacity: '1' },
