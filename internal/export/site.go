@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"regexp"
@@ -79,17 +80,49 @@ func (d *Deps) writeSite(ctx context.Context, zw *zip.Writer, space, subtree str
 	tree := buildSiteTree(notes)
 	now := d.now()
 
-	// One page per note.
+	// One page per note, noting which runtimes the pages need.
+	var needs richNeeds
 	for i := range notes {
 		sn := &notes[i]
-		page, err := d.sitePage(ctx, sn, tree, byID, now)
+		page, n, err := d.sitePage(ctx, sn, tree, byID, now)
 		if err != nil {
 			return stats, err
 		}
 		if err := put(zw, sn.sitePath, now, page); err != nil {
 			return stats, err
 		}
+		needs.mermaid = needs.mermaid || n.mermaid
+		needs.math = needs.math || n.math
 		stats.Pages++
+	}
+
+	// The diagram and math runtimes, only when a page uses one.
+	if needs.mermaid {
+		if js := d.richFile(richMermaidJS); js != nil {
+			if err := put(zw, siteMermaidJS, now, js); err != nil {
+				return stats, err
+			}
+		}
+	}
+	if needs.math {
+		if js := d.richFile(richKatexJS); js != nil {
+			if err := put(zw, siteKatexJS, now, js); err != nil {
+				return stats, err
+			}
+		}
+		if css := d.richFile(richKatexCSS); css != nil {
+			if err := put(zw, siteKatexCSS, now, css); err != nil {
+				return stats, err
+			}
+			fonts, _ := fs.ReadDir(d.Rich, richFontDir)
+			for _, f := range fonts {
+				if data := d.richFile(richFontDir + "/" + f.Name()); data != nil {
+					if err := put(zw, richFontDir+"/"+f.Name(), now, data); err != nil {
+						return stats, err
+					}
+				}
+			}
+		}
 	}
 
 	// The shared stylesheet and the icon.
@@ -107,7 +140,7 @@ func (d *Deps) writeSite(ctx context.Context, zw *zip.Writer, space, subtree str
 <p class="x-muted">%d notes, exported %s.</p>
 <ul class="x-home-list">%s</ul>`,
 		esc(displaySpace(space, subtree)), stats.Notes, now.Format("2006-01-02"), homeList(notes))
-	if err := put(zw, "index.html", now, d.siteChrome("index.html", displaySpace(space, subtree), tree, home, now)); err != nil {
+	if err := put(zw, "index.html", now, d.siteChrome("index.html", displaySpace(space, subtree), tree, home, now, richNeeds{})); err != nil {
 		return stats, err
 	}
 	stats.Pages++
@@ -124,7 +157,7 @@ func (d *Deps) writeSite(ctx context.Context, zw *zip.Writer, space, subtree str
 <div id="yana-results" class="x-results" aria-live="polite"><p class="x-muted">Type to search %d notes.</p></div>
 <script src="search.js"></script>
 <script src="search-index.js"></script>`, stats.Notes)
-		if err := put(zw, "search.html", now, d.siteChrome("search.html", "Search", tree, search, now)); err != nil {
+		if err := put(zw, "search.html", now, d.siteChrome("search.html", "Search", tree, search, now, richNeeds{})); err != nil {
 			return stats, err
 		}
 		if err := put(zw, "search.js", now, d.SearchJS); err != nil {
@@ -201,22 +234,22 @@ func (d *Deps) scope(space, subtree string) (string, []siteNote, error) {
 }
 
 // sitePage renders one note into a full page with navigation and
-// backlinks.
-func (d *Deps) sitePage(ctx context.Context, sn *siteNote, tree *siteTree, byID map[string]*siteNote, now time.Time) ([]byte, error) {
+// backlinks, and reports which runtimes the page needs.
+func (d *Deps) sitePage(ctx context.Context, sn *siteNote, tree *siteTree, byID map[string]*siteNote, now time.Time) ([]byte, richNeeds, error) {
 	doc, err := d.readNote(sn.n)
 	if err != nil {
-		return nil, err
+		return nil, richNeeds{}, err
 	}
 	links, err := d.DB.OutboundLinks(ctx, sn.n.ID)
 	if err != nil {
-		return nil, err
+		return nil, richNeeds{}, err
 	}
 	var body []byte
 	switch sn.n.Kind {
 	case "md":
 		body, err = render.Markdown(doc.Body)
 		if err != nil {
-			return nil, err
+			return nil, richNeeds{}, err
 		}
 		body = rewriteWikiSpans(body, links, sn, byID)
 	case "html":
@@ -226,8 +259,9 @@ func (d *Deps) sitePage(ctx context.Context, sn *siteNote, tree *siteTree, byID 
 		}
 		body = rewriteWikiAnchors(body, links, sn, byID)
 	default:
-		return nil, fmt.Errorf("note %s has unknown kind %q", sn.n.ID, sn.n.Kind)
+		return nil, richNeeds{}, fmt.Errorf("note %s has unknown kind %q", sn.n.ID, sn.n.Kind)
 	}
+	needs := needsOf(body)
 	// Backlinks, limited to notes the site actually carries.
 	back, err := d.DB.Backlinks(ctx, sn.n.ID)
 	if err == nil && len(back) > 0 {
@@ -249,7 +283,7 @@ func (d *Deps) sitePage(ctx context.Context, sn *siteNote, tree *siteTree, byID 
 	}
 	inSpace := strings.TrimPrefix(sn.n.RelPath, sn.n.Space+"/")
 	content := `<header class="x-path">` + esc(inSpace) + `</header>` + string(body)
-	return d.siteChrome(sn.sitePath, titleOf(sn), tree, content, now), nil
+	return d.siteChrome(sn.sitePath, titleOf(sn), tree, content, now, needs), needs, nil
 }
 
 // markImg is the mark beside the wordmark, or nothing when there is no
@@ -262,13 +296,14 @@ func markImg(src string) string {
 }
 
 // siteChrome wraps content in the site document: the title, stylesheet,
-// navigation tree, and search link.
-func (d *Deps) siteChrome(pagePath, title string, tree *siteTree, content string, now time.Time) []byte {
+// navigation tree, search link, and the runtimes the content needs.
+func (d *Deps) siteChrome(pagePath, title string, tree *siteTree, content string, now time.Time, needs richNeeds) []byte {
 	var b strings.Builder
 	b.WriteString("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n")
 	b.WriteString("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
 	b.WriteString("<title>" + esc(title) + "</title>\n")
 	b.WriteString("<link rel=\"stylesheet\" href=\"" + hrefBetween(pagePath, "site.css") + "\">\n")
+	b.WriteString(d.siteRichHead(pagePath, needs))
 	icon := ""
 	if len(d.Favicon) > 0 {
 		icon = hrefBetween(pagePath, "favicon.png")
@@ -283,7 +318,9 @@ func (d *Deps) siteChrome(pagePath, title string, tree *siteTree, content string
 	b.WriteString(`<div class="x-tree">` + renderTree(tree, pagePath) + `</div>`)
 	b.WriteString("\n</nav>\n<main class=\"x-main x-note\">\n")
 	b.WriteString(content)
-	b.WriteString("\n</main>\n</div>\n</body>\n</html>\n")
+	b.WriteString("\n</main>\n</div>\n")
+	b.WriteString(d.siteRichScripts(pagePath, needs))
+	b.WriteString("</body>\n</html>\n")
 	return []byte(b.String())
 }
 

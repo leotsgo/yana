@@ -523,6 +523,55 @@ kbd {
 .markdown li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.35em; }
 .markdown li:has(> input[type="checkbox"]:checked) { color: var(--ink-3); }
 .markdown .footnotes { font-size: 13px; color: var(--ink-2); }
+
+/* Callouts: a quote that opens with [!kind]. The kind sets the icon and
+   the colour; the body is ordinary markdown. */
+.callout {
+  --callout: var(--ink-2); --callout-soft: var(--bg-3);
+  margin: 0 0 0.9em; padding: 10px 14px 4px; border-radius: var(--r);
+  background: var(--callout-soft); border-left: 3px solid var(--callout);
+}
+.callout-note { --callout: var(--accent); --callout-soft: var(--accent-soft); }
+.callout-info { --callout: #2f6f9f; --callout-soft: #e3eef7; }
+.callout-tip { --callout: var(--ok); --callout-soft: #e6efdf; }
+.callout-question { --callout: #6b4fa0; --callout-soft: #ece6f6; }
+.callout-warning { --callout: #a86a12; --callout-soft: #f8ecd4; }
+.callout-danger { --callout: var(--danger); --callout-soft: var(--danger-soft); }
+:root[data-theme="dark"] .callout-info { --callout: #7fb3dd; --callout-soft: #1f2e3b; }
+:root[data-theme="dark"] .callout-tip { --callout-soft: #26311f; }
+:root[data-theme="dark"] .callout-question { --callout: #b39ddb; --callout-soft: #2d2540; }
+:root[data-theme="dark"] .callout-warning { --callout: #d9a13b; --callout-soft: #3a2d12; }
+.callout-title {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 6px;
+  font-weight: 600; color: var(--callout);
+}
+summary.callout-title { cursor: pointer; list-style: none; }
+summary.callout-title::-webkit-details-marker { display: none; }
+summary.callout-title::after {
+  content: ""; margin-left: auto; width: 7px; height: 7px;
+  border-right: 1.75px solid currentColor; border-bottom: 1.75px solid currentColor;
+  transform: rotate(-45deg); transition: transform 120ms;
+}
+details[open] > summary.callout-title::after { transform: rotate(45deg); }
+details.callout:not([open]) { padding-bottom: 4px; }
+details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
+.callout-icon { flex: none; }
+.callout-body > :last-child { margin-bottom: 0.6em; }
+.callout-body > p:first-child { margin-top: 0; }
+
+/* Diagrams: a mermaid fence shows its source until drawn, then the SVG. */
+.markdown .mermaid-figure { margin: 0 0 0.9em; overflow-x: auto; }
+.markdown .mermaid-figure > svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.markdown .mermaid-error { border: 1px solid var(--danger); border-radius: var(--r-sm); padding: 8px 12px; }
+.markdown .mermaid-error .mermaid-message { margin: 0 0 6px; font-size: 13px; color: var(--danger); }
+.markdown .mermaid-error pre { margin: 0; border: 0; background: none; padding: 0; }
+
+/* Math: the TeX source until typeset. Display math scrolls sideways
+   rather than breaking the measure. */
+.markdown .math-display { margin: 0 0 0.9em; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+.markdown .math:not(.math-done) { font-family: var(--mono); font-size: 0.9em; color: var(--ink-2); }
+.markdown .math-display:not(.math-done) { white-space: pre-wrap; }
+.markdown .katex-display { margin: 0; }
 .wikilink { color: var(--accent-ink); border-bottom: 1px dashed var(--accent); cursor: default; }
 .wikilink.resolved { border-bottom: none; cursor: pointer; }
 .wikilink.unresolved { color: var(--ink-3); border-bottom: 1px dashed var(--ink-3); cursor: pointer; }

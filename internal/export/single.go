@@ -50,6 +50,7 @@ func (d *Deps) SingleNote(ctx context.Context, id string) ([]byte, error) {
 		return nil, fmt.Errorf("note %s has unknown kind %q", id, n.Kind)
 	}
 	body = d.inlineImages(body, path.Dir(n.RelPath), n)
+	richHead, richTail := d.inlineRich(needsOf(body))
 
 	var b strings.Builder
 	b.WriteString("<!doctype html>\n<html lang=\"en\">\n<head>\n")
@@ -62,12 +63,15 @@ func (d *Deps) SingleNote(ctx context.Context, id string) ([]byte, error) {
 		b.WriteString("<link rel=\"icon\" type=\"image/png\" href=\"" + icon + "\">\n")
 	}
 	b.WriteString("<style>" + siteCSS + "</style>\n")
+	b.WriteString(richHead)
 	b.WriteString("</head>\n<body class=\"export-single\">\n")
 	b.WriteString("<header class=\"x-header\"><span class=\"wordmark\">" + markImg(icon) + "YANA/</span>")
 	b.WriteString("<span class=\"x-meta\">" + esc(n.RelPath) + " · exported " + d.now().Format("2006-01-02") + "</span></header>\n")
 	b.WriteString("<main class=\"x-main x-note\">\n")
 	b.Write(body)
-	b.WriteString("\n</main>\n</body>\n</html>\n")
+	b.WriteString("\n</main>\n")
+	b.WriteString(richTail)
+	b.WriteString("</body>\n</html>\n")
 	return []byte(b.String()), nil
 }
 

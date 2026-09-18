@@ -15,7 +15,10 @@ as data URIs, the stylesheet embedded, no external references. It opens
 anywhere: mail it, archive it, open it on a machine that has never heard
 of this app. Markdown notes render as they do in the app; HTML notes
 carry their trust flag — an untrusted note is sanitized on the way out,
-a trusted one runs as written.
+a trusted one runs as written. A note with a mermaid diagram or math
+carries the library that draws it (and KaTeX's fonts as data URIs) in
+the file, so the diagram is drawn from `file://` as it is in the app;
+a note without one carries nothing extra.
 
 ## A space as a static site
 
@@ -35,7 +38,10 @@ server and no network:
   line each link sits on;
 - client-side search: a prebuilt index (`search-index.js`) and a small
   runtime (`search.js`, minisearch) loaded as classic scripts, which is
-  what makes them work from `file://` where `fetch` does not.
+  what makes them work from `file://` where `fetch` does not;
+- `mermaid.js`, and `katex.js` with `katex.css` and `katex-fonts/`,
+  when a page in the site holds a diagram or math; each page loads only
+  what it uses.
 
 A site built without the web client (a binary with no embedded client)
 omits the search page; everything else still exports.

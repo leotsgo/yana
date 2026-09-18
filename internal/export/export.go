@@ -40,6 +40,11 @@ type Deps struct {
 	// Favicon is the 32px PNG mark: a file beside a static site, a data
 	// URI inside a single-file export. nil leaves both without an icon.
 	Favicon []byte
+	// Rich holds the bundled diagram and math runtimes (mermaid.js,
+	// katex.js, katex-style.css and katex-fonts/) copied into static
+	// sites and inlined into single-file exports as their pages need
+	// them. nil exports the source of a diagram or an equation as text.
+	Rich fs.FS
 	// Now stamps the exported pages; nil is time.Now.
 	Now func() time.Time
 }

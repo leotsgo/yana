@@ -19,7 +19,7 @@ import (
 
 // exporter builds the export dependencies for one request.
 func (s *Server) exporter() *export.Deps {
-	return &export.Deps{DB: s.DB, Root: s.Root, SearchJS: s.SearchJS, Favicon: s.Favicon}
+	return &export.Deps{DB: s.DB, Root: s.Root, SearchJS: s.SearchJS, Favicon: s.Favicon, Rich: s.Rich}
 }
 
 // handleExportNote serves one note as a single self-contained HTML file.

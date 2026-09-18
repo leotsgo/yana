@@ -79,6 +79,23 @@ The top-level folders are spaces. Each space has members with a role: an owner, 
 
 An agent can read and write notes the same way you do, through the files, or from another machine through MCP. Settings → Agents makes a key for one. Every write an agent makes is shown live, saved to the file, and attributed to that agent in the history. The details are in the documentation under `docs/agents.md`.
 
+## Diagrams, callouts and math
+
+A code block whose language is `mermaid` is drawn as a diagram:
+
+```mermaid
+flowchart LR
+  Router --> Switch --> NAS
+  Switch --> Laptop
+```
+
+A quote that starts with `[!tip]`, `[!note]`, `[!warning]`, `[!danger]`, `[!info]` or `[!question]` is a callout. Text after the kind is its title.
+
+> [!tip] Callouts hold markdown
+> Lists, links and `code` all work inside. Put a `-` after the kind, as in `[!note]-`, and the callout folds.
+
+Math goes between dollar signs: $E = mc^2$ inline, or on lines of its own between `$$` marks. A dollar sign with a space after it, as in $5 and $10, stays a dollar sign.
+
 ## Code, tables and footnotes
 
 ```sh
