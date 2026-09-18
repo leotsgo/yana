@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- The app teaches itself. The owner's first sign-in seeds an empty tree
+  with a **Start here** note (and the note and picture it references)
+  that shows links, pictures, tasks, tags, capture, search, folders,
+  history, sharing and agents by using each one, with a line per feature
+  for desktop and for phone. Help, in the account menu and the palette,
+  now lists "how do I" entries that open the note at the right heading
+  and re-create it when it was deleted (`POST /api/guide`); keyboard
+  shortcuts follow. The desktop toolbar carries the formatting buttons
+  the phone already had (link, image, task, tag, and the rest); typing
+  `[[` offers the notes of the space and `#` the tags in use, in the
+  editor on every device. Home actions say what they do, an empty space
+  in the sidebar offers a first note, and `docs/using.md` is the guide
+  for people rather than implementers. Fixes: a palette opened from
+  another palette no longer keeps the previous query; the fuzzy matcher
+  no longer misses a query when its boundary preference skips the only
+  run that works ("picture" against "Put a picture in a note"); a
+  top-level `_assets` directory is no longer listed as a space.
 - The logo. YANA/ has a mark — a sticky note with a slash — and it is
   now the favicon, the install icon on every platform (with opaque
   maskable and apple-touch variants), the mark beside the wordmark in

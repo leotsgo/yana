@@ -1,10 +1,12 @@
-// The formatting bar that sits above the on-screen keyboard while a note
-// is edited on a phone. Each button is a small markdown command on the
-// CodeMirror view: wrap the selection, toggle a line prefix, insert a
-// link. Buttons take no focus, so the keyboard stays up and the caret
-// stays where it was.
+// The formatting buttons: a bar above the on-screen keyboard while a
+// note is edited on a phone, and a compact row in the toolbar on a
+// desktop, so nobody has to know the markdown to use it. Each button is
+// a small command on the CodeMirror view: wrap the selection, toggle a
+// line prefix, start a link. Buttons take no focus, so the keyboard
+// stays up and the caret stays where it was.
 
 import { useRef } from 'preact/hooks'
+import { startCompletion } from '@codemirror/autocomplete'
 import { EditorSelection } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { yUndoManagerKeymap } from 'y-codemirror.next'
@@ -18,6 +20,8 @@ export interface FormatBarProps {
   view: EditorView | null
   note: Note
   onToast: (msg: string) => void
+  /** The toolbar row on a desktop: icons only, no undo and redo. */
+  compact?: boolean
 }
 
 type Command = (view: EditorView) => void
@@ -138,11 +142,27 @@ const commands: Record<string, Command> = {
       view.dispatch({ changes: { from, to, insert: `[](${text})` }, selection: { anchor: from + 1 } })
       return
     }
-    const insert = `[${text}](url)`
-    view.dispatch({
-      changes: { from, to, insert },
-      selection: text ? EditorSelection.range(from + text.length + 3, from + text.length + 6) : { anchor: from + 1 },
-    })
+    if (text) {
+      // Selected words become the name of the note to link to.
+      view.dispatch({ changes: { from, to, insert: `[[${text}]]` }, selection: { anchor: from + text.length + 4 } })
+      return
+    }
+    // Nothing selected: open the brackets and offer the notes to pick from.
+    view.dispatch({ changes: { from, insert: '[[' }, selection: { anchor: from + 2 } })
+    startCompletion(view)
+  },
+  tag: (view) => {
+    const { from, to } = view.state.selection.main
+    const text = view.state.doc.sliceString(from, to)
+    const prev = from > 0 ? view.state.doc.sliceString(from - 1, from) : ''
+    const lead = prev === '' || /\s/.test(prev) ? '' : ' '
+    if (text) {
+      const tag = text.trim().replace(/\s+/g, '-')
+      view.dispatch({ changes: { from, to, insert: `${lead}#${tag}` }, selection: { anchor: from + lead.length + tag.length + 1 } })
+      return
+    }
+    view.dispatch({ changes: { from, insert: `${lead}#` }, selection: { anchor: from + lead.length + 1 } })
+    startCompletion(view)
   },
   undo: (view) => {
     undo?.(view)
@@ -152,22 +172,24 @@ const commands: Record<string, Command> = {
   },
 }
 
-const buttons: Array<{ id: string; icon: IconName; label: string }> = [
+const buttons: Array<{ id: string; icon: IconName; label: string; phoneOnly?: boolean }> = [
   { id: 'bold', icon: 'bold', label: 'Bold' },
   { id: 'italic', icon: 'italic', label: 'Italic' },
   { id: 'heading', icon: 'heading', label: 'Heading' },
   { id: 'list', icon: 'list', label: 'List' },
-  { id: 'task', icon: 'check-square', label: 'Task' },
+  { id: 'task', icon: 'check-square', label: 'Task: a box to tick' },
   { id: 'quote', icon: 'quote', label: 'Quote' },
   { id: 'code', icon: 'code', label: 'Code' },
-  { id: 'link', icon: 'link', label: 'Link' },
-  { id: 'image', icon: 'image', label: 'Image' },
-  { id: 'undo', icon: 'undo', label: 'Undo' },
-  { id: 'redo', icon: 'redo', label: 'Redo' },
+  { id: 'link', icon: 'link', label: 'Link to a note' },
+  { id: 'image', icon: 'image', label: 'Add a picture' },
+  { id: 'tag', icon: 'tag', label: 'Tag' },
+  { id: 'undo', icon: 'undo', label: 'Undo', phoneOnly: true },
+  { id: 'redo', icon: 'redo', label: 'Redo', phoneOnly: true },
 ]
 
-export function FormatBar({ view, note, onToast }: FormatBarProps) {
+export function FormatBar({ view, note, onToast, compact }: FormatBarProps) {
   const file = useRef<HTMLInputElement>(null)
+  const shown = compact ? buttons.filter((b) => !b.phoneOnly) : buttons
 
   const run = (id: string) => {
     if (!view) return
@@ -180,8 +202,8 @@ export function FormatBar({ view, note, onToast }: FormatBarProps) {
   }
 
   return (
-    <div class="format-bar" role="toolbar" aria-label="formatting">
-      {buttons.map((b) => (
+    <div class={compact ? 'format-bar compact' : 'format-bar'} role="toolbar" aria-label="formatting">
+      {shown.map((b) => (
         <button
           key={b.id}
           type="button"

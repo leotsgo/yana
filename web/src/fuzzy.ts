@@ -11,6 +11,13 @@ export function fuzzy(query: string, text: string): FuzzyMatch | null {
   const q = query.toLowerCase()
   const t = text.toLowerCase()
   if (q === '') return { score: 0, positions: [] }
+  // The boundary look-ahead can skip past the only run that works
+  // ("picture" against "put a picture in a note" jumps to the i of
+  // "in"), so a plain left-to-right pass is the fallback.
+  return scan(q, t, true) ?? scan(q, t, false)
+}
+
+function scan(q: string, t: string, lookAhead: boolean): FuzzyMatch | null {
   const positions: number[] = []
   let score = 0
   let ti = 0
@@ -23,7 +30,7 @@ export function fuzzy(query: string, text: string): FuzzyMatch | null {
     // one is mid-word; a cheap look-ahead keeps "jou" matching journal/
     // over j-o-u scattered across a long path.
     let at = idx
-    if (!isBoundary(t, idx)) {
+    if (lookAhead && !isBoundary(t, idx)) {
       const next = t.indexOf(ch as string, idx + 1)
       if (next >= 0 && isBoundary(t, next) && next - idx < 24) at = next
     }

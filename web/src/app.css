@@ -310,6 +310,7 @@ kbd {
   font-size: 12.5px; color: var(--ink-3); background: none; border: 0; cursor: pointer; width: 100%; text-align: left;
 }
 .tree-empty-dir:hover { color: var(--accent-ink); background: var(--hover); }
+.tree-empty-dir.space-empty { padding-left: 14px; }
 .space.pinned { padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
 .space.pinned .space-name { color: var(--accent-ink); }
 
@@ -342,7 +343,23 @@ kbd {
 .home-mark { display: block; width: 96px; height: 96px; margin: 0 0 8px -6px; }
 .home-title { font: 600 32px/1.1 var(--mono); letter-spacing: 0.02em; margin: 0; }
 .home-sub { margin: 6px 0 24px; color: var(--ink-2); }
-.home-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 36px; }
+.home-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.home-action {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; text-align: left;
+  color: var(--ink); background: var(--bg); border: 1px solid var(--line-2); border-radius: var(--r);
+  cursor: pointer; box-shadow: var(--shadow-1); transition: background 80ms, border-color 80ms;
+}
+.home-action:hover { background: var(--bg-2); border-color: var(--ink-3); }
+.home-action .icon { flex: none; margin-top: 2px; color: var(--ink-2); }
+.home-action.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.home-action.primary .icon { color: inherit; }
+.home-action.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+.home-action-text { display: grid; gap: 3px; min-width: 0; }
+.home-action-title { font-size: 14px; font-weight: 600; line-height: 1.2; }
+.home-action-sub { font-size: 12.5px; line-height: 1.35; opacity: 0.8; }
+.home-guide { margin: 0 0 36px; font-size: 13px; }
+.home-guide a { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-ink); }
+.home-guide .icon { color: var(--ink-3); }
 .section-title { font: 600 11px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 8px; }
 .recents + .recents { margin-top: 28px; }
 .recents-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
@@ -451,6 +468,10 @@ kbd {
 }
 .format-btn:active { background: var(--hover); color: var(--ink); }
 .format-btn:disabled { opacity: 0.4; }
+/* the same buttons in the desktop toolbar: a compact row, no chrome */
+.format-bar.compact { flex: none; gap: 0; padding: 0; border: 0; background: none; }
+.format-bar.compact .format-btn { flex: none; width: 30px; height: 28px; }
+.format-bar.compact .format-btn:hover { background: var(--hover); color: var(--ink); }
 
 /* details: a column on desktop, a sheet elsewhere */
 .details {

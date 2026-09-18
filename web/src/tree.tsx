@@ -355,7 +355,14 @@ export function Tree(props: TreeProps) {
             </span>
           </h2>
           {edit?.kind === 'new-dir' && edit.parent === s.name && newDirRow(s.name, 0)}
-          {s.children.map((c) => render(c, 0))}
+          {s.children.length === 0 && !(edit?.kind === 'new-dir' && edit.parent === s.name) ? (
+            <button type="button" class="tree-empty-dir space-empty" onClick={() => onNew(s.name)}>
+              <Icon name="plus" size={14} />
+              Nothing here yet. New note
+            </button>
+          ) : (
+            s.children.map((c) => render(c, 0))
+          )}
         </section>
       ))}
     </>

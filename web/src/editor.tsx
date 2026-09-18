@@ -3,9 +3,12 @@
 // own origin; remote updates arrive tagged 'remote'. The undo manager only
 // tracks the former, which is what keeps undo in one tab from reverting
 // text typed in another. Files dropped or pasted in upload to the note's
-// sibling _assets/ directory and become image links.
+// sibling _assets/ directory and become image links. Typing `[[` offers
+// the notes of the space to link to; `#` offers the tags in use.
 
 import { useEffect, useMemo, useRef } from 'preact/hooks'
+import { autocompletion, startCompletion } from '@codemirror/autocomplete'
+import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { Compartment, EditorState, Prec } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, keymap, placeholder } from '@codemirror/view'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
@@ -20,9 +23,24 @@ import { livePreview } from './live'
 import type { SyncClient } from './sync'
 import { uploadInto } from './upload'
 
+/** A note the editor can link to: the wikilink target that resolves to
+ * it, the title to show, and the path to tell twins apart. */
+export interface LinkTarget {
+  target: string
+  title: string
+  path: string
+}
+
+export interface Completions {
+  notes: LinkTarget[]
+  tags: string[]
+}
+
 export interface EditorProps {
   sync: SyncClient
   note: Note
+  /** What `[[` and `#` can complete to, read when the popup opens. */
+  lookup: () => Completions
   readOnly: boolean
   /** Focus the editor when it mounts. */
   autofocus: boolean
@@ -78,11 +96,63 @@ const theme = EditorView.theme({
   '.cm-searchMatch.cm-searchMatch-selected': { background: 'var(--accent-soft)', outline: '1px solid var(--accent)' },
   '.cm-ySelectionInfo': { fontFamily: 'var(--mono)', fontSize: '10px', padding: '1px 4px', borderRadius: '2px', opacity: '1' },
   '.cm-ySelectionCaret': { marginLeft: '-1px' },
+  '.cm-tooltip': { background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', boxShadow: 'var(--shadow-2)' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--sans)', fontSize: '13.5px', maxHeight: '14em', minWidth: '16em' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '5px 10px', lineHeight: '1.3' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'var(--accent-soft)', color: 'var(--ink)' },
+  '.cm-completionLabel': { color: 'var(--ink)' },
+  '.cm-completionMatchedText': { textDecoration: 'none', fontWeight: '650' },
+  '.cm-completionDetail': { fontFamily: 'var(--mono)', fontSize: '11px', color: 'var(--ink-3)', marginLeft: '10px', fontStyle: 'normal' },
 })
 
-export function Editor({ sync, note, readOnly, autofocus, atEnd, phone, live, onToast, onDone, onView }: EditorProps) {
+// `[[` up to the caret, with no closing bracket or bar since, is a
+// wikilink being typed. The options come from the lookup, so a note
+// made a moment ago is offered too.
+function wikilinks(lookup: () => Completions) {
+  return (ctx: CompletionContext): CompletionResult | null => {
+    const line = ctx.state.doc.lineAt(ctx.pos)
+    const before = line.text.slice(0, ctx.pos - line.from)
+    const m = /\[\[([^\[\]|]*)$/.exec(before)
+    if (!m) return null
+    const typed = m[1] ?? ''
+    const after = line.text.slice(ctx.pos - line.from)
+    const closed = after.startsWith(']]')
+    const options: Completion[] = lookup().notes.map((n) => ({
+      label: n.title,
+      detail: n.path,
+      apply: (view, _c, from, to) => {
+        const insert = closed ? n.target : n.target + ']]'
+        const anchor = from + n.target.length + 2
+        view.dispatch({ changes: { from, to, insert }, selection: { anchor: closed ? from + n.target.length : anchor } })
+      },
+    }))
+    if (options.length === 0) return null
+    return { from: ctx.pos - typed.length, options, validFor: /^[^\[\]|]*$/ }
+  }
+}
+
+// `#` at the start of a word is a tag; offer the ones already in use.
+function hashtags(lookup: () => Completions) {
+  return (ctx: CompletionContext): CompletionResult | null => {
+    const line = ctx.state.doc.lineAt(ctx.pos)
+    const before = line.text.slice(0, ctx.pos - line.from)
+    const m = /(^|\s)#([\w-]*)$/.exec(before)
+    if (!m) return null
+    const typed = m[2] ?? ''
+    const options: Completion[] = lookup().tags.map((t) => ({
+      label: t,
+      apply: (view, _c, from, to) => view.dispatch({ changes: { from, to, insert: t }, selection: { anchor: from + t.length } }),
+    }))
+    if (options.length === 0) return null
+    return { from: ctx.pos - typed.length, options, validFor: /^[\w-]*$/ }
+  }
+}
+
+export function Editor({ sync, note, lookup, readOnly, autofocus, atEnd, phone, live, onToast, onDone, onView }: EditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const look = useRef(lookup)
+  look.current = lookup
   const readOnlyConf = useMemo(() => new Compartment(), [])
   const liveConf = useMemo(() => new Compartment(), [])
   const done = useRef(onDone)
@@ -127,6 +197,14 @@ export function Editor({ sync, note, readOnly, autofocus, atEnd, phone, live, on
       extensions: [
         readOnlyConf.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
         liveConf.of(live ? livePreview() : []),
+        autocompletion({
+          override: [wikilinks(() => look.current()), hashtags(() => look.current())],
+          icons: false,
+          activateOnTyping: true,
+          // The popup follows the text; nothing else is completed.
+          defaultKeymap: true,
+        }),
+        keymap.of([{ key: 'Mod-Space', run: startCompletion }]),
         keymap.of([...yUndoManagerKeymap, ...markdownKeymap, ...searchKeymap, indentWithTab, ...defaultKeymap]),
         // After the search panel and the default keymap have had their
         // turn, a bare Escape hands the page back to the read view.

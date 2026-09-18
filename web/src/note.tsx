@@ -19,6 +19,7 @@ import * as cache from './cache'
 import { fmtBytes, fmtDate } from './dom'
 import { Editor } from './editor'
 import { FormatBar } from './format'
+import type { Completions } from './editor'
 import { isEditable } from './hotkeys'
 import { HtmlNote } from './htmlnote'
 import { Icon } from './icons'
@@ -64,10 +65,12 @@ export interface NotePageProps {
   onPin: () => void
   /** Text to scroll into view once the note renders (a search hit). */
   highlight: string | null
+  /** The notes and tags the editor offers after `[[` and `#`, for a space. */
+  lookup: (space: string) => Completions
 }
 
 export function NotePage(props: NotePageProps) {
-  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onMoved, onTag, pinned, onPin, highlight } = props
+  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onMoved, onTag, pinned, onPin, highlight, lookup } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -370,6 +373,7 @@ export function NotePage(props: NotePageProps) {
           </div>
         )}
         {notice && <span class="editor-notice">{notice}</span>}
+        {!phone && editing && !readOnly && note.role !== 'viewer' && <FormatBar view={view} note={note} onToast={onToast} compact />}
         <span class="spacer" />
         {phone ? (
           editing ? (
@@ -414,6 +418,7 @@ export function NotePage(props: NotePageProps) {
             <Editor
               sync={sync}
               note={note}
+              lookup={() => lookup(note.space)}
               readOnly={readOnly}
               autofocus={fresh ? titleDone : shown === 'edit'}
               atEnd={fresh || phone}
