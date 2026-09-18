@@ -2,107 +2,127 @@
   <img src="images/yana_w_bg.png" alt="YANA — Yet Another Notes App" width="360">
 </p>
 
-# YANA/
+<p align="center">
+  A self-hosted notes app for a household, a homelab, and the agents you point at them.<br>
+  Your notes are markdown files in folders. Everything else is derived.
+</p>
 
-YANA/ is a self-hosted notes app. Your notes are markdown files in folders.
-You can open them in any editor, move them with `mv`, and back them up with
-`cp`. Editing syncs live across every device. Delete the database and nothing
-is lost.
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#what-it-does">What it does</a> ·
+  <a href="docs/using.md">Using it</a> ·
+  <a href="#agents">Agents</a> ·
+  <a href="#on-disk">On disk</a> ·
+  <a href="#documentation">Docs</a>
+</p>
+
+---
+
+YANA/ keeps a directory of `.md` files, and gives you a fast, quiet web app
+on top of it: live sync between every device, wikilinks and backlinks,
+tasks you tick from your phone, a daily note, git history, sharing by
+folder, and an MCP endpoint so an agent can document your network while
+you sleep. Open the same files in any editor, `mv` them, `rsync` them,
+`grep` them. Delete the app's database and it rebuilds from the tree.
 
 None of this is novel. That's sort of the point.
 
-*Yet Another Notes App.*
+![Reading a note: the tree on the left, the note with its table, links, tags and task list, and the Details panel showing backlinks and history](images/screenshots/reading.png)
 
-New to it? [docs/using.md](docs/using.md) is the short version for a
-person, not an implementer: sign in, write, link, add a picture, tick a
-task, capture on a phone, find things, share. The first sign-in also
-seeds a **Start here** note that shows each of these by doing it.
+## What it does
 
-## Invariants
+**Writing.** Markdown, rendered as you would expect: headings, lists,
+tables, code with highlighting, footnotes, task boxes. A note opens to
+read; press **E** to edit, **Esc** to go back. Split mode shows the
+editor and the rendered page side by side. Formatting buttons sit in the
+toolbar on a desktop and above the keyboard on a phone, so nobody has to
+know the syntax to use it. Undo is yours alone, even with someone else
+in the same note.
 
-These hold in every version. If a change would break one, the change is wrong.
+**Linking.** `[[Note name]]` links to a note; type `[[` and pick from the
+list. Every note shows what links to it. A link to a note that does not
+exist yet is a create button. Rename or move a note and every link to it
+is rewritten, on disk and in open editors. `#tags` are clickable, each
+has a page, and the switcher finds notes by tag.
 
-1. **The filesystem is the source of truth.** Deleting `.sync/index.db` and
-   restarting rebuilds everything by walking the notes tree.
-2. **Files are honest.** A note is a `.md` (or `.html`) file at a real path,
-   readable and editable with any text editor. Frontmatter is two keys.
-3. **Folders are folders.** Real nested directories. No tags-as-folders, no
-   hidden ordering files.
-4. **Concurrent edits converge.** Two clients plus an external file write to
-   the same note end up with the same text, with no conflict dialog.
-5. **The server does not understand documents.** It relays opaque CRDT
-   updates and persists them. Merge logic lives in the client library.
-6. **Everything is exportable.** At any moment you can walk away with the
-   tree and lose nothing but edit history.
+![Split mode: the editor on the left with the formatting buttons and a wikilink completion popup, the rendered note on the right](images/screenshots/editing.png)
 
-## Status
+**Sync.** Each note is a CRDT document that stays in step with its file
+in both directions. Two people in one note see each other type, with
+presence and cursors. Edit the file with vim, `echo >>` a line, or
+`rsync` a folder in, and the change merges into whoever has it open.
+Kill the server mid-sentence or write offline for a day; it converges on
+reconnect, with no conflict dialog.
 
-Early. What runs today: a single `yana` binary that scans a directory of
-markdown files, assigns each note an id, indexes it for full-text (and
-regex) search, renders it, and serves a browser UI. Underneath, each note
-has a CRDT document that stays in step with its file in both directions:
-edits to the document are written to the file, and edits to the file (any
-editor, `echo >>`, `rsync`) are merged into the document. Notes are editable
-in the browser over a realtime relay (`GET /ws`): two tabs on one note see
-each other's keystrokes as they type, with a presence bar showing who else
-is there and where their cursor is. Kill the server mid-session or edit
-offline for a while and everything merges on reconnect. Wikilinks resolve
-between notes, every note shows its backlinks, unresolved links create
-their note on click, and moving or renaming a note rewrites every inbound
-link on disk and in open clients ([docs/links.md](docs/links.md)). The
-notes root is also a git repository: the server commits after the tree has
-been quiet, agent edits are distinguishable from human edits by commit
-author, and every note has a revision list, diffs, and restore in the UI
-([docs/deployment.md](docs/deployment.md), git history). Accounts gate
-every route: the first run creates the owner account (no default
-credentials), sessions are device-labelled and revocable, and sharing is
-modeled as spaces — top-level directories whose `.space.yml` names their
-members — with the tree, search, exports, and live subscriptions never
-crossing a space boundary a member cannot see
-([docs/auth.md](docs/auth.md)). Agents work on the tree two ways: by
-writing files (bind-mount the tree, follow the space's
-`CONVENTIONS.md`), or through the MCP endpoint at `/mcp` with a
-space-scoped, revocable agent token; every agent write is authored, rate
-limited, live for open clients, and committed to git under its label
- ([docs/agents.md](docs/agents.md)). The client works on a phone and a
- desktop and has a dark theme. A note opens to read, with task boxes you
- can tick from any device; the editor is a mode, CodeMirror with a
- formatting bar above the phone keyboard, per-user undo, drag-and-drop
- and paste for images, and drag to move notes and folders in the tree. New note,
- daily note, quick switcher, and command palette are one key away; New
- never asks for a path (name the note by its title; a slash in the
- title moves it into a folder, made on the spot), Capture drops a
- line into today's note without opening it, notes and folders pin to
- the top of the sidebar, every `#tag` is a link to the notes carrying
- it, and the tree has folder actions — new, rename, move, delete —
- behind a right-click or a long press
- ([docs/editor.md](docs/editor.md)). Settings pages cover the rest
- without touching a file: your name, password and signed-in devices;
- the accounts on the server; spaces with members and roles; agent keys;
- theme, text size and line width; exports, the trash, history and the
- index. HTML notes
- render on a second origin in a sandboxed frame — sanitized by default,
- runnable as written only after you mark the note trusted — with
- source-only editing that keeps a `name.conflict-<ts>.html` copy when
- saves collide ([docs/html-notes.md](docs/html-notes.md)). Deleting a
-  note is soft: the file moves to `.trash/` and its edit history is
-  retained, both for a 30-day window; the trash lists every deleted note
-  with its original path, restore returns it (a note `rm`'d from a shell
-  comes back from its history with everything intact), and emptying the
-  trash is the only permanent destruction
-  ([docs/trash.md](docs/trash.md)). Everything exports: one note as a
-  self-contained HTML file, a space or subtree as a static site with
-  navigation, relative wikilinks, backlinks, and offline search, and the
-  whole tree as a byte-identical zip that round-trips ids, links, and
-  structure exactly ([docs/export.md](docs/export.md)).
-  The client installs: a home-screen app with the shell cached, notes
-  kept on the device through their CRDT documents, the tree and recent
-  renders readable offline, changes that need the server (new note,
-  daily note, upload) queued in order and sent when the connection
-  returns, a share target that appends to today's note, and a
-  one-line reload notice when a new version arrives
-  ([docs/pwa.md](docs/pwa.md)). The Android app is tracked as a later
-  phase.
+**Capture.** New note never asks for a path: name it by its title and it
+lands where you are looking. **Today** opens the daily note, made from a
+template if you keep one. **Capture** appends one line to today's note
+without opening it — from the home screen, the phone's bottom bar, or the
+share sheet.
+
+**On a phone.** Install it from the browser and it is a home-screen app
+that works offline: the tree, recent notes, and every note you have
+opened are on the device, and changes that need the server queue until
+it is back. Long-press for folder actions; a bar of formatting buttons
+sits above the keyboard.
+
+![Three phone screens: the home screen with New note, Capture and Today; a note being read with its task boxes; the same note in the editor with the formatting bar above the keyboard](images/screenshots/phone.png)
+
+**Finding things.** Full-text search over titles and bodies, regex search
+over the files (with ripgrep), a switcher that opens a note by name or
+tag, recents and pins on the home screen, and a command palette that
+lists everything the app can do.
+
+<p align="center"><img src="images/screenshots/switcher.png" alt="The switcher filtering notes by #recipe" width="700"></p>
+
+**History.** The notes root is a git repository. The server commits after
+the tree has been quiet; edits by people and edits by agents are
+distinguishable by author. Every note has a revision list, diffs, and
+restore in the Details panel. Optional backup remotes push the history
+on a schedule.
+
+**Sharing.** Accounts gate every route; the first visit creates the
+owner and there are no default credentials. Each top-level folder is a
+*space*, and a space's members and their roles are listed in its
+`.space.yml`. The tree, search, exports and live subscriptions never
+cross a space boundary a member cannot see. Settings pages cover
+accounts, spaces, sessions and agent keys without touching a file.
+
+**Deletion is soft.** A deleted note moves to `.trash/` with its edit
+history for thirty days and comes back from the Trash page, original path
+and all. A note `rm`'d from a shell comes back too. Emptying the trash
+is the only permanent destruction.
+
+**Everything exports.** One note as a self-contained HTML file. A space or
+subtree as a static site with navigation, working links, backlinks and
+offline search. The whole tree as a zip that round-trips ids, links and
+structure byte for byte.
+
+**HTML notes.** A `.html` file in the tree is a note too, rendered on a
+separate origin in a sandboxed frame — sanitized by default, run as
+written only after you mark it trusted.
+
+**Two themes.** Light and dark, following the system or set by hand, with
+text size, line width and density in Appearance.
+
+![The dark theme](images/screenshots/dark.png)
+
+## Agents
+
+Two doors for an agent, both ending in the same place: every write is
+merged into the note's document, shown live to open clients, written to
+the file, and committed to git under an identifiable author.
+
+- **Files.** Bind-mount the tree (or one space) into the agent's
+  container. It reads with `rg` and `cat`, writes `.md` files, links
+  them with `[[wikilinks]]`, and the server picks everything up: indexed,
+  resolved, backlinked. Per space, a `CONVENTIONS.md` tells the agent how
+  you like things.
+- **MCP.** `/mcp` with a space-scoped, revocable agent token from
+  Settings → Agents, for agents that run somewhere else. Writes are rate
+  limited and attributed to the token's label.
+
+Details in [docs/agents.md](docs/agents.md).
 
 ## Quick start
 
@@ -112,16 +132,17 @@ mkdir notes
 docker compose up -d
 ```
 
-Open <http://localhost:8080>. The first visit creates the owner account;
-there are no default credentials. Notes live in `./notes` next to the compose
-file; drop `.md` files into `./notes/<space>/` and they appear on the next
-scan. Files stay owned by you. Each top-level directory is a space; share
-it by listing members in its `.space.yml` ([docs/auth.md](docs/auth.md)).
-Copy `.env.example` to `.env` to
-change the port or point the volume at a folder of markdown you already have.
+Open <http://localhost:8080>. The first visit creates the owner account
+and seeds a **Start here** note that shows every feature by using it.
+Notes live in `./notes` next to the compose file; drop `.md` files into
+`./notes/<space>/` and they appear on the next scan. Files stay owned by
+you.
 
 Prebuilt images: `ghcr.io/madeofpendletonwool/yana` (`latest`, or a commit
-SHA).
+SHA). Copy `.env.example` to `.env` to change the ports or point the
+volume at a folder of markdown you already have. HTML notes render from a
+second port (`8081` by default); behind a reverse proxy give it its own
+hostname ([docs/deployment.md](docs/deployment.md)).
 
 Without a container, with Go 1.26+ and Node 20+:
 
@@ -133,33 +154,27 @@ YANA_NOTES_ROOT=~/notes ./yana   # default is ~/.yana
 Install `rg` (ripgrep) for regex search; without it the rest still works.
 
 Configuration is by environment variable (`YANA_NOTES_ROOT`, `YANA_LISTEN`,
-`YANA_LOG_LEVEL`, `YANA_RIPGREP`, ...) with an optional YAML file named by
-`YANA_CONFIG`. `.env.example` lists every key with its default;
-[docs/deployment.md](docs/deployment.md) covers reverse proxies, backups,
-and the volume layout.
-
-```sh
-./yana scan      # rebuild the index once and exit
-./yana version
-```
+`YANA_GIT`, `YANA_LOG_LEVEL`, ...) or a YAML file named by `YANA_CONFIG`.
+`.env.example` lists every key with its default.
 
 ## On disk
 
 ```
 <notes root>/
   <space>/
-    .space.yml           # members and roles (later phase)
+    .space.yml           # members and roles
+    CONVENTIONS.md       # optional: how agents should write here
     <folders...>/<note>.md
-    <folders...>/_assets/<image>
+    <folders...>/_assets/<file>
   .trash/                # soft-deleted notes, in their own structure
   .sync/                 # derived state
     index.db             # the index and the CRDT edit log; safe to delete
     crdt/<id>.bin        # each note's document; keep it to keep edit history
-    crdt/retired/        # documents of deleted notes, for the retention window
+  .git/                  # the history
 ```
 
-A note's frontmatter is minimal and is the only thing YANA/ ever writes into
-a file it did not author:
+The server writes exactly two keys of frontmatter into a note, once, and
+never anything else:
 
 ```yaml
 ---
@@ -168,9 +183,47 @@ created: 2026-09-12T14:02:11Z
 ---
 ```
 
-Existing keys are left byte-for-byte as you wrote them. The full contract,
-including wikilinks, assets, and what scripts and agents may write, is in
+Keys you add are left byte for byte as you wrote them; a short list of
+optional ones (`order`, `trusted`) is read if present. The full contract
+— wikilinks, assets, what scripts and agents may write — is in
 [docs/file-format.md](docs/file-format.md).
+
+### Invariants
+
+These hold in every version. If a change would break one, the change is
+wrong.
+
+1. **The filesystem is the source of truth.** Delete `.sync/index.db`,
+   restart, and everything is rebuilt by walking the tree.
+2. **Files are honest.** A note is a `.md` (or `.html`) file at a real
+   path, readable and editable with any text editor.
+3. **Folders are folders.** Real nested directories. No tags-as-folders,
+   no hidden ordering files.
+4. **Concurrent edits converge.** Two clients plus an external file write
+   to the same note end up with the same text, with no conflict dialog.
+5. **The server does not understand documents.** It relays opaque CRDT
+   updates and persists them. Merge logic lives in the client library.
+6. **Everything is exportable.** At any moment you can walk away with the
+   tree and lose nothing but edit history.
+
+## Documentation
+
+| | |
+|---|---|
+| [docs/using.md](docs/using.md) | How to do the everyday things, for a person rather than an implementer |
+| [docs/deployment.md](docs/deployment.md) | Compose, reverse proxies, the content origin, backups, every setting |
+| [docs/file-format.md](docs/file-format.md) | The on-disk contract: frontmatter, links, assets, what may be written |
+| [docs/editor.md](docs/editor.md) | The web client: shell, editor, capture, tags, tree actions, hotkeys |
+| [docs/links.md](docs/links.md) | Wikilink resolution, backlinks, rename propagation |
+| [docs/auth.md](docs/auth.md) | Accounts, sessions, spaces and roles |
+| [docs/agents.md](docs/agents.md) | The filesystem path, MCP, conventions, attribution |
+| [docs/realtime.md](docs/realtime.md) | The relay and the wire protocol |
+| [docs/html-notes.md](docs/html-notes.md) | The sandbox and the trust model |
+| [docs/trash.md](docs/trash.md) | Deletion and recovery |
+| [docs/export.md](docs/export.md) | Single-note, static-site and zip exports |
+| [docs/pwa.md](docs/pwa.md) | The installable app and offline behaviour |
+| [docs/crdt-decision.md](docs/crdt-decision.md) | Which CRDT library each client uses, and why |
+| [CHANGELOG.md](CHANGELOG.md) | What changed |
 
 ## Development
 
@@ -182,30 +235,33 @@ make lint       # gofmt and go vet
 make docker     # build the image locally
 ```
 
-Layout: `cmd/yana` (entry point), `internal/` (server packages; `pathsafe`
-is the only way a string becomes a filesystem path, `reconcile` keeps documents,
-files, and the index in step, `rt` is the realtime relay, `mcp` is the agent
-tool endpoint, `ydoc` wraps the CRDT library), `web/` (Preact and CodeMirror
-client, embedded into the binary), `spike/crdt/` (Phase 0 CRDT evaluation
-harness), `docs/` (`deployment.md`, `file-format.md`, `agents.md`,
-`realtime.md` for the wire protocol, `editor.md` for the client,
-`html-notes.md` for the sandbox and trust model, `trash.md` for deletion
-and recovery, `export.md` for the export formats, `pwa.md` for the
-installable app, and `crdt-decision.md`,
-which records which CRDT library each client uses and why).
+One Go binary with the web client embedded. `cmd/yana` is the entry
+point; `internal/` holds the server (`pathsafe` is the only way a string
+becomes a filesystem path, `reconcile` keeps documents, files and the
+index in step, `rt` is the realtime relay, `mcp` the agent endpoint,
+`git` the history layer, `guide` the starter notes); `web/` is the Preact
+and CodeMirror client; `spike/crdt/` is the CRDT evaluation harness the
+design started from.
 
 The reconciliation tests include a 60 second oscillation check and a
 process-kill check; the relay tests include a server-restart convergence
 check and a 20-connection load check; `go test -short ./...` shrinks the
-former.
-
-The CRDT spike's cross-language tests need `node` and `npm ci` in
-`spike/crdt/js`; without them those tests skip.
+former. The CRDT spike's cross-language tests need `node` and `npm ci`
+in `spike/crdt/js`; without them those tests skip.
 
 Work happens on short-lived branches off `main`, with Conventional Commit
 messages and a pull request per change. CI runs gofmt, vet, build, tests,
-the web typecheck, and a container smoke test on every pull request; merges
-to `main` publish the image.
+the web typecheck, and a container smoke test on every pull request;
+merges to `main` publish the image.
+
+## Roadmap
+
+Planned next, roughly in order: diagrams, callouts and math in the
+renderer; a tasks page listing every open box across a space; an
+activity feed over the git history; PDFs and other attachments with text
+search; public read-only links for one note; importers for markdown
+vaults and Notion exports; search operators; templates with variables;
+vim keys; and an Android app.
 
 ## License
 
