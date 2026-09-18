@@ -13,6 +13,8 @@ export interface TreeNode {
   order?: number
   /** The note's inline #tags, folded to lower case. */
   tags?: string[]
+  /** A public link to the note is live. */
+  public?: boolean
   children?: TreeNode[]
 }
 
@@ -56,12 +58,34 @@ export interface Note {
   content_hash: string
   /** The caller's role in the note's space; a viewer reads only. */
   role: Role
+  /** A public link to the note is live. */
+  public: boolean
   html?: string
   markdown?: string
   source?: string
 }
 
 export type Role = 'owner' | 'editor' | 'viewer'
+
+/** A public link: one note, read-only, at an unguessable URL on the
+ * content origin, with no account. */
+export interface PublicLink {
+  id: string
+  note_id: string
+  url: string
+  created_at: string
+  expires_at: string | null
+}
+
+/** A live link as the Data page lists it, with the note it opens. */
+export interface PublicLinkRow extends PublicLink {
+  title: string
+  path: string
+  space: string
+}
+
+/** When a link stops working. */
+export type LinkExpiry = '1d' | '1w' | 'never'
 
 export interface SearchHit {
   note: Note
@@ -340,6 +364,15 @@ export const api = {
     post<{ ok: boolean; trusted: boolean }>(`/api/notes/${encodeURIComponent(id)}/trust`, { trusted }),
   upload: (path: string, file: Blob) => upload(path, file),
   exportNote: (id: string) => download(`/api/notes/${encodeURIComponent(id)}/export.html`),
+  publicLink: (id: string) => get<{ link: PublicLink | null }>(`/api/notes/${encodeURIComponent(id)}/public-link`),
+  createPublicLink: (id: string, expires: LinkExpiry) =>
+    post<{ link: PublicLink; created: boolean }>(`/api/notes/${encodeURIComponent(id)}/public-link`, { expires }),
+  setPublicLinkExpiry: (id: string, expires: LinkExpiry) =>
+    post<{ link: PublicLink }>(`/api/notes/${encodeURIComponent(id)}/public-link`, { expires }, 'PUT'),
+  revokePublicLink: (id: string) =>
+    post<{ ok: boolean; revoked: boolean }>(`/api/notes/${encodeURIComponent(id)}/public-link`, {}, 'DELETE'),
+  publicLinks: () => get<{ links: PublicLinkRow[] }>('/api/public-links'),
+  revokeAllPublicLinks: () => post<{ ok: boolean; revoked: number }>('/api/public-links/revoke-all', {}),
   exportSite: (space: string, path?: string) => download(`/api/spaces/${encodeURIComponent(space)}/export/site.zip` + scope(path)),
   exportTree: (space: string, path?: string) => download(`/api/spaces/${encodeURIComponent(space)}/export/notes.zip` + scope(path)),
 }

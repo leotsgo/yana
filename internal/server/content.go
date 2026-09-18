@@ -2,17 +2,22 @@
 // a different origin (its own port, or a subdomain behind a proxy) so the
 // sandboxed frame that draws a note cannot reach the app's API, its
 // cookies, or its DOM even if the note's markup turns out to do more than
-// the sanitizer expected. Two routes exist here and nothing else:
+// the sanitizer expected. The routes here, and nothing else:
 //
 //	GET /n/{id}?token=…            the rendered note
 //	GET /t/{token}/f/{path…}       an asset, resolved against the note
+//	GET /p/{token}                 a public link's note, read-only
+//	GET /p/{token}/f/{name}?at=…   an asset beside that note
+//	GET /r/{name}                  the diagram and math runtimes
 //
-// The token is minted by the main API (GET /api/notes/{id}/view), signed
-// with a secret that lives only in this process, scoped to one note, and
-// short-lived. It is not an account token: it opens exactly this note and
-// the assets beside it, nothing else. Accounts are not consulted here at
-// all, so the frame's opaque origin — which can neither read cookies nor
-// set headers — loses nothing it needs.
+// The view token is minted by the main API (GET /api/notes/{id}/view),
+// signed with the content secret, scoped to one note, and short-lived.
+// It is not an account token: it opens exactly this note and the assets
+// beside it, nothing else. Accounts are not consulted here at all, so
+// the frame's opaque origin — which can neither read cookies nor set
+// headers — loses nothing it needs. A public link's token is the same
+// idea held open: derived from the link's row with the same secret,
+// good until the link is revoked or expires (see publiclinks.go).
 package server
 
 import (
@@ -50,11 +55,17 @@ type Content struct {
 	Log    Logger
 	secret []byte
 	Now    func() time.Time
+	// Rich holds the diagram and math runtimes public pages link (see
+	// export.Deps.Rich); nil serves a diagram or an equation as text.
+	Rich fs.FS
+	// linkRate bounds requests per public link, page and assets alike.
+	linkRate *pathsafe.RateLimiter
 }
 
 // NewContent builds the content-origin handler. The secret signs view
-// tokens; a nil secret gets fresh random bytes, which means tokens do not
-// survive a restart (they live minutes; the client mints a new one).
+// tokens and derives public-link tokens; a nil secret gets fresh random
+// bytes, which means neither survives a restart (the process loads a
+// persisted one so public links do).
 func NewContent(db *index.DB, root *pathsafe.Root, secret []byte, log Logger) *Content {
 	if secret == nil {
 		secret = make([]byte, 32)
@@ -63,7 +74,9 @@ func NewContent(db *index.DB, root *pathsafe.Root, secret []byte, log Logger) *C
 	if log == nil {
 		log = noopLogger{}
 	}
-	return &Content{DB: db, Root: root, Log: log, secret: secret, Now: time.Now}
+	rate := pathsafe.Rate{N: publicLinkRate, Window: time.Minute}
+	return &Content{DB: db, Root: root, Log: log, secret: secret, Now: time.Now,
+		linkRate: pathsafe.NewRateLimiter(rate, rate)}
 }
 
 // Logger is what Content needs from a logger.
@@ -138,6 +151,10 @@ func (c *Content) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.serveNote(w, r)
 	case strings.HasPrefix(r.URL.Path, "/t/"):
 		c.serveAsset(w, r)
+	case strings.HasPrefix(r.URL.Path, "/p/"):
+		c.servePublic(w, r)
+	case strings.HasPrefix(r.URL.Path, "/r/"):
+		c.serveRich(w, r)
 	default:
 		plainError(w, http.StatusNotFound, "no such page")
 	}

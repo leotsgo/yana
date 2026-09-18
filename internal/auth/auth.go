@@ -27,6 +27,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
+	"github.com/madeofpendletonwool/yana/internal/fsutil"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/scanner"
@@ -129,17 +130,9 @@ func Open(db *index.DB, secretPath string, opts Options, log *slog.Logger) (*Ser
 }
 
 func loadOrCreateSecret(path string) ([]byte, error) {
-	if b, err := os.ReadFile(path); err == nil && len(b) >= 32 {
-		return b[:32], nil
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("auth: read secret: %w", err)
-	}
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return nil, fmt.Errorf("auth: generate secret: %w", err)
-	}
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		return nil, fmt.Errorf("auth: write secret: %w", err)
+	b, err := fsutil.LoadOrCreateSecret(path)
+	if err != nil {
+		return nil, fmt.Errorf("auth: %w", err)
 	}
 	return b, nil
 }

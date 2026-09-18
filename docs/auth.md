@@ -128,6 +128,47 @@ with it there, and that account signs in and edits — with no file
 touched by hand. Hand-editing `.space.yml` still works and shows on the
 page at once, since the page reads the file itself.
 
+### Public links
+
+A note can be shared with someone who has no account: "Share a link" in
+the note's menu (or the globe beside its folder crumbs, once shared)
+makes one address on the content origin —
+`https://content.example.com/p/{token}` — that renders the note
+read-only, with the pictures and attachments under its `_assets/`,
+diagrams and math drawn. Nothing on the page says where the note lives:
+no path, no space, no id. A wikilink is a link only when its target has a
+live link too; otherwise it is plain text. HTML notes are sanitized on
+the page whatever their `trusted` flag says. The page carries
+`X-Robots-Tag: noindex`, `Cache-Control: no-store`, no cookies, and a
+policy that allows nothing but this origin's runtimes and pictures; each
+link is rate-limited on its own.
+
+A link is index state (the `public_links` table), not frontmatter: the
+file stays honest and a link does not travel with an export. One live
+link per note — sharing again shows the same address. The token is
+derived from the link's row with the secret in `.sync/content_secret`
+(HMAC-SHA256, 32 bytes), and only its SHA-256 is stored, so a copy of
+the index alone opens nothing and the app can still show the address
+again. A revoked link, an expired link, a note that was deleted (the
+delete revokes it; a restore does not bring it back) and an address
+that never existed all answer the same `404` at once.
+
+Membership of the note's space is what it takes to make, read, change
+or revoke a link; a viewer can share what they can read. The routes:
+
+| Route | Notes |
+| --- | --- |
+| `GET /api/notes/{id}/public-link` | `{link}` — the live link or `null`; `url`, `created_at`, `expires_at` |
+| `POST /api/notes/{id}/public-link` | `{expires?: "1d" \| "1w" \| "never"}` — makes the link (`201`) or returns the live one (`200`) |
+| `PUT /api/notes/{id}/public-link` | `{expires}` — changes when the live link stops |
+| `DELETE /api/notes/{id}/public-link` | revokes it |
+| `GET /api/public-links` | every live link in the caller's spaces, with the note's title and path |
+| `POST /api/public-links/revoke-all` | revokes all of those |
+
+The Data page in settings lists the live links with a Revoke for each and
+a Revoke all. Links need the content origin (`YANA_CONTENT_LISTEN`); a
+server without one answers `501`.
+
 ### Realtime relay
 
 The WebSocket handshake verifies the access token and fixes the

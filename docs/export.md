@@ -62,9 +62,12 @@ instances or handing a space to another tool.
 
 ## Publishing
 
-The static site doubles as the public-sharing story. The app itself sits
-behind a reverse proxy on a private network; the site export is what you
-can put on any static host. Keep in mind what a site carries: every note
+The static site doubles as the public-sharing story for a whole space.
+The app itself sits behind a reverse proxy on a private network; the
+site export is what you can put on any static host. For one note — a
+recipe for someone with no account — share a link instead: the note's
+menu makes an address on the content origin that renders it read-only
+with its pictures, until you revoke it ([auth.md](auth.md#public-links)). Keep in mind what a site carries: every note
 in the space, sanitized or trusted exactly as in the app, and the full
 text of every note in the search index. Export a subtree
 (`?path=public`) when the space holds more than it should publish.

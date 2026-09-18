@@ -2,9 +2,11 @@ package server
 
 import (
 	"io/fs"
+	"net/http"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/index"
 )
@@ -19,6 +21,7 @@ type TreeNode struct {
 	Kind     string      `json:"kind,omitempty"`
 	Order    *int        `json:"order,omitempty"`
 	Tags     []string    `json:"tags,omitempty"`
+	Public   bool        `json:"public,omitempty"` // a public link is live
 	Children []*TreeNode `json:"children,omitempty"`
 }
 
@@ -73,6 +76,30 @@ func buildTree(notes []index.Note, tags map[string][]string) []SpaceTree {
 		out = append(out, SpaceTree{Name: name, Notes: acc.count, Children: acc.root.Children})
 	}
 	return out
+}
+
+// markPublic sets Public on every note with a live public link, for the
+// globe in the sidebar. A lookup failure marks nothing.
+func (s *Server) markPublic(r *http.Request, tree []SpaceTree) {
+	if s.Content == nil {
+		return
+	}
+	ids, err := s.DB.PublicNoteIDs(r.Context(), time.Now())
+	if err != nil || len(ids) == 0 {
+		return
+	}
+	var walk func(nodes []*TreeNode)
+	walk = func(nodes []*TreeNode) {
+		for _, n := range nodes {
+			if n.Type == "note" && ids[n.ID] {
+				n.Public = true
+			}
+			walk(n.Children)
+		}
+	}
+	for _, sp := range tree {
+		walk(sp.Children)
+	}
 }
 
 // withEmptyDirs adds the directories on disk that hold no notes yet (a

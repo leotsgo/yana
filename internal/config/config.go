@@ -352,6 +352,10 @@ func (c Config) IndexPath() string { return filepath.Join(c.SyncDir(), "index.db
 // AuthSecretPath returns the location of the token-signing secret.
 func (c Config) AuthSecretPath() string { return filepath.Join(c.SyncDir(), "auth_secret") }
 
+// ContentSecretPath returns the location of the key the content origin
+// signs view tokens and derives public-link tokens with.
+func (c Config) ContentSecretPath() string { return filepath.Join(c.SyncDir(), "content_secret") }
+
 // GitSecretPath returns the location of the key remote credentials are
 // sealed with.
 func (c Config) GitSecretPath() string { return filepath.Join(c.SyncDir(), "git_secret") }
