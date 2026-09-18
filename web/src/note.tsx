@@ -28,6 +28,7 @@ import type { Layout } from './layout'
 import type { MenuSpec } from './menu'
 import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
 import { resolveTitle } from './paths'
+import { ShareLinkDialog } from './publiclink'
 import { renderRich } from './rich-load'
 import type { OpenMode } from './prefs'
 import { SyncClient, presence } from './sync'
@@ -58,6 +59,8 @@ export interface NotePageProps {
   /** True when a folder exists in the tree; the title hint says when it will be made. */
   hasDir: (path: string) => boolean
   onExport: () => void
+  /** The note's public link was made or revoked; the tree's globe needs a refresh. */
+  onShared: () => void
   /** The note was renamed from the title; the tree needs a refresh. */
   onMoved: (res: MoveResult) => void
   /** Open the page for a tag. */
@@ -71,7 +74,7 @@ export interface NotePageProps {
 }
 
 export function NotePage(props: NotePageProps) {
-  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onMoved, onTag, pinned, onPin, highlight, lookup } = props
+  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, lookup } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -82,6 +85,7 @@ export function NotePage(props: NotePageProps) {
   const [readOnly, setReadOnly] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [details, setDetails] = useState(false)
+  const [share, setShare] = useState(false)
   const [view, setView] = useState<EditorView | null>(null)
   // A fresh note starts in the title; Enter there hands focus to the editor.
   // A double-click in the tree asks for the title again on an open note.
@@ -280,12 +284,14 @@ export function NotePage(props: NotePageProps) {
       items: viewer
         ? [
             { id: 'pin', label: pinned ? 'Unpin from the sidebar' : 'Pin to the sidebar', icon: pinned ? 'pin-off' : 'pin', run: onPin },
+            { id: 'share', label: 'Share a link', icon: 'globe', detail: note?.public ? 'live' : undefined, run: () => setShare(true) },
             { id: 'export', label: 'Export as HTML', icon: 'download', detail: 'one file', run: onExport },
           ]
         : [
             { id: 'pin', label: pinned ? 'Unpin from the sidebar' : 'Pin to the sidebar', icon: pinned ? 'pin-off' : 'pin', run: onPin },
             { id: 'move', label: 'Move to a folder', icon: 'move', run: onMove },
             { id: 'rename', label: 'Rename or move by path', icon: 'pencil', run: onRename },
+            { id: 'share', label: 'Share a link', icon: 'globe', detail: note?.public ? 'live' : undefined, run: () => setShare(true) },
             { id: 'export', label: 'Export as HTML', icon: 'download', detail: 'one file', run: onExport },
             'sep',
             { id: 'delete', label: 'Delete', icon: 'trash', detail: 'to the trash', danger: true, run: onDelete },
@@ -314,7 +320,20 @@ export function NotePage(props: NotePageProps) {
       onNext={() => setTitleDone(true)}
       onTag={onTag}
       onLocation={onMove}
+      onShare={() => setShare(true)}
       hasDir={hasDir}
+    />
+  )
+  const shareDialog = share && (
+    <ShareLinkDialog
+      noteID={note.id}
+      title={note.title}
+      onClose={() => setShare(false)}
+      onToast={onToast}
+      onChanged={(live) => {
+        setNote({ ...note, public: live })
+        onShared()
+      }}
     />
   )
   const detailsPane = details && (
@@ -336,6 +355,7 @@ export function NotePage(props: NotePageProps) {
           />
           {detailsPane}
         </div>
+        {shareDialog}
       </article>
     )
   }
@@ -448,6 +468,7 @@ export function NotePage(props: NotePageProps) {
         {detailsPane}
       </div>
       {phone && shown === 'edit' && !readOnly && <FormatBar view={view} note={note} onToast={onToast} />}
+      {shareDialog}
     </article>
   )
 }
@@ -506,10 +527,12 @@ interface NoteHeaderProps {
   onTag: (tag: string) => void
   /** The crumbs are a button: pick another folder for the note. */
   onLocation: () => void
+  /** The globe beside the crumbs, while a public link is live. */
+  onShare: () => void
   hasDir: (path: string) => boolean
 }
 
-function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLocation, hasDir }: NoteHeaderProps) {
+function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLocation, onShare, hasDir }: NoteHeaderProps) {
   const el = useRef<HTMLHeadingElement>(null)
   const dir = dirOf(note.path)
   // What the title says while it is being typed; a slash in it places
@@ -559,6 +582,12 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLoca
           )}
           {!readOnly && <Icon name="chevron-down" class="crumbs-caret" size={12} />}
         </button>
+        {note.public && (
+          <button type="button" class="public-mark" title="A public link to this note is live" onClick={onShare}>
+            <Icon name="globe" size={13} />
+            Public
+          </button>
+        )}
       </nav>
       <h1
         ref={el}

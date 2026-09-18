@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Share one note by link. "Share a link" in a note's menu makes an
+  unguessable address on the content origin (`/p/{token}`) that renders
+  the note read-only with its pictures, attachments, diagrams and math,
+  with no account; the dialog shows the address with Copy, the share
+  sheet on a phone, a QR code drawn on the spot, an expiry (a day, a
+  week, never) and Revoke. One live link per note, shown again on the
+  next visit; a globe marks a shared note in the tree and beside its
+  crumbs; the Data page lists every live link with Revoke and Revoke
+  all. Wikilinks on the page link only to notes that are public too;
+  HTML notes are sanitized whatever their trusted flag; the page is
+  `noindex`, `no-store`, cookie-free and rate-limited per link. A
+  revoked, expired or never-issued link answers the same `404`;
+  deleting the note revokes its link and a restore does not bring it
+  back. The token is derived from the link row with
+  `.sync/content_secret` and only its hash is stored (migration
+  `009_public_links.sql`).
 - The app teaches itself. The owner's first sign-in seeds an empty tree
   with a **Start here** note (and the note and picture it references)
   that shows links, pictures, tasks, tags, capture, search, folders,

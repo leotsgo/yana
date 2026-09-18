@@ -99,6 +99,12 @@ subtree as a static site with navigation, working links, backlinks and
 offline search. The whole tree as a zip that round-trips ids, links and
 structure byte for byte.
 
+**Share one note by link.** "Share a link" in a note's menu gives it an
+unguessable address that anyone opens with no account, on a phone, with
+its pictures. Copy it, scan the QR code, or hand it to the share sheet;
+set it to stop after a day or a week; revoke it and it is gone at once.
+A globe marks a shared note, and the Data page lists every live link.
+
 **HTML notes.** A `.html` file in the tree is a note too, rendered on a
 separate origin in a sandboxed frame — sanitized by default, run as
 written only after you mark it trusted.

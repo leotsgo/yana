@@ -295,6 +295,7 @@ kbd {
 .tree-note.selected { background: var(--accent-soft); color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
 .tree-title { overflow: hidden; text-overflow: ellipsis; }
 .tree-kind { font: 10px var(--mono); color: var(--ink-3); border: 1px solid var(--line-2); padding: 0 4px; border-radius: 3px; }
+.tree-public { flex: none; color: var(--accent-ink); }
 .space.drop > .space-name, .tree-dir.drop, .tree-note.drop { box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
 .tree-note[draggable="true"] { cursor: grab; }
 .tree-note[draggable="true"]:active { cursor: grabbing; }
@@ -391,6 +392,12 @@ kbd {
 .crumbs .icon { margin-right: 2px; }
 .crumbs-caret { margin: 0 0 0 2px; opacity: 0.55; }
 .crumb-sep { margin: 0 2px; }
+.public-mark {
+  display: inline-flex; align-items: center; gap: 4px; height: 22px; margin-left: 8px; padding: 0 7px;
+  font: 500 11px var(--sans); color: var(--accent-ink); background: var(--accent-soft);
+  border: 0; border-radius: 999px; cursor: pointer; white-space: nowrap;
+}
+.public-mark:hover { background: var(--accent); color: var(--accent-text); }
 .title-hint {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 0; padding: 0;
   font: 12.5px var(--mono); color: var(--ink-2);
@@ -861,6 +868,27 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .confirm-row-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .confirm-row-detail { flex: 1; min-width: 0; font: 11px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+
+/* --- share a link ------------------------------------------------------ */
+
+.share-dialog { width: min(520px, 100%); }
+.share-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.share-head .icon-btn { margin: -6px -8px 0 0; }
+.share-url { margin-top: 14px; }
+.share-url .copy-value { font-size: 12.5px; }
+.share-body { display: flex; gap: 18px; align-items: flex-start; margin-top: 16px; }
+.share-qr { flex: none; width: 128px; height: 128px; padding: 6px; background: #fff; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.share-qr svg { display: block; width: 100%; height: 100%; }
+.share-facts { flex: 1; min-width: 0; font-size: 13px; align-content: start; }
+.share-expiry { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+.share-expiry-label { font-size: 13px; color: var(--ink-2); }
+.share-expiry .segmented button { white-space: nowrap; }
+.share-dialog .confirm-actions .spacer { flex: 1; }
+@media (max-width: 480px) {
+  .share-url .copy-value { flex-basis: 100%; }
+  .share-body { flex-direction: column; align-items: center; }
+  .share-facts { width: 100%; }
+}
 
 /* --- accounts ---------------------------------------------------------- */
 

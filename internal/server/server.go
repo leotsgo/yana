@@ -190,6 +190,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/git/remotes/{id}/test", s.authed(s.handleGitRemoteTest))
 	s.mux.HandleFunc("GET /api/status", s.authed(s.handleStatus))
 	s.mux.HandleFunc("GET /api/notes/{id}/export.html", s.authed(s.handleExportNote))
+	s.mux.HandleFunc("GET /api/notes/{id}/public-link", s.authed(s.handlePublicLinkGet))
+	s.mux.HandleFunc("POST /api/notes/{id}/public-link", s.authed(s.handlePublicLinkCreate))
+	s.mux.HandleFunc("PUT /api/notes/{id}/public-link", s.authed(s.handlePublicLinkUpdate))
+	s.mux.HandleFunc("DELETE /api/notes/{id}/public-link", s.authed(s.handlePublicLinkRevoke))
+	s.mux.HandleFunc("GET /api/public-links", s.authed(s.handlePublicLinks))
+	s.mux.HandleFunc("POST /api/public-links/revoke-all", s.authed(s.handlePublicLinksRevokeAll))
 	s.mux.HandleFunc("GET /api/spaces/{space}/export/site.zip", s.authed(s.handleExportSite))
 	s.mux.HandleFunc("GET /api/spaces/{space}/export/notes.zip", s.authed(s.handleExportTree))
 	if s.Auth != nil {
@@ -352,6 +358,7 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	if tree == nil {
 		tree = []SpaceTree{}
 	}
+	s.markPublic(r, tree)
 	tree = s.withEmptySpaces(r, space, tree)
 	s.withEmptyDirs(tree)
 	writeJSON(w, http.StatusOK, map[string]any{"spaces": tree})
@@ -429,6 +436,7 @@ type NoteResponse struct {
 	Markdown string               `json:"markdown,omitempty"`
 	Source   string               `json:"source,omitempty"` // html notes: raw source
 	Role     string               `json:"role"`             // the caller's role in the note's space
+	Public   bool                 `json:"public"`           // a public link is live
 }
 
 func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
@@ -476,7 +484,7 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 	if links == nil {
 		links = []index.OutboundLink{}
 	}
-	resp := NoteResponse{Note: n, Tags: tags, Links: links, Base: path.Dir(n.RelPath), Role: role}
+	resp := NoteResponse{Note: n, Tags: tags, Links: links, Base: path.Dir(n.RelPath), Role: role, Public: s.isPublic(r, id)}
 	if resp.Base == "." {
 		resp.Base = ""
 	}

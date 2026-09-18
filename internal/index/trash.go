@@ -57,6 +57,11 @@ func RetireNote(tx *sql.Tx, n Note, trashPath string, at time.Time) error {
 	if err != nil {
 		return err
 	}
+	// A deleted note's public link dies with it; a restore makes a new
+	// note row, not a new link.
+	if err := RevokePublicLinksTx(tx, n.ID, at); err != nil {
+		return err
+	}
 	_, err = tx.Exec(`DELETE FROM notes WHERE id = ?`, n.ID)
 	return err
 }

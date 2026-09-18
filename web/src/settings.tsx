@@ -10,7 +10,7 @@ import type { ComponentChildren } from 'preact'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 
 import { api, ApiError, saveBlob } from './api'
-import type { Account, AgentKey, GitRemote, GitRemoteInput, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
+import type { Account, AgentKey, GitRemote, GitRemoteInput, PublicLinkRow, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
 import * as auth from './auth'
 import type { ConfirmSpec } from './confirm'
 import { fmtDate } from './dom'
@@ -1591,6 +1591,110 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
 
 // --- data --------------------------------------------------------------------
 
+/** Every live public link in the caller's spaces, each with its own
+ * Revoke, and one button for all of them. */
+function PublicLinksBlock({ ctx }: { ctx: Ctx }) {
+  const { say, confirm, onOpen, onChanged } = ctx
+  const [links, setLinks] = useState<PublicLinkRow[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    api
+      .publicLinks()
+      .then((r) => setLinks(r.links))
+      .catch((err: unknown) => {
+        setLinks([])
+        say(msgOf(err, 'Could not list the public links.'))
+      })
+  }, [say])
+  useEffect(load, [load])
+
+  const revoke = (l: PublicLinkRow) => {
+    setBusy(l.id)
+    api
+      .revokePublicLink(l.note_id)
+      .then(() => {
+        say(`Revoked the link to ${l.title || l.path}.`)
+        load()
+        onChanged()
+      })
+      .catch((err: unknown) => say(msgOf(err, 'Could not revoke the link.')))
+      .finally(() => setBusy(null))
+  }
+
+  const revokeAll = () => {
+    confirm({
+      title: 'Revoke every public link?',
+      body: 'Each link stops working at once. Sharing a note again makes a new address.',
+      confirmLabel: 'Revoke all',
+      danger: true,
+      onConfirm: () => {
+        setBusy('all')
+        api
+          .revokeAllPublicLinks()
+          .then((r) => {
+            say(r.revoked === 1 ? 'Revoked one link.' : `Revoked ${r.revoked} links.`)
+            load()
+            onChanged()
+          })
+          .catch((err: unknown) => say(msgOf(err, 'Could not revoke the links.')))
+          .finally(() => setBusy(null))
+      },
+    })
+  }
+
+  return (
+    <Block title="Public links" lead="Notes anyone with the link can read, with no account. A link stops working the moment it is revoked.">
+      {links === null ? (
+        <p class="muted">Loading…</p>
+      ) : links.length === 0 ? (
+        <p class="muted">No note has a public link. Share one from the note's menu.</p>
+      ) : (
+        <>
+          <ul class="settings-list">
+            {links.map((l) => (
+              <li key={l.id} class="settings-row">
+                <Icon name="globe" class="settings-row-icon" />
+                <div class="settings-row-main">
+                  <a
+                    class="settings-row-title"
+                    href={`/n/${l.note_id}`}
+                    onClick={(ev) => {
+                      ev.preventDefault()
+                      onOpen(l.note_id)
+                    }}
+                  >
+                    {l.title || l.path}
+                  </a>
+                  <span class="settings-row-sub">
+                    {l.path} · shared {fmtDate(l.created_at)} · {l.expires_at ? `stops ${fmtDate(l.expires_at)}` : 'no expiry'}
+                  </span>
+                </div>
+                <div class="settings-row-actions">
+                  <button type="button" class="btn small" disabled={busy !== null} onClick={() => void copyText(l.url, say, 'the link')}>
+                    <Icon name="copy" />
+                    Copy
+                  </button>
+                  <button type="button" class="btn small danger" disabled={busy !== null} onClick={() => revoke(l)}>
+                    <Icon name="unlink" />
+                    Revoke
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div class="form-actions start">
+            <button type="button" class="btn danger" disabled={busy !== null} onClick={revokeAll}>
+              <Icon name="unlink" />
+              Revoke all
+            </button>
+          </div>
+        </>
+      )}
+    </Block>
+  )
+}
+
 function DataSection({ ctx }: { ctx: Ctx }) {
   const { user, status, spaces, notes, say, confirm, onOpenTrash, onStatus } = ctx
   const recent = useMemo(() => {
@@ -1671,6 +1775,7 @@ function DataSection({ ctx }: { ctx: Ctx }) {
           </div>
         </div>
       </Block>
+      <PublicLinksBlock ctx={ctx} />
       <Block title="Trash" lead={`Deleted notes stay recoverable for ${status?.trash?.retention_days ?? 30} days, then go for good. Emptying the trash is the only permanent deletion.`}>
         <div class="form-actions start">
           <button type="button" class="btn" onClick={onOpenTrash}>

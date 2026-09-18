@@ -212,11 +212,18 @@ ways to expose it:
 
 Do not merge the two origins onto one hostname; the sandbox's guarantees
 rest on them being different. `YANA_CONTENT_LISTEN=off` disables HTML
-rendering entirely (notes still index and edit as source).
+rendering entirely (notes still index and edit as source) and public
+links with it.
 
-There is no authentication yet. Until Phase 4 lands, put the proxy's own
-auth (basic auth, forward auth, a VPN) in front of it or bind it to a
-private interface.
+Public links (`/p/{token}`, see [auth.md](auth.md#public-links)) are
+served from this origin too, so it must be reachable by whoever gets a
+link — from outside the house, if that is who you send them to. Nothing
+on it needs an account: HTML note views open only with a short-lived
+token the app mints, and public pages only with a live link. If the app
+sits behind the proxy's own auth or a VPN, leave the content origin
+outside it, or public links open for nobody. The token that public links
+derive from lives in `.sync/content_secret`; losing it turns every
+shared link into a `404` (share again for a new address).
 
 ## inotify limits
 
@@ -380,10 +387,13 @@ Two files under `.sync/` matter to accounts:
 - `auth_secret` — signs access tokens. Losing it (or deleting `.sync/`)
   invalidates every access token; clients refresh and carry on. Keep it
   out of backups of the notes tree if you like; it is not content.
-- the `users`, `sessions`, and `agent_tokens` tables in `index.db` — real
-  state, unlike the rest of that database. If you back up nothing else,
-  back these up, or accept recreating accounts (spaces' `.space.yml`
-  files survive; member ids would need re-pointing).
+- `content_secret` — signs note views and derives public-link tokens.
+  Losing it kills every shared link; the notes are untouched.
+- the `users`, `sessions`, `agent_tokens` and `public_links` tables in
+  `index.db` — real state, unlike the rest of that database. If you back
+  up nothing else, back these up, or accept recreating accounts (spaces'
+  `.space.yml` files survive; member ids would need re-pointing) and
+  shared links.
 
 Token lifetimes are tunable: `YANA_ACCESS_TTL` (default `15m`) and
 `YANA_REFRESH_TTL` (default `720h`, 30 days).

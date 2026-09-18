@@ -209,6 +209,7 @@ export function Tree(props: TreeProps) {
         {...contextProps(target)}
       >
         <span class="tree-title">{n.title || n.name}</span>
+        {n.public && <Icon name="globe" class="tree-public" size={12} />}
         {n.kind === 'html' && <span class="tree-kind">html</span>}
         {moreButton(target, `Actions for ${n.title || n.name}`)}
       </a>

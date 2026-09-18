@@ -1313,6 +1313,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               onMove={() => moveNotePicker()}
               hasDir={hasDir}
               onExport={exportNote}
+              onShared={() => void loadTree()}
               onMoved={onMoved}
               onTag={openTag}
               pinned={currentPinned}

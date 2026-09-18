@@ -21,6 +21,7 @@ import (
 
 	"github.com/madeofpendletonwool/yana/internal/auth"
 	"github.com/madeofpendletonwool/yana/internal/config"
+	"github.com/madeofpendletonwool/yana/internal/fsutil"
 	"github.com/madeofpendletonwool/yana/internal/git"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/mcp"
@@ -207,7 +208,14 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		Rich:          web.ExportRich(),
 	})
 	if cfg.ContentListen != "" && cfg.ContentListen != "off" {
-		srv.Deps.Content = server.NewContent(db, root, nil, base)
+		// The content secret signs view tokens and derives public-link
+		// tokens; it persists so a shared link outlives a restart.
+		secret, err := fsutil.LoadOrCreateSecret(cfg.ContentSecretPath())
+		if err != nil {
+			return fmt.Errorf("content secret: %w", err)
+		}
+		srv.Deps.Content = server.NewContent(db, root, secret, base)
+		srv.Deps.Content.Rich = web.ExportRich()
 	}
 
 	httpSrv := &http.Server{
