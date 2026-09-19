@@ -258,6 +258,22 @@ export function forgetPin(pin: Pin): void {
   write('pins', JSON.stringify(pins().filter((p) => !samePin(p, pin))))
 }
 
+// --- activity ---------------------------------------------------------------
+
+/** When this browser last looked at the activity feed, in epoch
+ * milliseconds; null when it never has. The feed and the home screen
+ * mark what changed since then. */
+export function activitySeen(): number | null {
+  const v = read('activity.seen')
+  if (!v) return null
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+export function touchActivitySeen(): void {
+  write('activity.seen', String(Date.now()))
+}
+
 // --- recent searches ------------------------------------------------------
 
 export function recentQueries(): string[] {

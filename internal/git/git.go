@@ -121,6 +121,8 @@ type LogEntry struct {
 	Email   string `json:"email"`
 	Date    string `json:"date"`
 	Subject string `json:"subject"`
+	// Kind says who the author is: person, agent, or filesystem.
+	Kind string `json:"kind"`
 	// Path is the note's path as of this revision; it differs from the
 	// current path when the note has moved since.
 	Path string `json:"path"`
@@ -466,10 +468,11 @@ func (l *Layer) commitPending(ctx context.Context, reason string) (int, error) {
 
 	// Group changed paths by the author behind them, as far as one
 	// author per path is recoverable: agent edits commit under the
-	// agent's label. Everything else — humans, editors, scripts, or a
-	// path several authors touched — shares the human identity, because
-	// the editor at the keyboard is the honest default and a file two
-	// authors edited cannot be split by halves.
+	// agent's label, edits that arrived on the files under the
+	// filesystem identity. Everything else — humans, editors, scripts,
+	// or a path several authors touched — shares the human identity,
+	// because the editor at the keyboard is the honest default and a
+	// file two authors edited cannot be split by halves.
 	groups := map[string][]string{}
 	var keys []string
 	for _, c := range changes {
@@ -478,6 +481,8 @@ func (l *Layer) commitPending(ctx context.Context, reason string) (int, error) {
 			for a := range as {
 				if label, ok := agentLabel(a); ok {
 					key = "agent:" + label
+				} else if a == FilesystemAuthor {
+					key = FilesystemAuthor
 				}
 			}
 		}
@@ -489,12 +494,12 @@ func (l *Layer) commitPending(ctx context.Context, reason string) (int, error) {
 			groups[key] = append(groups[key], c.orig)
 		}
 	}
-	// Agents first (alphabetical), the human last, so HEAD after a mixed
-	// window is a human commit.
+	// Agents first (alphabetical), then the filesystem, the human last,
+	// so HEAD after a mixed window is a human commit.
 	sort.Slice(keys, func(i, j int) bool {
-		ai, aj := isAgent(keys[i]), isAgent(keys[j])
-		if ai != aj {
-			return ai
+		ri, rj := authorRank(keys[i]), authorRank(keys[j])
+		if ri != rj {
+			return ri < rj
 		}
 		return keys[i] < keys[j]
 	})
@@ -549,14 +554,56 @@ func (l *Layer) commitPending(ctx context.Context, reason string) (int, error) {
 	return made, nil
 }
 
-// identity maps a raw author to a git identity. Agent edits commit under
-// the agent's label; humans and filesystem edits under the configured
-// human identity.
+// identity maps a raw author to a git identity. Agent edits commit
+// under the agent's label, filesystem edits under the filesystem
+// identity, humans under the configured human identity.
 func (l *Layer) identity(author string) (name, email string) {
 	if label, ok := agentLabel(author); ok {
-		return label, "agent@local"
+		return label, AgentEmail
+	}
+	if author == FilesystemAuthor {
+		return FilesystemAuthor, FilesystemEmail
 	}
 	return l.opts.HumanName, l.opts.HumanEmail
+}
+
+// FilesystemAuthor is the raw author the reconciliation loop records for
+// edits that arrived on the files rather than through a client.
+const FilesystemAuthor = "filesystem"
+
+const (
+	// AgentEmail is the address every agent commit is made under, so a
+	// reader can tell an agent's commits from a person's without knowing
+	// the labels. "filesystem" is a reserved agent label, so the two can
+	// never collide.
+	AgentEmail = "agent@local"
+	// FilesystemEmail is the address filesystem-window commits use.
+	FilesystemEmail = "filesystem@yana.local"
+)
+
+// AuthorKind reports who is behind a git identity: an agent, the
+// filesystem, or a person.
+func AuthorKind(name, email string) string {
+	switch email {
+	case AgentEmail:
+		return "agent"
+	case FilesystemEmail:
+		return "filesystem"
+	}
+	_ = name
+	return "person"
+}
+
+// authorRank orders commit groups: agents first, then the filesystem,
+// then the human.
+func authorRank(key string) int {
+	if isAgent(key) {
+		return 0
+	}
+	if key == FilesystemAuthor {
+		return 1
+	}
+	return 2
 }
 
 func agentLabel(author string) (string, bool) {
@@ -685,7 +732,7 @@ func (l *Layer) Log(ctx context.Context, rel string, limit int) ([]LogEntry, err
 		if len(parts) != 5 {
 			continue
 		}
-		e := LogEntry{Hash: parts[0], Name: parts[1], Email: parts[2], Date: parts[3], Subject: parts[4], Path: rel}
+		e := LogEntry{Hash: parts[0], Name: parts[1], Email: parts[2], Date: parts[3], Subject: parts[4], Path: rel, Kind: AuthorKind(parts[1], parts[2])}
 		for _, ln := range lines[1:] {
 			if strings.TrimSpace(ln) != "" {
 				// --name-only lists the path as of this commit, which is
@@ -697,6 +744,132 @@ func (l *Layer) Log(ctx context.Context, rel string, limit int) ([]LogEntry, err
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// ActivityChange is one path as one commit changed it. Path is the
+// file's path after the commit; Orig is its previous path when the
+// change is a rename.
+type ActivityChange struct {
+	Status string
+	Path   string
+	Orig   string
+}
+
+// ActivityCommit is one commit of a scope's history with the paths it
+// touched, raw material for the activity feed.
+type ActivityCommit struct {
+	Hash    string
+	Name    string
+	Email   string
+	Kind    string
+	Date    time.Time
+	Subject string
+	Changes []ActivityChange
+}
+
+// ErrNoSuchCommit is returned when a cursor names a commit this
+// repository does not hold.
+var ErrNoSuchCommit = errors.New("no such commit")
+
+// parentsOf lists a commit's parents, newest history first.
+func (l *Layer) parentsOf(ctx context.Context, rev string) ([]string, error) {
+	out, err := l.git(ctx, "rev-list", "--parents", "-n", "1", rev)
+	if err != nil {
+		return nil, ErrNoSuchCommit
+	}
+	fields := strings.Fields(out)
+	if len(fields) < 1 {
+		return nil, ErrNoSuchCommit
+	}
+	return fields[1:], nil
+}
+
+// ActivityLog walks the commits under scope (a slash-separated
+// directory relative to the root), newest first, and reports what each
+// changed. since and until bound the walk by author date when non-zero.
+// before, when set, starts the walk at that commit's parents, so the
+// page lists strictly older commits — that is the feed's cursor, so a
+// page never re-walks what the last one showed. A root commit as before
+// yields an empty page.
+func (l *Layer) ActivityLog(ctx context.Context, scope string, since, until time.Time, before string, limit int) ([]ActivityCommit, error) {
+	if !l.available {
+		return nil, errors.New("git history is unavailable")
+	}
+	if _, err := l.git(ctx, "rev-parse", "--verify", "HEAD"); err != nil {
+		return []ActivityCommit{}, nil // no history yet
+	}
+	if limit <= 0 || limit > 5000 {
+		limit = 500
+	}
+	args := []string{"log", "-M", "--format=%x00%H%x1f%an%x1f%ae%x1f%aI%x1f%s", "--name-status", "-n", strconv.Itoa(limit)}
+	if !since.IsZero() {
+		args = append(args, "--since="+since.UTC().Format(time.RFC3339))
+	}
+	if !until.IsZero() {
+		args = append(args, "--until="+until.UTC().Format(time.RFC3339))
+	}
+	if before != "" {
+		if !ValidRevision(before) {
+			return nil, errors.New("cursor must be a commit hash")
+		}
+		// The page starts at the cursor's parents; a root cursor means
+		// the history is exhausted.
+		parents, err := l.parentsOf(ctx, before)
+		if err != nil {
+			return nil, err
+		}
+		if len(parents) == 0 {
+			return []ActivityCommit{}, nil
+		}
+		args = append(args, parents...)
+	}
+	args = append(args, "--", filepath.ToSlash(scope))
+	out, err := l.git(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var commits []ActivityCommit
+	for _, chunk := range strings.Split(out, "\x00") {
+		lines := strings.Split(strings.TrimPrefix(chunk, "\n"), "\n")
+		if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+			continue
+		}
+		parts := strings.SplitN(lines[0], "\x1f", 5)
+		if len(parts) != 5 {
+			continue
+		}
+		date, err := time.Parse(time.RFC3339, parts[3])
+		if err != nil {
+			continue
+		}
+		c := ActivityCommit{
+			Hash: parts[0], Name: parts[1], Email: parts[2],
+			Kind: AuthorKind(parts[1], parts[2]), Date: date, Subject: parts[4],
+		}
+		for _, ln := range lines[1:] {
+			if strings.TrimSpace(ln) == "" {
+				continue
+			}
+			f := strings.Split(ln, "\t")
+			if len(f) < 2 {
+				continue
+			}
+			status := f[0]
+			if status == "" {
+				continue
+			}
+			ch := ActivityChange{Status: status[:1], Path: f[len(f)-1]}
+			// name-status lists a rename as "R100\told\tnew".
+			if len(f) == 3 {
+				ch.Orig, ch.Path = f[1], f[2]
+			}
+			c.Changes = append(c.Changes, ch)
+		}
+		if len(c.Changes) > 0 {
+			commits = append(commits, c)
+		}
+	}
+	return commits, nil
 }
 
 // Diff returns the change to rel between two revisions.

@@ -1084,3 +1084,54 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* --- activity feed -------------------------------------------------------- */
+
+/* Who made a change: a chip beside the name in the feed, and on the
+   author in the history panel. Agents carry the accent; the filesystem
+   is the plain, dashed fallback identity. */
+.author-chip { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; background: var(--bg-3); color: var(--ink-2); }
+.author-chip.agent { background: var(--accent-soft); color: var(--accent-ink); }
+.author-chip.filesystem { border: 1px dashed var(--line-2); background: transparent; }
+
+.activity-controls { display: flex; gap: 10px 14px; flex-wrap: wrap; margin: 14px 0 4px; }
+.activity-filter { display: grid; gap: 3px; font-size: 11.5px; color: var(--ink-3); }
+.activity-filter select { height: 30px; padding: 0 26px 0 8px; font: 13px var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line-2); border-radius: var(--r-sm); -webkit-appearance: none; appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238d877c' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+.activity-filter select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
+
+.activity-day { margin-top: 20px; }
+.activity-list { list-style: none; margin: 0; padding: 0; }
+.activity-entry { padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.activity-entry:last-child { border-bottom: none; }
+.activity-head { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.activity-chip { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: var(--bg-3); color: var(--ink-2); flex: none; }
+.activity-chip.agent { background: var(--accent-soft); color: var(--accent-ink); }
+.activity-chip.filesystem { border: 1px dashed var(--line-2); background: transparent; }
+.activity-author { font-weight: 600; font-size: 13.5px; }
+.activity-run { font-size: 12px; color: var(--ink-3); }
+.activity-time { font-size: 12px; color: var(--ink-3); white-space: nowrap; margin-left: auto; }
+.activity-space { font-size: 11.5px; color: var(--ink-3); background: var(--bg-2); border-radius: 999px; padding: 1px 8px; }
+.activity-changes { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+.activity-change { display: flex; align-items: baseline; gap: 8px; font-size: 13px; min-width: 0; flex-wrap: wrap; padding-left: 30px; }
+.activity-action { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-3); width: 52px; flex: none; }
+.activity-action.added { color: var(--ok); }
+.activity-action.deleted { color: var(--danger); }
+.activity-action.renamed { color: var(--code-fn); }
+.activity-note { color: var(--accent-ink); overflow-wrap: anywhere; }
+.activity-note:hover { text-decoration: underline; }
+.activity-note.gone { color: var(--ink-2); text-decoration: line-through; text-decoration-thickness: 1px; }
+.activity-from { font-size: 12px; color: var(--ink-3); font-family: var(--mono); overflow-wrap: anywhere; }
+.activity-seen { margin: 4px 0; padding: 6px 0; border-top: 1px dashed var(--line-2); text-align: center; list-style: none; }
+.activity-seen span { font-size: 11.5px; color: var(--ink-3); background: var(--bg); padding: 0 10px; position: relative; top: -13px; }
+.activity-more { display: flex; justify-content: center; margin: 18px 0 30px; }
+
+/* The home screen's one-line summary of what changed. */
+.home-whats { margin: -22px 0 32px; font-size: 13px; }
+.home-whats a { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-ink); }
+.home-whats .icon { color: var(--ink-3); }
+
+.shell.phone .activity-controls { gap: 8px 10px; }
+.shell.phone .activity-filter { flex: 1; min-width: 40%; }
+.shell.phone .activity-change { padding-left: 0; }
+.shell.phone .activity-time { margin-left: 0; width: 100%; order: 9; }

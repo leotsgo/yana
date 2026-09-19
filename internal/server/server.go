@@ -196,6 +196,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/notes/{id}/public-link", s.authed(s.handlePublicLinkRevoke))
 	s.mux.HandleFunc("GET /api/public-links", s.authed(s.handlePublicLinks))
 	s.mux.HandleFunc("POST /api/public-links/revoke-all", s.authed(s.handlePublicLinksRevokeAll))
+	s.mux.HandleFunc("GET /api/spaces/{space}/activity", s.authed(s.handleSpaceActivity))
 	s.mux.HandleFunc("GET /api/spaces/{space}/export/site.zip", s.authed(s.handleExportSite))
 	s.mux.HandleFunc("GET /api/spaces/{space}/export/notes.zip", s.authed(s.handleExportTree))
 	if s.Auth != nil {

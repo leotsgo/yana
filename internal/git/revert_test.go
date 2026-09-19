@@ -211,7 +211,9 @@ func TestRevertOfAgentCommitConverges(t *testing.T) {
 		t.Fatalf("snapshot after the agent edit: %d commits, err %v", n, err)
 	}
 	got := authors(t, s.dir)
-	if len(got) != 2 || got[0] != "claude <agent@local>" || got[1] != "yana user <user@yana.local>" {
+	// The agent edit is its own commit, and the file-made changes now
+	// carry the filesystem identity rather than the human one.
+	if len(got) != 3 || got[0] != "claude <agent@local>" || got[1] != "yana user <user@yana.local>" || got[2] != "filesystem <"+git.FilesystemEmail+">" {
 		t.Fatalf("git log does not distinguish the agent edit: %v", got)
 	}
 
@@ -254,7 +256,7 @@ func TestAttributionSurvivesRestart(t *testing.T) {
 		t.Fatalf("restart snapshot: %d commits, err %v", n, err)
 	}
 	got := authors(t, s.dir)
-	if len(got) != 2 || got[0] != "claude <agent@local>" {
+	if len(got) != 3 || got[0] != "claude <agent@local>" {
 		t.Fatalf("restart attribution lost the agent: %v", got)
 	}
 }

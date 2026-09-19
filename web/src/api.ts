@@ -248,6 +248,49 @@ export interface HistoryEntry {
   date: string
   subject: string
   path: string
+  /** Who the author is: a person, an agent, or the filesystem. */
+  kind: ActivityKind
+}
+
+/** Who is behind a change: a person in the app, an agent, or an edit
+ * that arrived on the files. */
+export type ActivityKind = 'person' | 'agent' | 'filesystem'
+
+/** One note as a feed entry touched it. id and title are present when
+ * the note still exists; deleted notes carry their path, renamed ones
+ * the path they hold now. */
+export interface ActivityChange {
+  action: 'added' | 'modified' | 'renamed' | 'deleted'
+  path: string
+  from?: string
+  id?: string
+  title?: string
+}
+
+/** One feed entry: one commit, or one run of commits by the same agent
+ * inside a quiet stretch. */
+export interface ActivityEntry {
+  author: string
+  kind: ActivityKind
+  from: string
+  to: string
+  commits: number
+  changes: ActivityChange[]
+}
+
+export interface ActivityResult {
+  entries: ActivityEntry[]
+  next_cursor: string
+  more: boolean
+}
+
+export interface ActivityQuery {
+  path?: string
+  since?: string
+  until?: string
+  author?: string
+  limit?: number
+  cursor?: string
 }
 
 export class ApiError extends Error {
@@ -375,6 +418,18 @@ export const api = {
   revokeAllPublicLinks: () => post<{ ok: boolean; revoked: number }>('/api/public-links/revoke-all', {}),
   exportSite: (space: string, path?: string) => download(`/api/spaces/${encodeURIComponent(space)}/export/site.zip` + scope(path)),
   exportTree: (space: string, path?: string) => download(`/api/spaces/${encodeURIComponent(space)}/export/notes.zip` + scope(path)),
+  activity: (space: string, q: ActivityQuery = {}) =>
+    get<ActivityResult>(`/api/spaces/${encodeURIComponent(space)}/activity` + activityQuery(q)),
+}
+
+/** Builds the query string of an activity request, dropping empties. */
+function activityQuery(q: ActivityQuery): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(q)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  const s = params.toString()
+  return s ? '?' + s : ''
 }
 
 function scope(path?: string): string {

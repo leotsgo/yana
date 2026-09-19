@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import { api, ApiError, baseOf, dirOf, saveBlob, spaceOf, stem } from './api'
 import type { MoveResult, Note, SpaceInfo, SpaceTree, Status, TreeNode } from './api'
+import { ActivityPage, WhatsChanged } from './activity'
 import * as auth from './auth'
 import * as cache from './cache'
 import { Confirm } from './confirm'
@@ -50,6 +51,7 @@ type Route =
   | { kind: 'tags' }
   | { kind: 'tag'; tag: string }
   | { kind: 'search' }
+  | { kind: 'activity'; space: string; path: string }
   | { kind: 'settings'; section: Section | null }
 
 function parseRoute(): Route {
@@ -58,6 +60,10 @@ function parseRoute(): Route {
   if (location.pathname === '/trash') return { kind: 'trash' }
   if (location.pathname === '/tags') return { kind: 'tags' }
   if (location.pathname === '/search') return { kind: 'search' }
+  if (location.pathname === '/activity') {
+    const q = new URLSearchParams(location.search)
+    return { kind: 'activity', space: q.get('space') ?? '', path: q.get('path') ?? '' }
+  }
   if (location.pathname === '/settings') return { kind: 'settings', section: null }
   const tg = location.pathname.match(/^\/tags\/(.+)$/)
   if (tg && tg[1]) return { kind: 'tag', tag: decodeURIComponent(tg[1]).toLowerCase() }
@@ -159,6 +165,18 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const openTags = useCallback((push = true) => openPage({ kind: 'tags' }, '/tags', 'Tags', push), [openPage])
   const openTag = useCallback(
     (tag: string, push = true) => openPage({ kind: 'tag', tag }, `/tags/${encodeURIComponent(tag)}`, `#${tag}`, push),
+    [openPage],
+  )
+  // The activity feed: every space by default, one space (or a folder in
+  // it) from the tree's context menus and the filters on the page.
+  const openActivity = useCallback(
+    (space = '', path = '', push = true) => {
+      const q = new URLSearchParams()
+      if (space) q.set('space', space)
+      if (path) q.set('path', path)
+      const qs = q.toString()
+      openPage({ kind: 'activity', space, path }, '/activity' + (qs ? '?' + qs : ''), 'What changed', push)
+    },
     [openPage],
   )
   const openSettings = useCallback(
@@ -811,6 +829,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         { id: 'new', label: 'New note here', icon: 'file-plus', run: () => newNote(n.path) },
         { id: 'folder', label: 'New folder inside', icon: 'folder-plus', run: () => newFolderPrompt(n.path) },
         { id: 'pin', label: pinned ? 'Unpin' : 'Pin to the top', icon: pinned ? 'pin-off' : 'pin', run: () => pinDir(n) },
+        { id: 'activity', label: 'Activity here', icon: 'history', run: () => openActivity(spaceOf(n.path), n.path.slice(spaceOf(n.path).length + 1)) },
         'sep',
         { id: 'rename', label: 'Rename', icon: 'pencil', run: () => renameDirPrompt(n) },
         { id: 'move', label: 'Move to a folder', icon: 'move', run: () => moveDirPicker(n) },
@@ -821,7 +840,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       title = target.name ? target.name + '/' : '/'
       items = [
         { id: 'new', label: 'New note here', icon: 'file-plus', run: () => newNote(target.name) },
-        ...(target.name ? [{ id: 'folder', label: 'New folder', icon: 'folder-plus' as const, run: () => newFolderPrompt(target.name) }] : []),
+        ...(target.name
+          ? [
+              { id: 'folder', label: 'New folder', icon: 'folder-plus' as const, run: () => newFolderPrompt(target.name) },
+              { id: 'activity', label: 'Activity here', icon: 'history' as const, run: () => openActivity(target.name) },
+            ]
+          : []),
       ]
     }
     const spec: MenuSpec = { anchor, items, label: 'tree actions', title }
@@ -949,6 +973,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     ]
     const items: PaletteItem[] = [
       { id: 'guide', label: 'Open the guide', detail: 'a note that shows everything by doing it', run: () => openGuide() },
+      { id: 'what-changed', label: 'See what changed lately', detail: 'the activity page: who changed which notes, when', run: () => openActivity() },
       ...how.map(([what, detail, section]) => ({ id: 'how:' + section, label: what, detail, hint: 'in the guide', run: () => openGuide(section) })),
       ...rows.map(([what, key]) => ({ id: what, label: what, hint: key, run: () => undefined })),
     ]
@@ -962,6 +987,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       { id: 'daily', label: "Today's note", hint: label(keys.daily), run: () => void openDaily() },
       { id: 'open', label: 'Open a note', hint: label(keys.switcher), run: openSwitcher },
       { id: 'search', label: 'Search notes', hint: label(keys.search), run: focusSearch },
+      { id: 'activity', label: 'What changed', detail: 'who changed which notes, when', run: () => openActivity() },
       { id: 'new-path', label: 'New note at a path', detail: 'name the file and folder yourself', run: () => newNotePrompt() },
       { id: 'new-folder', label: 'New folder', detail: `in ${defaultDir() || 'the root'}`, run: () => newFolderPrompt(defaultDir()) },
     ]
@@ -1328,6 +1354,16 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           )}
           {route.kind === 'tags' && <TagsIndex onTag={openTag} />}
           {route.kind === 'tag' && <TagPage tag={route.tag} onOpen={navigate} onAll={() => openTags()} />}
+          {route.kind === 'activity' && (
+            <ActivityPage
+              key={route.space + ':' + route.path}
+              space={route.space}
+              path={route.path}
+              spaces={spaceList}
+              onOpen={navigate}
+              onNavigate={openActivity}
+            />
+          )}
           {route.kind === 'share' && (
             <SharePage notes={notes} dailySpace={dailySpace()} onOpen={navigate} onToast={(m) => say(m)} />
           )}
@@ -1359,6 +1395,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               onCapture={capturePrompt}
               onDaily={() => void openDaily()}
               onGuide={() => openGuide()}
+              onActivity={() => openActivity()}
               onInstall={net.canInstall ? () => void pwa.promptInstall() : null}
             />
           )}
@@ -1445,6 +1482,8 @@ interface HomeProps {
   onDaily: () => void
   /** The starter note: opened, or made first. */
   onGuide: () => void
+  /** The activity feed. */
+  onActivity: () => void
   /** Offered when the browser made an install prompt available. */
   onInstall: (() => void) | null
 }
@@ -1452,7 +1491,7 @@ interface HomeProps {
 // The home page: the three things people come here to do, each with a
 // line saying what it is, then what they pinned and what they opened
 // last. Shortcuts are in the account menu and the palette.
-function Home({ notes, pins, spaces, loading, onOpen, onNew, onCapture, onDaily, onGuide, onInstall }: HomeProps) {
+function Home({ notes, pins, spaces, loading, onOpen, onNew, onCapture, onDaily, onGuide, onActivity, onInstall }: HomeProps) {
   const byId = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
   const recent = prefs.recents().map((id) => byId.get(id)).filter((n): n is FlatNote => Boolean(n))
   const pinned = pins
@@ -1510,6 +1549,7 @@ function Home({ notes, pins, spaces, loading, onOpen, onNew, onCapture, onDaily,
           {guide ? 'Start here: how links, pictures, tasks and tags work' : 'New here? Open the guide'}
         </a>
       </p>
+      <WhatsChanged spaceNames={spaces.map((s) => s.name)} ready={!loading} onOpen={onActivity} />
       {loading ? (
         <p class="muted">Loading the tree…</p>
       ) : notes.length === 0 ? (
