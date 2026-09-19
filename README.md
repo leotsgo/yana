@@ -82,6 +82,12 @@ distinguishable by author. Every note has a revision list, diffs, and
 restore in the Details panel. Optional backup remotes push the history
 on a schedule.
 
+**What changed.** The activity page reads that same history as a feed:
+who changed which notes, when, grouped by day. An agent's overnight run
+shows as one entry, the home screen carries a count of changes since
+you last looked, and a folder's menu opens the feed narrowed to that
+folder.
+
 **Sharing.** Accounts gate every route; the first visit creates the
 owner and there are no default credentials. Each top-level folder is a
 *space*, and a space's members and their roles are listed in its
@@ -264,10 +270,10 @@ merges to `main` publish the image.
 ## Roadmap
 
 Planned next, roughly in order: a tasks page listing every open box
-across a space; an activity feed over the git history; PDFs and other
-attachments with text search; public read-only links for one note;
-importers for markdown vaults and Notion exports; search operators;
-templates with variables; vim keys; and an Android app.
+across a space; PDFs and other
+attachments with text search; importers for markdown vaults and Notion
+exports; search operators; templates with variables; vim keys; and an
+Android app.
 
 ## License
 

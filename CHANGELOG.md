@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- What changed, by whom. The git history becomes a space-level activity
+  feed: `GET /api/spaces/{space}/activity` walks the log with a cursor
+  (never re-walking a page) and reports each entry's author and kind —
+  person, agent, or the filesystem — with the notes it touched, notes
+  that no longer exist showing as deleted or renamed rather than as
+  links. Consecutive commits by one agent inside a quiet stretch fold
+  into a single entry, so an overnight agent session reads as one line;
+  a person's quiet-window commits stay one entry each. The `/activity`
+  page groups the feed by day, marks what landed since the last visit,
+  and filters by kind of author, one author, window and space; the
+  home screen carries a one-line "What changed" summary with a count
+  since the marker, the palette and Help open the page, and a folder's
+  menu narrows the feed to that folder. The Details history rows gain
+  an author chip; edits that arrived on the files now commit under a
+  `filesystem` identity instead of the human one, so the feed can tell
+  them apart.
 - Share one note by link. "Share a link" in a note's menu makes an
   unguessable address on the content origin (`/p/{token}`) that renders
   the note read-only with its pictures, attachments, diagrams and math,

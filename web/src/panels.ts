@@ -115,6 +115,13 @@ function backlinkRow(b: Backlink, onOpen: (id: string) => void): HTMLElement {
   )
 }
 
+// Who is behind a history row's author chip.
+function authorTitle(kind: string | undefined): string {
+  if (kind === 'agent') return 'An agent made this revision'
+  if (kind === 'filesystem') return 'This revision arrived on the files'
+  return 'A person made this revision'
+}
+
 // The history panel is the git repository under the notes root: one row
 // per revision of this note, renames followed. Selecting two revisions
 // shows the diff between them; restoring writes the old text back as a
@@ -185,7 +192,11 @@ export function historyPanel(note: Note, onOpen: (id: string) => void): HTMLElem
       'button',
       { class: 'history-pick', title: 'Compare two revisions', onClick: () => toggle(e, li) },
       h('span', { class: 'history-date' }, fmtDate(e.date)),
-      h('span', { class: 'history-author' }, e.name),
+      h(
+        'span',
+        { class: 'history-author author-chip ' + (e.kind || 'person'), title: authorTitle(e.kind) },
+        e.name,
+      ),
       h('span', { class: 'history-subject' }, e.subject),
     )
     const restore = h(

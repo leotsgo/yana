@@ -76,7 +76,18 @@ a moved or renamed note are rewritten for you.
 ## History
 
 Details shows every saved version of the note; open one to see what
-changed and restore it if you want.
+changed and restore it if you want. The author beside each revision
+says who made it — a person, an agent, or an edit that arrived on the
+files.
+
+## What changed
+
+The activity page (from the home screen, the command palette, or a
+folder's right-click menu) shows the same history as a feed: who
+changed which notes and when, grouped by day. An agent's overnight run
+reads as one entry. The line under the home screen's summary counts
+what changed since you last looked; opening the feed is what marks it
+seen.
 
 ## Share a space
 
