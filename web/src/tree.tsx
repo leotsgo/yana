@@ -304,6 +304,33 @@ export function Tree(props: TreeProps) {
     return row
   }
 
+  /** One folder's children in view order: directories first (by name),
+   * then notes by the folder's sort preference — title ascending when
+   * the folder declares nothing. Server sends rel_path order; this only
+   * reorders the view, never the tree the client caches. */
+  function sortChildren(n: TreeNode, depth: number): TreeNode[] {
+    const kids = [...(n.children ?? [])]
+    const mode = prefs.folderSort(n.path)
+    const dirs = kids.filter((c) => c.type === 'dir').sort((a, b) => a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1)
+    const notes = kids.filter((c) => c.type !== 'dir')
+    const time = (c: TreeNode, which: 'created' | 'modified') =>
+      which === 'created' ? Date.parse(c.created ?? '') || 0 : Date.parse(c.modified ?? '') || 0
+    const which: 'created' | 'modified' = mode.startsWith('created') ? 'created' : 'modified'
+    const desc = mode.endsWith('-desc')
+    notes.sort((a, b) => {
+      if (mode === 'title-asc' || mode === 'title-desc') {
+        const at = (a.title ?? '').toLowerCase()
+        const bt = (b.title ?? '').toLowerCase()
+        const cmp = at < bt ? -1 : at > bt ? 1 : 0
+        return desc ? -cmp : cmp
+      }
+      const diff = time(a, which) - time(b, which)
+      return desc ? -diff : diff
+    })
+    void depth
+    return [...dirs, ...notes]
+  }
+
   function dirRow(n: TreeNode, depth: number) {
     const isOpen = prefs.isFolderOpen(n.path)
     const target: TreeTarget = { kind: 'dir', node: n }
@@ -360,7 +387,7 @@ export function Tree(props: TreeProps) {
               New note here
             </button>
           ) : (
-            (n.children ?? []).map((c) => render(c, depth + 1))
+            sortChildren(n, depth + 1).map((c) => render(c, depth + 1))
           )}
         </div>
       </div>

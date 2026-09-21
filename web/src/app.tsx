@@ -24,8 +24,7 @@ import { Confirm } from './confirm'
 import type { ConfirmSpec } from './confirm'
 import { isLocalConflict } from './conflict'
 import { isEditable, isMac, keys, label, matches, tabDigit } from './hotkeys'
-import { Icon } from './icons'
-import type { IconName } from './icons'
+import { Icon, type IconName } from './icons'
 import { useVisualViewport } from './keyboard'
 import { coarsePointer, current as currentLayout, useLayout } from './layout'
 import { renderUnresolvedReport } from './links'
@@ -56,6 +55,16 @@ import type { FlatNote, TreeEdit, TreeTarget } from './tree'
 import * as workspace from './workspace'
 import { isPage, openProps } from './workspace'
 import type { OpenHow, Tab } from './workspace'
+
+/** The sort modes a folder menu offers; the wire value keys the label. */
+const SORT_MODES: Record<string, string> = {
+  'title-asc': 'Default (title ↑)',
+  'title-desc': 'Title ↓',
+  'created-desc': 'Newest first',
+  'created-asc': 'Oldest first',
+  'modified-desc': 'Recently edited',
+  'modified-asc': 'Least recently edited',
+}
 
 type Route =
   | { kind: 'home' }
@@ -1096,6 +1105,16 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         { id: 'pin', label: pinned ? 'Unpin' : 'Pin to the top', icon: pinned ? 'pin-off' : 'pin', run: () => pinDir(n) },
         { id: 'activity', label: 'Activity here', icon: 'history', run: () => openActivity(spaceOf(n.path), n.path.slice(spaceOf(n.path).length + 1)) },
         { id: 'tasks', label: 'Tasks here', icon: 'check-square', run: () => openTasksPage(spaceOf(n.path), n.path.slice(spaceOf(n.path).length + 1)) },
+        'sep',
+        ...Object.entries(SORT_MODES).map(([value, label]): MenuItem => ({
+          id: 'sort-' + value,
+          label,
+          icon: 'list' as IconName,
+          run: () => {
+            prefs.setFolderSort(n.path, value as prefs.FolderSort)
+            say(`Sorting ${n.name}/ by ${label.toLowerCase()}.`)
+          },
+        })),
         'sep',
         { id: 'rename', label: 'Rename', icon: 'pencil', run: () => renameDirPrompt(n) },
         { id: 'move', label: 'Move to a folder', icon: 'move', run: () => moveDirPicker(n) },

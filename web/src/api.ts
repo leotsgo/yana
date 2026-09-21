@@ -19,6 +19,8 @@ export interface TreeNode {
   conflict?: boolean
   /** For a conflict copy: the note it belongs to. */
   conflict_of?: string
+  created?: string
+  modified?: string
   children?: TreeNode[]
 }
 
