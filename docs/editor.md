@@ -22,6 +22,18 @@ results replace the tree while a query is typed. A space you belong to
 shows in the tree even before it holds a note, with the `+` to start one,
 and so does a folder that holds no note yet.
 
+Spaces and folders open and close from their row; the space header is
+the toggle, with the note count beside the name. Folders start closed
+and spaces open, and what was opened is remembered per browser
+(`yana.tree.open` holds the folders opened, `yana.tree.closed` the
+spaces closed, so an empty store is the default). Opening a note by any
+way other than a click in the tree (search, a wikilink, the switcher,
+the URL) opens its space and the folders above it and scrolls the row
+into view; a click in the tree never reopens what was just closed. A
+space's menu collapses or expands every folder in it, and the palette
+does the same across the tree. A drag held over a closed folder or
+space for a moment opens it.
+
 Pinned notes and folders sit at the top of the tree, above the spaces.
 A pinned folder is the folder, collapsible, with everything in it. Pins
 are a preference of the browser (`yana.pins` in `localStorage`, beside
@@ -38,7 +50,7 @@ Light and dark themes follow the system unless picked in the account menu
 (top right) or on the Appearance page in settings, which also sets the
 text size (small, normal, large), the line width (narrow, normal, wide),
 the mode notes open in, the hide-syntax switch, and the sidebar density.
-Those, the sidebar state, the display name, the default spaces and the
+Those, the sidebar state, what the tree has open, the display name, the default spaces and the
 recently opened notes are kept per browser in `localStorage` under
 `yana.*`; nothing else is stored there. Everything in `prefs.ts` reads
 the same keys, so a preference set in settings is what the shell and the

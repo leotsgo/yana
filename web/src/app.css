@@ -256,9 +256,18 @@ kbd {
 .space { margin-bottom: 8px; }
 .space-name {
   display: flex; align-items: center; gap: 6px;
-  margin: 8px 10px 2px 16px; font: 600 11px/1.4 var(--mono);
+  margin: 8px 10px 2px 8px; font: 600 11px/1.4 var(--mono);
   letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3);
 }
+/* The header is a button: the caret, the name and the count open and close the space. */
+.space-toggle {
+  flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 2px;
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; text-align: left;
+  background: none; border: 0; border-radius: 4px; cursor: pointer;
+}
+.space-toggle:hover { color: var(--ink); background: var(--hover); }
+.space-name .tree-caret { flex: none; }
+.space-name.open .tree-caret { transform: rotate(90deg); }
 .space-count { font-weight: 400; }
 .tree-add {
   margin-left: auto; width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
@@ -1029,6 +1038,7 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .shell.phone .sidebar-search { height: 40px; }
 .shell.phone .search-input { font-size: 16px; }
 .shell.phone .tree-note, .shell.phone .tree-dir { height: 40px; font-size: 15px; }
+.shell.phone .space-toggle { height: 40px; }
 .shell.phone .sidebar-link { height: 40px; font-size: 14px; }
 .shell.phone .note-header { padding-top: 12px; }
 .shell.phone .note-title { font-size: 23px; }
