@@ -1,6 +1,6 @@
 // Per-browser preferences: theme, text size and measure, editor layout,
-// sidebar state, default spaces, the display name, recently opened
-// notes, pinned notes and folders, recent searches. Everything lives in localStorage under one prefix and is read
+// sidebar state, what the tree has open, default spaces, the display name,
+// recently opened notes, pinned notes and folders, recent searches. Everything lives in localStorage under one prefix and is read
 // through here so the shell, the editor and the settings pages agree on
 // the keys. Storage can be unavailable (private windows, blocked site
 // data); every access is guarded and falls back to the default. A change
@@ -256,6 +256,93 @@ export function repinDir(from: string, to: string | null): void {
 
 export function forgetPin(pin: Pin): void {
   write('pins', JSON.stringify(pins().filter((p) => !samePin(p, pin))))
+}
+
+// --- tree state ----------------------------------------------------------
+
+// What the tree has open. Folders start closed and spaces start open, so
+// the store holds the folders a person opened and the spaces they closed:
+// an empty store is the default, and a folder that goes away leaves at
+// most a stale key. Kept in memory as well so the tree still toggles in a
+// browser that blocks storage.
+
+/** The pinned section, in the closed set beside the space names. */
+export const PINNED_SECTION = '\0pinned'
+
+let openDirs: Set<string> | null = null
+let closedSet: Set<string> | null = null
+
+function readSet(key: string): Set<string> {
+  const raw = read(key)
+  if (!raw) return new Set()
+  try {
+    const v = JSON.parse(raw) as unknown
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/** The folders a person opened, by path. */
+export function openFolders(): ReadonlySet<string> {
+  return (openDirs ??= readSet('tree.open'))
+}
+
+/** The spaces a person closed, by name (and PINNED_SECTION). */
+export function closedSpaces(): ReadonlySet<string> {
+  return (closedSet ??= readSet('tree.closed'))
+}
+
+export function isFolderOpen(path: string): boolean {
+  return openFolders().has(path)
+}
+
+export function isSpaceOpen(name: string): boolean {
+  return !closedSpaces().has(name)
+}
+
+export function setFoldersOpen(paths: Iterable<string>, open: boolean): void {
+  const set = new Set(openFolders())
+  for (const p of paths) {
+    if (open) set.add(p)
+    else set.delete(p)
+  }
+  openDirs = set
+  write('tree.open', JSON.stringify([...set]))
+}
+
+export function setFolderOpen(path: string, open: boolean): void {
+  setFoldersOpen([path], open)
+}
+
+export function setSpaceOpen(name: string, open: boolean): void {
+  const set = new Set(closedSpaces())
+  if (open) set.delete(name)
+  else set.add(name)
+  closedSet = set
+  write('tree.closed', JSON.stringify([...set]))
+}
+
+/** A renamed or moved folder keeps its open state, and its children theirs. */
+export function moveFolderState(from: string, to: string): void {
+  const set = new Set<string>()
+  for (const p of openFolders()) set.add(p === from || p.startsWith(from + '/') ? to + p.slice(from.length) : p)
+  openDirs = set
+  write('tree.open', JSON.stringify([...set]))
+}
+
+/** Drops keys the live tree no longer has. Only writes when something went. */
+export function pruneTreeState(folders: Iterable<string>, spaces: Iterable<string>): void {
+  const f = new Set(folders)
+  const s = new Set(spaces)
+  s.add(PINNED_SECTION)
+  const open = [...openFolders()].filter((p) => f.has(p))
+  const closed = [...closedSpaces()].filter((n) => s.has(n))
+  if (open.length === openFolders().size && closed.length === closedSpaces().size) return
+  openDirs = new Set(open)
+  closedSet = new Set(closed)
+  write('tree.open', JSON.stringify(open))
+  write('tree.closed', JSON.stringify(closed))
 }
 
 // --- activity ---------------------------------------------------------------

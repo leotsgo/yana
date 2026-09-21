@@ -7,8 +7,12 @@
 // a long press on a phone — which the shell fills in (tree actions).
 // Folders are made and renamed in place: an input row where the folder
 // is, not a prompt somewhere else. A double-click renames a folder, or
-// opens a note with its title selected.
+// opens a note with its title selected. Spaces and folders open and
+// close; folders start closed, spaces open, and the state is kept per
+// browser (prefs). Opening a note from anywhere but the tree itself
+// reveals it: its space and every folder above it open.
 
+import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
 
 import type { SpaceTree, TreeNode } from './api'
@@ -16,9 +20,10 @@ import { baseOf, dirOf } from './api'
 import { Icon } from './icons'
 import { coarsePointer } from './layout'
 import type { Pin } from './prefs'
+import * as prefs from './prefs'
 
-// Directory open/closed state survives re-renders within a session.
-const collapsed = new Set<string>()
+/** How long a drag hovers over a closed space or folder before it opens. */
+const SPRING_MS = 600
 
 export const NOTE_DRAG = 'text/yana-note'
 export const DIR_DRAG = 'text/yana-dir'
@@ -61,18 +66,70 @@ export function Tree(props: TreeProps) {
   const { spaces, selected, pins, onOpen, onOpenTitle, onMove, onMoveDir, onNew, onNewFolder, onRenameFolder, edit, onCreateDir, onRenameDir, onEditDone, onContext } = props
   const [dropOn, setDropOn] = useState<string | null>(null)
   const [, bump] = useState(0)
+  const spaceNames = new Set(spaces.map((s) => s.name))
 
-  // A folder being made inside a closed folder: open it so the row shows.
+  // Open state lives in prefs; a change there (a click here, a palette
+  // command, another tab) redraws the tree.
+  useEffect(() => prefs.onChange(() => bump((x) => x + 1)), [])
+
+  // Keys for folders and spaces that are gone go with them.
   useEffect(() => {
-    if (edit?.kind === 'new-dir' && collapsed.has(edit.parent)) {
-      collapsed.delete(edit.parent)
-      bump((x) => x + 1)
-    }
+    prefs.pruneTreeState(
+      folders(spaces).map((f) => f.path),
+      spaces.map((s) => s.name),
+    )
+  }, [spaces])
+
+  // A folder being made inside a closed folder or space: open it so the row shows.
+  useEffect(() => {
+    if (edit?.kind !== 'new-dir') return
+    if (spaceNames.has(edit.parent)) {
+      if (!prefs.isSpaceOpen(edit.parent)) prefs.setSpaceOpen(edit.parent, true)
+    } else if (!prefs.isFolderOpen(edit.parent)) prefs.setFolderOpen(edit.parent, true)
   }, [edit])
+
+  // The note that opened by a way other than a click in the tree gets
+  // revealed: its space and the folders above it open, and its row is
+  // scrolled into view. A click in the tree never reopens what the
+  // person just closed. A note the tree does not hold yet (one just
+  // made, indexed a moment later) is revealed once it shows up.
+  const clicked = useRef<string | null>(null)
+  const revealed = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selected || revealed.current === selected) return
+    if (clicked.current === selected) {
+      clicked.current = null
+      revealed.current = selected
+      return
+    }
+    const note = findNote(spaces, selected)
+    if (!note) return
+    revealed.current = selected
+    const parts = note.path.split('/')
+    const space = parts.length > 1 ? parts[0] ?? '' : ''
+    if (!prefs.isSpaceOpen(space)) prefs.setSpaceOpen(space, true)
+    const above: string[] = []
+    for (let i = 2; i < parts.length; i++) above.push(parts.slice(0, i).join('/'))
+    const closed = above.filter((p) => !prefs.isFolderOpen(p))
+    if (closed.length > 0) prefs.setFoldersOpen(closed, true)
+    requestAnimationFrame(() => {
+      const row = document.querySelector('.space:not(.pinned) .tree-note.selected')
+      row?.scrollIntoView({ block: 'nearest' })
+    })
+  }, [selected, spaces])
+
+  // A drag held over a closed space or folder opens it, as a file manager does.
+  const spring = useRef<{ dir: string; timer: number } | null>(null)
+  function cancelSpring(): void {
+    if (spring.current) window.clearTimeout(spring.current.timer)
+    spring.current = null
+  }
+  useEffect(() => cancelSpring, [])
   // A long press opens the menu and swallows the click that follows it.
   const press = useRef<{ timer: number; x: number; y: number; fired: boolean } | null>(null)
 
-  function dragProps(dir: string) {
+  /** Drop handling for a directory; `open` is how to open it when it is closed. */
+  function dragProps(dir: string, open?: () => void) {
     return {
       onDragOver: (ev: DragEvent) => {
         const types = ev.dataTransfer?.types
@@ -81,13 +138,19 @@ export function Tree(props: TreeProps) {
         ev.stopPropagation()
         ev.dataTransfer.dropEffect = 'move'
         setDropOn(dir)
+        if (open && spring.current?.dir !== dir) {
+          cancelSpring()
+          spring.current = { dir, timer: window.setTimeout(() => { spring.current = null; open() }, SPRING_MS) }
+        }
       },
       onDragLeave: (ev: DragEvent) => {
         if ((ev.currentTarget as HTMLElement).contains(ev.relatedTarget as Node | null)) return
         setDropOn((d) => (d === dir ? null : d))
+        if (spring.current?.dir === dir) cancelSpring()
       },
       onDrop: (ev: DragEvent) => {
         setDropOn(null)
+        cancelSpring()
         const note = ev.dataTransfer?.getData(NOTE_DRAG)
         const folder = ev.dataTransfer?.getData(DIR_DRAG)
         if (!note && !folder) return
@@ -199,7 +262,9 @@ export function Tree(props: TreeProps) {
         }}
         onClick={(ev) => {
           ev.preventDefault()
-          if (id) onOpen(id)
+          if (!id) return
+          clicked.current = id
+          onOpen(id)
         }}
         onDblClick={(ev) => {
           ev.preventDefault()
@@ -217,7 +282,7 @@ export function Tree(props: TreeProps) {
   }
 
   function dirRow(n: TreeNode, depth: number) {
-    const isOpen = !collapsed.has(n.path)
+    const isOpen = prefs.isFolderOpen(n.path)
     const target: TreeTarget = { kind: 'dir', node: n }
     const empty = (n.children ?? []).length === 0
     const renaming = edit?.kind === 'rename-dir' && edit.path === n.path
@@ -246,16 +311,13 @@ export function Tree(props: TreeProps) {
           ev.dataTransfer?.setData(DIR_DRAG, JSON.stringify({ path: n.path }))
           if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move'
         }}
-        onClick={() => {
-          if (collapsed.has(n.path)) collapsed.delete(n.path)
-          else collapsed.add(n.path)
-          bump((x) => x + 1)
-        }}
+        aria-expanded={isOpen}
+        onClick={() => prefs.setFolderOpen(n.path, !isOpen)}
         onDblClick={(ev) => {
           ev.preventDefault()
           if (!coarsePointer) onRenameFolder(n)
         }}
-        {...dragProps(n.path)}
+        {...dragProps(n.path, isOpen ? undefined : () => prefs.setFolderOpen(n.path, true))}
         {...contextProps(target)}
       >
         <Icon name="chevron-right" class="tree-caret" size={14} />
@@ -323,49 +385,81 @@ export function Tree(props: TreeProps) {
     .map((p) => (p.kind === 'note' ? findNote(spaces, p.id) : findDir(spaces, p.path)))
     .filter((n): n is TreeNode => n !== null)
 
+  // The header is the toggle: the name, the count and the caret in one
+  // button, the add buttons beside it.
+  function spaceHead(name: string, open: boolean, label: ComponentChildren, title: string, adds?: ComponentChildren) {
+    return (
+      <h2 class={'space-name' + (open ? ' open' : '')} title={title}>
+        <button type="button" class="space-toggle" aria-expanded={open} onClick={() => prefs.setSpaceOpen(name, !open)}>
+          <Icon name="chevron-right" class="tree-caret" size={12} />
+          {label}
+        </button>
+        {adds}
+      </h2>
+    )
+  }
+
+  const pinnedOpen = prefs.isSpaceOpen(prefs.PINNED_SECTION)
   return (
     <>
       {pinned.length > 0 && (
         <section class="space pinned" aria-label="pinned">
-          <h2 class="space-name">
-            <Icon name="pin" size={12} />
-            Pinned
-          </h2>
-          {pinned.map((n) => render(n, 0))}
+          {spaceHead(
+            prefs.PINNED_SECTION,
+            pinnedOpen,
+            <>
+              <Icon name="pin" size={12} />
+              Pinned
+            </>,
+            `${pinned.length} pinned`,
+          )}
+          <div class="space-body" hidden={!pinnedOpen}>
+            {pinned.map((n) => render(n, 0))}
+          </div>
         </section>
       )}
-      {spaces.map((s) => (
-        <section
-          key={s.name}
-          class={'space' + (dropOn === s.name ? ' drop' : '')}
-          {...dragProps(s.name)}
-          {...contextProps({ kind: 'space', name: s.name })}
-        >
-          <h2 class="space-name" title={`${s.notes} notes`}>
-            {s.name === '' ? '/' : s.name + '/'}
-            <span class="space-count">{s.notes}</span>
-            <span class="tree-adds">
-              {s.name !== '' && (
-                <button type="button" class="tree-add" title={`New folder in ${s.name}`} aria-label={`New folder in ${s.name}`} onClick={() => onNewFolder(s.name)}>
-                  <Icon name="folder-plus" size={14} />
+      {spaces.map((s) => {
+        const open = prefs.isSpaceOpen(s.name)
+        return (
+          <section
+            key={s.name}
+            class={'space' + (dropOn === s.name ? ' drop' : '')}
+            {...dragProps(s.name, open ? undefined : () => prefs.setSpaceOpen(s.name, true))}
+            {...contextProps({ kind: 'space', name: s.name })}
+          >
+            {spaceHead(
+              s.name,
+              open,
+              <>
+                {s.name === '' ? '/' : s.name + '/'}
+                <span class="space-count">{s.notes}</span>
+              </>,
+              `${s.notes} notes`,
+              <span class="tree-adds">
+                {s.name !== '' && (
+                  <button type="button" class="tree-add" title={`New folder in ${s.name}`} aria-label={`New folder in ${s.name}`} onClick={() => onNewFolder(s.name)}>
+                    <Icon name="folder-plus" size={14} />
+                  </button>
+                )}
+                <button type="button" class="tree-add" title={`New note in ${s.name || 'the root'}`} aria-label={`New note in ${s.name || 'the root'}`} onClick={() => onNew(s.name)}>
+                  <Icon name="plus" size={14} />
                 </button>
+              </span>,
+            )}
+            <div class="space-body" hidden={!open}>
+              {edit?.kind === 'new-dir' && edit.parent === s.name && newDirRow(s.name, 0)}
+              {s.children.length === 0 && !(edit?.kind === 'new-dir' && edit.parent === s.name) ? (
+                <button type="button" class="tree-empty-dir space-empty" onClick={() => onNew(s.name)}>
+                  <Icon name="plus" size={14} />
+                  Nothing here yet. New note
+                </button>
+              ) : (
+                s.children.map((c) => render(c, 0))
               )}
-              <button type="button" class="tree-add" title={`New note in ${s.name || 'the root'}`} aria-label={`New note in ${s.name || 'the root'}`} onClick={() => onNew(s.name)}>
-                <Icon name="plus" size={14} />
-              </button>
-            </span>
-          </h2>
-          {edit?.kind === 'new-dir' && edit.parent === s.name && newDirRow(s.name, 0)}
-          {s.children.length === 0 && !(edit?.kind === 'new-dir' && edit.parent === s.name) ? (
-            <button type="button" class="tree-empty-dir space-empty" onClick={() => onNew(s.name)}>
-              <Icon name="plus" size={14} />
-              Nothing here yet. New note
-            </button>
-          ) : (
-            s.children.map((c) => render(c, 0))
-          )}
-        </section>
-      ))}
+            </div>
+          </section>
+        )
+      })}
     </>
   )
 }

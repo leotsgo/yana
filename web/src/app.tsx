@@ -347,6 +347,11 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   const notes = useMemo(() => flatten(spaces ?? []), [spaces])
   const dirs = useMemo(() => folders(spaces ?? []), [spaces])
+  /** The folder paths in one space, or in every space. */
+  const foldersIn = useCallback(
+    (space: string | null) => dirs.filter((d) => d.depth > 0 && (space === null || d.path.startsWith(space + '/'))).map((d) => d.path),
+    [dirs],
+  )
   const hasDir = useCallback((path: string) => dirs.some((d) => d.path === path), [dirs])
 
   // What the editor offers after `[[` and `#`: the notes of the space
@@ -741,6 +746,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         : `Moved ${what} to ${res.path}/.`,
     )
     prefs.repinDir(from, res.path)
+    prefs.moveFolderState(from, res.path)
   }
 
   const moveDir = useCallback(
@@ -881,6 +887,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ]
     } else {
       title = target.name ? target.name + '/' : '/'
+      const inside = foldersIn(target.name)
       items = [
         { id: 'new', label: 'New note here', icon: 'file-plus', run: () => newNote(target.name) },
         ...(target.name
@@ -888,6 +895,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               { id: 'folder', label: 'New folder', icon: 'folder-plus' as const, run: () => newFolderPrompt(target.name) },
               { id: 'activity', label: 'Activity here', icon: 'history' as const, run: () => openActivity(target.name) },
               { id: 'tasks', label: 'Tasks here', icon: 'check-square' as const, run: () => openTasksPage(target.name) },
+            ]
+          : []),
+        ...(inside.length > 0
+          ? [
+              { id: 'collapse', label: 'Collapse folders', icon: 'chevrons-down-up' as const, run: () => prefs.setFoldersOpen(inside, false) },
+              { id: 'expand', label: 'Expand folders', icon: 'chevrons-up-down' as const, run: () => prefs.setFoldersOpen(inside, true) },
             ]
           : []),
       ]
@@ -1041,6 +1054,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     ]
     if (!narrow) {
       items.push({ id: 'sidebar', label: collapsed ? 'Show the sidebar' : 'Hide the sidebar', run: toggleSidebar })
+    }
+    if (dirs.some((d) => d.depth > 0)) {
+      items.push({ id: 'collapse-all', label: 'Collapse every folder', detail: 'in the sidebar', run: () => prefs.setFoldersOpen(foldersIn(null), false) })
+      items.push({ id: 'expand-all', label: 'Expand every folder', detail: 'in the sidebar', run: () => prefs.setFoldersOpen(foldersIn(null), true) })
     }
     if (current.current?.kind === 'md') {
       const shown = layout === 'phone' && mode === 'split' ? 'read' : mode
