@@ -30,6 +30,8 @@ type TreeNode struct {
 	// siblings. ConflictOf names that note.
 	Conflict   bool        `json:"conflict,omitempty"`
 	ConflictOf string      `json:"conflict_of,omitempty"`
+	Created    time.Time   `json:"created,omitempty"`
+	Modified   time.Time   `json:"modified,omitempty"`
 	Children   []*TreeNode `json:"children,omitempty"`
 }
 
@@ -98,6 +100,7 @@ func buildTree(notes []index.Note, tags, aliases map[string][]string) []SpaceTre
 			Type: "note", Name: parts[len(parts)-1], Path: n.RelPath,
 			ID: n.ID, Title: n.Title, Kind: n.Kind, Order: n.Order, Tags: tags[n.ID],
 			Aliases: aliases[n.ID],
+			Created: n.Created, Modified: n.UpdatedAt,
 		}
 		nodes[n.ID] = node
 		cur.Children = append(cur.Children, node)

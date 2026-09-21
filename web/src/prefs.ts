@@ -340,6 +340,45 @@ export function moveFolderState(from: string, to: string): void {
   if (last && move(last) !== last) write('folders.last', move(last))
 }
 
+// --- per-folder sort -----------------------------------------------------
+
+export type FolderSort = 'title-asc' | 'title-desc' | 'created-desc' | 'created-asc' | 'modified-desc' | 'modified-asc'
+
+let sortDirs: Map<string, FolderSort> | null = null
+
+function readSorts(): Map<string, FolderSort> {
+  if (sortDirs) return sortDirs
+  const raw = read('tree.sort')
+  const map = new Map<string, FolderSort>()
+  if (raw) {
+    try {
+      const v = JSON.parse(raw) as unknown
+      if (v && typeof v === 'object') {
+        for (const [k, mode] of Object.entries(v as Record<string, unknown>)) {
+          if (typeof mode === 'string') map.set(k, mode as FolderSort)
+        }
+      }
+    } catch {
+      // A malformed entry is the same as no preference.
+    }
+  }
+  sortDirs = map
+  return map
+}
+
+/** The sort mode one folder is viewed with; 'title-asc' when unset. */
+export function folderSort(path: string): FolderSort {
+  return readSorts().get(path) ?? 'title-asc'
+}
+
+export function setFolderSort(path: string, mode: FolderSort): void {
+  const map = readSorts()
+  if (mode === 'title-asc') map.delete(path)
+  else map.set(path, mode)
+  sortDirs = map
+  write('tree.sort', map.size ? JSON.stringify(Object.fromEntries(map)) : null)
+}
+
 /** Drops keys the live tree no longer has. Only writes when something went. */
 export function pruneTreeState(folders: Iterable<string>, spaces: Iterable<string>): void {
   const f = new Set(folders)
