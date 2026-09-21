@@ -11,12 +11,15 @@ const (
 	msgUpdate      = "upd" // CRDT payload, relayed and recorded
 	msgAwareness   = "aw"  // presence payload, relayed only
 	msgPing        = "ping"
+	msgWatch       = "watch" // client → server: hear about changes in a space
 
 	msgSubscribed = "subd" // reply to sub: the update the client is missing
 	msgPong       = "pong"
 	msgMoved      = "moved"   // the note's file moved
 	msgDeleted    = "deleted" // the note's file is gone
 	msgError      = "err"
+	msgWatched    = "watchd" // reply to watch: the space is being watched
+	msgChanged    = "chg"    // something happened to a note in a watched space
 )
 
 // Error codes carried by err messages.
@@ -48,6 +51,8 @@ type ClientMessage struct {
 	// Payload is the opaque awareness state for aw: cursor, selection,
 	// user colour. Relayed as-is, never persisted.
 	Payload []byte `msgpack:"p,omitempty"`
+	// Space names the space a watch message asks to hear about.
+	Space string `msgpack:"s,omitempty"`
 }
 
 // ServerMessage is one framed message to a client.
@@ -62,6 +67,7 @@ type ServerMessage struct {
 	Payload []byte `msgpack:"p,omitempty"`
 	// Path is the note's new relative path for moved.
 	Path   string `msgpack:"path,omitempty"`
+	Space  string `msgpack:"s,omitempty"`
 	Code   string `msgpack:"c,omitempty"`
 	Reason string `msgpack:"r,omitempty"`
 }

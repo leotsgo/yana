@@ -69,12 +69,14 @@ export interface NotePageProps {
   onPin: () => void
   /** Text to scroll into view once the note renders (a search hit). */
   highlight: string | null
+  /** A task line to scroll to instead (the tasks page's link back). */
+  taskLine: number | null
   /** The notes and tags the editor offers after `[[` and `#`, for a space. */
   lookup: (space: string) => Completions
 }
 
 export function NotePage(props: NotePageProps) {
-  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, lookup } = props
+  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, taskLine, lookup } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -462,6 +464,7 @@ export function NotePage(props: NotePageProps) {
             onOpen={onOpen}
             onTag={onTag}
             highlight={hitShown}
+            taskLine={shown === 'read' ? taskLine : null}
             onEdit={!split && layout === 'desktop' && !coarsePointer && !readOnly ? () => onMode('edit') : undefined}
           />
         )}
@@ -668,6 +671,9 @@ interface ReaderProps {
   onTag: (tag: string) => void
   /** Text to scroll to and mark on the first render. */
   highlight: string | null
+  /** A task line to scroll to and mark: the tasks page opens a note at
+   * the box it came from. */
+  taskLine: number | null
   /** A click on the body (not a link or a box) opens the editor. */
   onEdit?: () => void
 }
@@ -676,10 +682,11 @@ interface ReaderProps {
 // it matches every other render (same goldmark, same wikilink handling);
 // a short debounce keeps it from rendering every keystroke. Task boxes
 // carry the line their marker is on and flip it through the CRDT.
-function Reader({ html, sync, note, readOnly, cls, onOpen, onTag, highlight, onEdit }: ReaderProps) {
+function Reader({ html, sync, note, readOnly, cls, onOpen, onTag, highlight, taskLine, onEdit }: ReaderProps) {
   const host = useRef<HTMLDivElement>(null)
   // The search hit is marked on every render (the live one replaces the
-  // first) and scrolled to once, on whichever render lands first.
+  // first) and scrolled to once, on whichever render lands first. So is
+  // a task line opened from the tasks page.
   const scrolled = useRef(false)
 
   const wire = (el: HTMLElement) => {
@@ -688,6 +695,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onTag, highlight, onE
     wireTags(el, onTag)
     renderRich(el)
     if (highlight && markText(el, highlight, !scrolled.current)) scrolled.current = true
+    if (taskLine !== null && markTaskLine(el, taskLine, !scrolled.current)) scrolled.current = true
   }
 
   useEffect(() => {
@@ -803,6 +811,17 @@ function markText(el: HTMLElement, needle: string, scroll: boolean): boolean {
     }
   }
   return false
+}
+
+/** Marks the task checkbox for one body line, scrolling it into view
+ * the first time. Returns whether the line was found. */
+function markTaskLine(el: HTMLElement, line: number, scroll: boolean): boolean {
+  const box = el.querySelector<HTMLInputElement>(`input[type="checkbox"][data-line="${line}"]`)
+  if (!box) return false
+  const row = box.closest('li')
+  if (row) row.classList.add('task-hit')
+  if (scroll) box.scrollIntoView({ block: 'center' })
+  return true
 }
 
 /** Lines taken by a frontmatter block at the top of the text, 0 when

@@ -293,6 +293,34 @@ export interface ActivityQuery {
   cursor?: string
 }
 
+/** One `- [ ]` line of a note, as the tasks page lists it. text is the
+ * line's markdown rendered to inline HTML at scan time. */
+export interface Task {
+  note: TaskNote
+  line: number
+  indent: number
+  text: string
+  done: boolean
+  done_at?: string | null
+  heading: string
+}
+
+/** The note a task sits in, without the payload-heavy fields. */
+export interface TaskNote {
+  id: string
+  space: string
+  path: string
+  title: string
+  kind: 'md' | 'html'
+}
+
+export interface TaskQuery {
+  space?: string
+  done?: boolean
+  tag?: string
+  path?: string
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message)
@@ -420,6 +448,10 @@ export const api = {
   exportTree: (space: string, path?: string) => download(`/api/spaces/${encodeURIComponent(space)}/export/notes.zip` + scope(path)),
   activity: (space: string, q: ActivityQuery = {}) =>
     get<ActivityResult>(`/api/spaces/${encodeURIComponent(space)}/activity` + activityQuery(q)),
+  tasks: (q: TaskQuery = {}) => get<{ tasks: Task[] }>('/api/tasks' + taskQuery(q)),
+  taskCount: () => get<{ count: number }>('/api/tasks?count=1'),
+  tickTask: (note: string, line: number, done: boolean) =>
+    post<{ ok: boolean; done: boolean }>('/api/tasks', { note, line, done }, 'PATCH'),
 }
 
 /** Builds the query string of an activity request, dropping empties. */
@@ -428,6 +460,18 @@ function activityQuery(q: ActivityQuery): string {
   for (const [key, value] of Object.entries(q)) {
     if (value !== undefined && value !== '') params.set(key, String(value))
   }
+  const s = params.toString()
+  return s ? '?' + s : ''
+}
+
+/** Builds the query string of a tasks request; done rides along only
+ * when the listing wants completed tasks. */
+function taskQuery(q: TaskQuery): string {
+  const params = new URLSearchParams()
+  if (q.space) params.set('space', q.space)
+  if (q.done) params.set('done', 'true')
+  if (q.tag) params.set('tag', q.tag)
+  if (q.path) params.set('path', q.path)
   const s = params.toString()
   return s ? '?' + s : ''
 }

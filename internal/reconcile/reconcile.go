@@ -130,6 +130,10 @@ const (
 	EventMoved EventKind = "moved"
 	// EventDeleted reports that the note's file is gone.
 	EventDeleted EventKind = "deleted"
+	// EventChanged reports that a note nobody had open changed on disk
+	// and the index caught up: no document, no payload, just the fact.
+	// Listing pages (the tasks page) refetch on it.
+	EventChanged EventKind = "changed"
 )
 
 // Event is delivered to subscribers for every change to a loaded note.
@@ -1234,6 +1238,7 @@ func (r *Reconciler) unloadedChanged(ctx context.Context, id, rel string) {
 		r.log.Info("note returned; sidecar restored from retention", "id", id, "path", rel)
 	}
 	r.reindex(ctx, rel)
+	r.emit(Event{NoteID: id, Kind: EventChanged, Path: rel})
 }
 
 // pathGone handles a path the watcher reported that no longer exists. A
@@ -1248,6 +1253,7 @@ func (r *Reconciler) pathGone(ctx context.Context, rel string) {
 		// Not loaded: the index row is retired unless the file moved and
 		// its new path was indexed first (UpsertNote follows the id).
 		r.reindex(ctx, rel)
+		r.emit(Event{Kind: EventChanged, Path: rel})
 		return
 	}
 	r.log.Debug("note file missing; confirming after settle", "id", id, "path", rel)

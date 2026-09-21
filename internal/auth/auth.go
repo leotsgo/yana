@@ -614,3 +614,22 @@ func (s *Service) AuthorizeSubscribe(ctx context.Context, author, noteID string)
 func (s *Service) NoteSpace(ctx context.Context, noteID string) (string, error) {
 	return s.db.NoteSpace(ctx, noteID)
 }
+
+// AuthorizeWatch gates a relay space watch on membership: pages like the
+// tasks list hear that a note changed in a space, so the same rule that
+// governs reading the space governs watching it.
+func (s *Service) AuthorizeWatch(ctx context.Context, author, space string) error {
+	name := strings.TrimPrefix(author, "user:")
+	if name == "" || name == author {
+		return ErrForbidden
+	}
+	u, err := s.db.GetUserByName(ctx, name)
+	if err != nil {
+		if errors.Is(err, index.ErrUserNotFound) {
+			return ErrForbidden
+		}
+		return err
+	}
+	_, err = s.AuthorizeSpace(ctx, Identity{UserID: u.ID, Username: u.Username, Owner: u.IsOwner}, space)
+	return err
+}

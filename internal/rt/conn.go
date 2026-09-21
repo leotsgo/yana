@@ -31,6 +31,8 @@ type conn struct {
 	// rooms is guarded by hub.mu. Each entry carries the role the
 	// connection's single subscribe-time lookup granted.
 	rooms map[string]roomRole
+	// spaces is the set of watched spaces, guarded by hub.mu.
+	spaces map[string]struct{}
 	// author is written only by the read loop and read by the same loop
 	// (and by RecheckSpace under hub.mu; reads race only with a write
 	// that replaces it with the same value).
@@ -81,6 +83,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out:      make(chan ServerMessage, h.opts.OutBuffer),
 		closed:   make(chan struct{}),
 		rooms:    map[string]roomRole{},
+		spaces:   map[string]struct{}{},
 		identity: identity,
 	}
 	if identity != nil {
@@ -180,6 +183,35 @@ func (c *conn) handle(ctx context.Context, msg ClientMessage) bool {
 		if validNoteID(msg.Note) {
 			c.hub.leave(c, msg.Note)
 		}
+		return true
+
+	case msgWatch:
+		space := msg.Space
+		if space == "" || strings.Contains(space, "/") || len(space) > 128 {
+			c.replyError(msgWatch, msg.Note, errInvalid, "space must be a single directory name")
+			return true
+		}
+		if c.hub.verify != nil {
+			msg.Author = c.author
+		} else if msg.Author != "" {
+			if !validAuthor(msg.Author) {
+				c.replyError(msgWatch, msg.Note, errInvalidAuthor, "author must be user:<name> or agent:<label>")
+				return true
+			}
+			c.author = msg.Author
+		}
+		if sa, ok := c.hub.authz.(SpaceAuthorizer); ok {
+			if err := sa.AuthorizeWatch(ctx, c.author, space); err != nil {
+				c.replyError(msgWatch, msg.Note, errForbidden, "you are not a member of that space")
+				return true
+			}
+		}
+		if err := c.hub.joinWatch(ctx, c, space); err != nil {
+			code, reason := errReply(err)
+			c.replyError(msgWatch, msg.Note, code, reason)
+			return true
+		}
+		c.trySend(ServerMessage{Type: msgWatched, Space: space})
 		return true
 
 	case msgUpdate:
@@ -353,6 +385,9 @@ func errReply(err error) (code, reason string) {
 	}
 	if errors.Is(err, errRoomLimit) {
 		return errTooManyRooms, "too many rooms on this connection"
+	}
+	if errors.Is(err, errSpaceLimit) {
+		return errTooManyRooms, "too many watched spaces on this connection"
 	}
 	return errInternal, "subscribe failed"
 }
