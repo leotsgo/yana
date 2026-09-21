@@ -25,11 +25,12 @@ are refused.
 | `unsub` | `n` | Leave the room. An emptied room unpins the note. |
 | `upd` | `n`, `u` CRDT payload, `a` author | Apply through the reconciliation loop: appended to `note_updates`, marked dirty for write-back, and fanned out to the room. |
 | `aw` | `n`, `p` awareness payload | Broadcast to the room's other members only. Never persisted. |
+| `watch` | `s` space, `a` optional author | Hear about changes in a whole space, without joining rooms. Authorizes against space membership and replies `watchd`. |
 | `ping` | — | Replied with `pong`. |
 
-Field names on the wire: `t` type, `n` note id, `sv` state vector, `u`
-update payload, `a` author, `p` awareness payload, `path`, `c` error code,
-`r` error reason.
+Field names on the wire: `t` type, `n` note id, `s` space, `sv` state
+vector, `u` update payload, `a` author, `p` awareness payload, `path`,
+`c` error code, `r` error reason.
 
 ## Server to client
 
@@ -40,6 +41,8 @@ update payload, `a` author, `p` awareness payload, `path`, `c` error code,
 | `aw` | `n`, `p` | A relayed awareness payload (cursor, selection, user colour). |
 | `moved` | `n`, `path` | The note's file moved or was renamed. |
 | `deleted` | `n` | The note's file is gone. |
+| `watchd` | `s` | Reply to `watch`: the space is being watched. |
+| `chg` | `n`, `path` | A note in a watched space changed (an edit, a move, a delete). Carries no payload; a listing page refetches what it needs, debounced. |
 | `pong` | — | Reply to `ping`. |
 | `err` | `n`, `c`, `r` | Code and reason: `not_found`, `invalid_author`, `rate_limited`, `too_many_rooms`, `invalid`, `forbidden`, `internal`. |
 
@@ -84,6 +87,7 @@ to keep intermediaries from dropping the socket.
 |---|---|---|
 | Concurrent connections | 256 | `YANA_WS_MAX_CONNECTIONS` |
 | Rooms per connection | 16 | `YANA_WS_MAX_ROOMS_PER_CONN` |
+| Watched spaces per connection | 32 | `YANA_WS_MAX_SPACES_PER_CONN` |
 | Inbound frame size | 1 MiB | `YANA_WS_MAX_MESSAGE_BYTES` |
 | Messages per user per minute | 1200 | `YANA_WS_USER_RATE` |
 | Messages per agent per minute | 300 | `YANA_WS_AGENT_RATE` |

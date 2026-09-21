@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,9 @@ type Options struct {
 	// 256). A connection whose queue fills is closed as too slow; that is
 	// what keeps memory bounded under sustained fan-out.
 	OutBuffer int
+	// MaxSpacesPerConn caps how many spaces one connection may watch
+	// (default 32).
+	MaxSpacesPerConn int
 	// EventBuffer sizes the channel carrying reconciliation events to the
 	// fan-out loop (default 1024).
 	EventBuffer int
@@ -67,6 +71,9 @@ func (o *Options) defaults() {
 	}
 	if o.OutBuffer <= 0 {
 		o.OutBuffer = 256
+	}
+	if o.MaxSpacesPerConn <= 0 {
+		o.MaxSpacesPerConn = 32
 	}
 	if o.EventBuffer <= 0 {
 		o.EventBuffer = 1024
@@ -125,6 +132,12 @@ type Authorizer interface {
 	NoteSpace(ctx context.Context, noteID string) (string, error)
 }
 
+// SpaceAuthorizer, when an Authorizer also implements it, gates space
+// watches on membership. Without it every space may be watched.
+type SpaceAuthorizer interface {
+	AuthorizeWatch(ctx context.Context, author, space string) error
+}
+
 type allowAll struct{}
 
 func (allowAll) AuthorizeSubscribe(context.Context, string, string) (string, error) {
@@ -155,12 +168,18 @@ type Hub struct {
 
 	events chan reconcile.Event
 
-	// mu guards rooms, conns, and each member's room set. It is never held
-	// while waiting on a note lock held by the fan-out loop's senders: the
-	// only lock ordering in the process is hub.mu → note locks.
-	mu    sync.Mutex
-	rooms map[string]*room
-	conns map[*conn]struct{}
+	// mu guards rooms, conns, watchers, and each member's room set. It is
+	// never held while waiting on a note lock held by the fan-out loop's
+	// senders: the only lock ordering in the process is hub.mu → note locks.
+	mu       sync.Mutex
+	rooms    map[string]*room
+	conns    map[*conn]struct{}
+	watchers map[string]map[*conn]struct{}
+
+	// noteSpaces caches note id → space for watcher routing, under its
+	// own lock so a lookup never holds hub.mu.
+	noteSpaceMu sync.Mutex
+	noteSpaces  map[string]string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -187,17 +206,19 @@ func New(rec *reconcile.Reconciler, authz Authorizer, opts Options, log *slog.Lo
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	h := &Hub{
-		rec:     rec,
-		authz:   authz,
-		verify:  opts.Verify,
-		opts:    opts,
-		limiter: opts.Limiter,
-		log:     log.With("component", "rt"),
-		events:  make(chan reconcile.Event, opts.EventBuffer),
-		rooms:   map[string]*room{},
-		conns:   map[*conn]struct{}{},
-		ctx:     ctx,
-		cancel:  cancel,
+		rec:        rec,
+		authz:      authz,
+		verify:     opts.Verify,
+		opts:       opts,
+		limiter:    opts.Limiter,
+		log:        log.With("component", "rt"),
+		events:     make(chan reconcile.Event, opts.EventBuffer),
+		rooms:      map[string]*room{},
+		conns:      map[*conn]struct{}{},
+		watchers:   map[string]map[*conn]struct{}{},
+		noteSpaces: map[string]string{},
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 	h.wg.Add(1)
 	go h.pump()
@@ -262,19 +283,53 @@ func (h *Hub) pump() {
 
 // fanout delivers one reconciliation event to the note's room. Update
 // payloads reach every member except the connection the update came from;
-// the originator already holds that state.
+// the originator already holds that state. Pages that list a whole space
+// (the tasks page) hear a leaner signal: a chg frame naming the note,
+// with no payload — they refetch what they need.
 func (h *Hub) fanout(ev reconcile.Event) {
 	h.mu.Lock()
-	r := h.rooms[ev.NoteID]
+	var r *room
+	var members []*conn
+	if ev.Kind != reconcile.EventChanged {
+		r = h.rooms[ev.NoteID]
+		if r != nil {
+			members = make([]*conn, 0, len(r.members))
+			for c := range r.members {
+				members = append(members, c)
+			}
+		}
+	}
+	watched := len(h.watchers) > 0
+	h.mu.Unlock()
+
+	// Watchers get a lean frame naming the note; the space lookup runs
+	// outside hub.mu so a slow query never stalls joins and leaves.
+	var watching []*conn
+	if watched {
+		var space string
+		if ev.NoteID != "" {
+			space = h.noteSpaceOf(ev.NoteID)
+		}
+		if space == "" && ev.Path != "" {
+			space = spaceOfPath(ev.Path)
+		}
+		if space != "" {
+			h.mu.Lock()
+			for c := range h.watchers[space] {
+				watching = append(watching, c)
+			}
+			h.mu.Unlock()
+		}
+	}
+	for _, c := range watching {
+		if ev.Kind == reconcile.EventUpdate {
+			h.updates.Add(1)
+		}
+		c.trySend(ServerMessage{Type: msgChanged, Note: ev.NoteID, Path: ev.Path})
+	}
 	if r == nil {
-		h.mu.Unlock()
 		return
 	}
-	members := make([]*conn, 0, len(r.members))
-	for c := range r.members {
-		members = append(members, c)
-	}
-	h.mu.Unlock()
 
 	var msg ServerMessage
 	switch ev.Kind {
@@ -296,6 +351,74 @@ func (h *Hub) fanout(ev reconcile.Event) {
 		}
 		c.trySend(msg)
 	}
+}
+
+// spaceOfPath is the first path segment: the space a path lives in.
+func spaceOfPath(rel string) string {
+	if i := strings.IndexByte(rel, '/'); i > 0 {
+		return rel[:i]
+	}
+	return ""
+}
+
+// noteSpaceOf resolves a note's space for watcher routing, from the
+// path the reconciliation loop holds; a missing note has none. One
+// note's keystrokes arrive in a stream, so the answer is cached. A
+// moved note re-points on its next event.
+func (h *Hub) noteSpaceOf(noteID string) string {
+	h.noteSpaceMu.Lock()
+	defer h.noteSpaceMu.Unlock()
+	if sp, ok := h.noteSpaces[noteID]; ok {
+		return sp
+	}
+	sp := ""
+	if rel, err := h.rec.Path(context.Background(), noteID); err == nil {
+		if i := strings.IndexByte(rel, '/'); i > 0 {
+			sp = rel[:i]
+		}
+	}
+	if sp == "" {
+		return ""
+	}
+	if len(h.noteSpaces) > 4096 {
+		h.noteSpaces = map[string]string{}
+	}
+	h.noteSpaces[noteID] = sp
+	return sp
+}
+
+// joinWatch starts hearing about changes in one space. Membership is
+// checked at join; RecheckSpace re-checks it when a .space.yml changes.
+func (h *Hub) joinWatch(ctx context.Context, c *conn, space string) error {
+	h.mu.Lock()
+	if len(c.spaces) >= h.opts.MaxSpacesPerConn {
+		h.mu.Unlock()
+		return errSpaceLimit
+	}
+	set := h.watchers[space]
+	if set == nil {
+		set = map[*conn]struct{}{}
+		h.watchers[space] = set
+	}
+	set[c] = struct{}{}
+	c.spaces[space] = struct{}{}
+	h.mu.Unlock()
+	return nil
+}
+
+// unwatchAll drops a closing connection from every space it watched.
+func (h *Hub) unwatchAll(c *conn) {
+	h.mu.Lock()
+	for space := range c.spaces {
+		if set := h.watchers[space]; set != nil {
+			delete(set, c)
+			if len(set) == 0 {
+				delete(h.watchers, space)
+			}
+		}
+	}
+	c.spaces = map[string]struct{}{}
+	h.mu.Unlock()
 }
 
 // join adds c to the note's room, pins the note while the room is live, and
@@ -350,7 +473,7 @@ func (h *Hub) leave(c *conn, noteID string) {
 	}
 }
 
-// removeConn drops a closing connection from every room.
+// removeConn drops a closing connection from every room and every watch.
 func (h *Hub) removeConn(c *conn) {
 	h.mu.Lock()
 	rooms := make([]*room, 0, len(c.rooms))
@@ -364,6 +487,15 @@ func (h *Hub) removeConn(c *conn) {
 		}
 	}
 	c.rooms = map[string]roomRole{}
+	for space := range c.spaces {
+		if set := h.watchers[space]; set != nil {
+			delete(set, c)
+			if len(set) == 0 {
+				delete(h.watchers, space)
+			}
+		}
+	}
+	c.spaces = map[string]struct{}{}
 	delete(h.conns, c)
 	h.mu.Unlock()
 	for _, r := range rooms {
@@ -396,6 +528,7 @@ func (h *Hub) broadcastAwareness(c *conn, noteID string, payload []byte) {
 }
 
 var errRoomLimit = errors.New("rt: too many rooms on this connection")
+var errSpaceLimit = errors.New("rt: too many watched spaces on this connection")
 
 // roomRole is a connection's standing in one room.
 type roomRole struct{ role string }
@@ -403,7 +536,7 @@ type roomRole struct{ role string }
 // RecheckSpace re-runs the subscribe authorization for every connection
 // in the rooms of one space and severs the ones that no longer pass:
 // editing .space.yml takes effect on open subscriptions within one
-// watcher cycle.
+// watcher cycle. Space watches are re-checked the same way.
 func (h *Hub) RecheckSpace(ctx context.Context, space string) {
 	if space == "" {
 		return
@@ -418,6 +551,10 @@ func (h *Hub) RecheckSpace(ctx context.Context, space string) {
 		for c := range r.members {
 			targets = append(targets, target{c: c, note: noteID})
 		}
+	}
+	var watchers []*conn
+	for c := range h.watchers[space] {
+		watchers = append(watchers, c)
 	}
 	h.mu.Unlock()
 
@@ -435,6 +572,26 @@ func (h *Hub) RecheckSpace(ctx context.Context, space string) {
 				Type: msgError, Note: t.note, Code: errForbidden,
 				Reason: "access to this note's space was revoked",
 			})
+		}
+	}
+	if sa, ok := h.authz.(SpaceAuthorizer); ok {
+		for _, c := range watchers {
+			if err := sa.AuthorizeWatch(ctx, c.author, space); err != nil {
+				h.log.Info("membership changed; severing watch", "conn", c.author, "space", space)
+				h.mu.Lock()
+				if set := h.watchers[space]; set != nil {
+					delete(set, c)
+					if len(set) == 0 {
+						delete(h.watchers, space)
+					}
+				}
+				delete(c.spaces, space)
+				h.mu.Unlock()
+				c.trySend(ServerMessage{
+					Type: msgError, Code: errForbidden,
+					Reason: "access to this space was revoked",
+				})
+			}
 		}
 	}
 }

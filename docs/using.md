@@ -47,6 +47,14 @@ you. Other kinds of file upload the same way and become a plain link.
 A list item starting with `[ ]` is a task; the Task button makes one.
 Tick the box while reading and the file is updated.
 
+The **Tasks** page gathers every open box across a space (or every
+space you belong to) in one list, grouped by the note it lives in.
+Each row links back to its line in the note, ticking there ticks the
+note itself, and the list follows changes as they happen. Filters
+narrow it to a folder or a tag; a toggle shows what was completed in
+the last thirty days. It is in the sidebar, the bottom bar on a phone,
+the command palette, and the keyboard shortcut listed in Help.
+
 ## Tags
 
 A word with `#` in front is a tag, anywhere in the note. Tags are
@@ -63,8 +71,9 @@ is the quickest way to write something down on a phone.
 
 The search box in the sidebar searches titles and bodies (on a phone,
 search is a tab in the bottom bar). The switcher opens a note by name or
-tag. Recently opened and pinned notes are on the home screen; pin a note
-from its menu.
+tag. The tasks page lists every open box across your spaces, with the
+open count on the home screen. Recently opened and pinned notes are on
+the home screen; pin a note from its menu.
 
 ## Move, rename, delete
 

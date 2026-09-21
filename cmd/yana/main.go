@@ -165,10 +165,11 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 	}
 
 	hub := rt.New(rec, as, rt.Options{
-		MaxConnections:  cfg.WSMaxConnections,
-		MaxRoomsPerConn: cfg.WSMaxRoomsPerConn,
-		MaxMessageBytes: cfg.WSMaxMessageBytes,
-		PingInterval:    cfg.WSPingInterval,
+		MaxConnections:   cfg.WSMaxConnections,
+		MaxRoomsPerConn:  cfg.WSMaxRoomsPerConn,
+		MaxSpacesPerConn: cfg.WSMaxSpacesPerConn,
+		MaxMessageBytes:  cfg.WSMaxMessageBytes,
+		PingInterval:     cfg.WSPingInterval,
 		Verify: func(token string) (rt.Identity, error) {
 			id, err := as.VerifyAccess(token)
 			if err != nil {

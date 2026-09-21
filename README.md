@@ -20,7 +20,8 @@
 
 YANA/ keeps a directory of `.md` files, and gives you a fast, quiet web app
 on top of it: live sync between every device, wikilinks and backlinks,
-tasks you tick from your phone, a daily note, git history, sharing by
+tasks you tick from your phone and gather on one page, a daily note, git
+history, sharing by
 folder, and an MCP endpoint so an agent can document your network while
 you sleep. Open the same files in any editor, `mv` them, `rsync` them,
 `grep` them. Delete the app's database and it rebuilds from the tree.
@@ -269,8 +270,7 @@ merges to `main` publish the image.
 
 ## Roadmap
 
-Planned next, roughly in order: a tasks page listing every open box
-across a space; PDFs and other
+Planned next, roughly in order: PDFs and other
 attachments with text search; importers for markdown vaults and Notion
 exports; search operators; templates with variables; vim keys; and an
 Android app.

@@ -38,6 +38,7 @@ import type { Section } from './settings'
 import { SharePage } from './share'
 import { appendToNote, composeShareBlock, today } from './sharelib'
 import { TagPage, TagsIndex } from './tags'
+import { TasksPage } from './tasks'
 import { TrashPage } from './trash'
 import { Tree, flatten, folders } from './tree'
 import type { FlatNote, TreeEdit, TreeTarget } from './tree'
@@ -51,6 +52,7 @@ type Route =
   | { kind: 'tags' }
   | { kind: 'tag'; tag: string }
   | { kind: 'search' }
+  | { kind: 'tasks'; space: string; tag: string; path: string }
   | { kind: 'activity'; space: string; path: string }
   | { kind: 'settings'; section: Section | null }
 
@@ -60,6 +62,10 @@ function parseRoute(): Route {
   if (location.pathname === '/trash') return { kind: 'trash' }
   if (location.pathname === '/tags') return { kind: 'tags' }
   if (location.pathname === '/search') return { kind: 'search' }
+  if (location.pathname === '/tasks') {
+    const q = new URLSearchParams(location.search)
+    return { kind: 'tasks', space: q.get('space') ?? '', tag: q.get('tag') ?? '', path: q.get('path') ?? '' }
+  }
   if (location.pathname === '/activity') {
     const q = new URLSearchParams(location.search)
     return { kind: 'activity', space: q.get('space') ?? '', path: q.get('path') ?? '' }
@@ -120,9 +126,11 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const [themePref, setThemePref] = useState(prefs.theme)
   const [pinList, setPinList] = useState(prefs.pins)
   const [rev, setRev] = useState(0) // bumps to reopen the current note after a move
-  // A search hit opens with its match scrolled into view; the sequence
-  // remounts the page so a second hit in the same note scrolls too.
-  const [hit, setHit] = useState<{ text: string; seq: number } | null>(null)
+  // A search hit opens with its match scrolled into view, and a task
+  // row with its box; the sequence remounts the page so a second one on
+  // the same note scrolls too.
+  const [hit, setHit] = useState<{ text: string | null; line: number | null; seq: number } | null>(null)
+  const [openTasks, setOpenTasks] = useState<number | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const current = useRef<Note | null>(null)
   const user = auth.user()
@@ -148,9 +156,19 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     if (location.pathname !== path) history.pushState(null, '', path)
     setRoute({ kind: 'note', id })
     setMode('read')
-    setHit((h) => (highlight ? { text: highlight, seq: (h?.seq ?? 0) + 1 } : null))
+    setHit((h) => (highlight ? { text: highlight, line: null, seq: (h?.seq ?? 0) + 1 } : null))
     setDrawer(false)
     setQuery('')
+  }, [])
+
+  // A task row: read mode, scrolled to its box.
+  const openTask = useCallback((id: string, line: number | null) => {
+    const path = `/n/${id}`
+    if (location.pathname !== path) history.pushState(null, '', path)
+    setRoute({ kind: 'note', id })
+    setMode('read')
+    setHit((h) => ({ text: null, line, seq: (h?.seq ?? 0) + 1 }))
+    setDrawer(false)
   }, [])
 
   const openPage = useCallback((r: Route, path: string, title: string, push = true) => {
@@ -176,6 +194,18 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       if (path) q.set('path', path)
       const qs = q.toString()
       openPage({ kind: 'activity', space, path }, '/activity' + (qs ? '?' + qs : ''), 'What changed', push)
+    },
+    [openPage],
+  )
+  // The tasks page: every space by default, one space (or a folder in
+  // it) from a folder's context menu and the page's own filters.
+  const openTasksPage = useCallback(
+    (space = '', path = '', push = true) => {
+      const q = new URLSearchParams()
+      if (space) q.set('space', space)
+      if (path) q.set('path', path)
+      const qs = q.toString()
+      openPage({ kind: 'tasks', space, tag: '', path }, '/tasks' + (qs ? '?' + qs : ''), 'Tasks', push)
     },
     [openPage],
   )
@@ -270,14 +300,26 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     }
   }, [loadTree])
 
+  // The open-task count follows the tree: it badges the home screen and
+  // the sidebar, and a tick changes it.
+  const loadTaskCount = useCallback(async () => {
+    try {
+      const { count } = await api.taskCount()
+      setOpenTasks(count)
+    } catch {
+      // Offline or indexing; the badge is not worth a message.
+    }
+  }, [])
+
   useEffect(() => {
     void loadTree()
     void loadStatus()
+    void loadTaskCount()
     void outbox.drain()
     void loadSpaces()
     // Files can change under us; keep the tree fresh without a websocket.
-    const t = window.setInterval(() => { void loadTree() }, 30_000)
-    const onVis = () => { if (document.visibilityState === 'visible') { void loadTree(); void outbox.drain() } }
+    const t = window.setInterval(() => { void loadTree(); void loadTaskCount() }, 30_000)
+    const onVis = () => { if (document.visibilityState === 'visible') { void loadTree(); void loadTaskCount(); void outbox.drain() } }
     const onOnline = () => { void loadTree(); void outbox.drain() }
     document.addEventListener('visibilitychange', onVis)
     window.addEventListener('online', onOnline)
@@ -286,7 +328,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       document.removeEventListener('visibilitychange', onVis)
       window.removeEventListener('online', onOnline)
     }
-  }, [loadTree, loadStatus, loadSpaces])
+  }, [loadTree, loadStatus, loadSpaces, loadTaskCount])
 
   const say = useCallback((msg: string, action?: Toast['action']) => setToast(action ? { msg, action } : { msg }), [])
   useEffect(() => {
@@ -830,6 +872,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         { id: 'folder', label: 'New folder inside', icon: 'folder-plus', run: () => newFolderPrompt(n.path) },
         { id: 'pin', label: pinned ? 'Unpin' : 'Pin to the top', icon: pinned ? 'pin-off' : 'pin', run: () => pinDir(n) },
         { id: 'activity', label: 'Activity here', icon: 'history', run: () => openActivity(spaceOf(n.path), n.path.slice(spaceOf(n.path).length + 1)) },
+        { id: 'tasks', label: 'Tasks here', icon: 'check-square', run: () => openTasksPage(spaceOf(n.path), n.path.slice(spaceOf(n.path).length + 1)) },
         'sep',
         { id: 'rename', label: 'Rename', icon: 'pencil', run: () => renameDirPrompt(n) },
         { id: 'move', label: 'Move to a folder', icon: 'move', run: () => moveDirPicker(n) },
@@ -844,6 +887,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           ? [
               { id: 'folder', label: 'New folder', icon: 'folder-plus' as const, run: () => newFolderPrompt(target.name) },
               { id: 'activity', label: 'Activity here', icon: 'history' as const, run: () => openActivity(target.name) },
+              { id: 'tasks', label: 'Tasks here', icon: 'check-square' as const, run: () => openTasksPage(target.name) },
             ]
           : []),
       ]
@@ -946,6 +990,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ['Make a link to another note', 'type [[ or use the Link button', 'Links between notes'],
       ['Put a picture in a note', 'drag, paste, or the Image button', 'Pictures and files'],
       ['Make a task list and tick it', '- [ ] on a line; tick it while reading', 'Tasks'],
+      ['See every open task in one place', 'the tasks page, with filters', 'Tasks'],
       ['Tag a note', '#word anywhere in it', 'Tags'],
       ['Write something down fast', 'Capture, into today\'s note', 'Today and capture'],
       ['Find a note again', 'search, the switcher, tags, recents', 'Finding things'],
@@ -958,6 +1003,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ['New note', label(keys.newNote)],
       ['Capture a line into today\'s note', label(keys.capture)],
       ["Today's note", label(keys.daily)],
+      ['Open the tasks page', label(keys.tasks)],
       ['Open a note by name or #tag', label(keys.switcher)],
       ['Command palette', label(keys.palette)],
       ['Search', label(keys.search) + ' or /'],
@@ -974,6 +1020,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     const items: PaletteItem[] = [
       { id: 'guide', label: 'Open the guide', detail: 'a note that shows everything by doing it', run: () => openGuide() },
       { id: 'what-changed', label: 'See what changed lately', detail: 'the activity page: who changed which notes, when', run: () => openActivity() },
+      { id: 'tasks-page', label: 'Open the tasks page', detail: 'every open box across your spaces', run: () => openTasksPage() },
       ...how.map(([what, detail, section]) => ({ id: 'how:' + section, label: what, detail, hint: 'in the guide', run: () => openGuide(section) })),
       ...rows.map(([what, key]) => ({ id: what, label: what, hint: key, run: () => undefined })),
     ]
@@ -985,6 +1032,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       { id: 'new', label: 'New note', hint: label(keys.newNote), run: () => newNote() },
       { id: 'capture', label: 'Capture a line', detail: "into today's note, without opening it", hint: label(keys.capture), run: capturePrompt },
       { id: 'daily', label: "Today's note", hint: label(keys.daily), run: () => void openDaily() },
+      { id: 'tasks', label: 'Tasks', detail: 'every open box across your spaces', hint: label(keys.tasks), run: () => openTasksPage() },
       { id: 'open', label: 'Open a note', hint: label(keys.switcher), run: openSwitcher },
       { id: 'search', label: 'Search notes', hint: label(keys.search), run: focusSearch },
       { id: 'activity', label: 'What changed', detail: 'who changed which notes, when', run: () => openActivity() },
@@ -1090,8 +1138,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // --- hotkeys -----------------------------------------------------------
 
-  const actions = useRef({ openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt })
-  actions.current = { openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt }
+  const actions = useRef({ openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage })
+  actions.current = { openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage }
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
@@ -1106,6 +1154,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       else if (matches(ev, keys.newNote)) a.newNote()
       else if (matches(ev, keys.daily)) void a.openDaily()
       else if (matches(ev, keys.capture)) a.capturePrompt()
+      else if (matches(ev, keys.tasks)) a.openTasksPage()
       else if (matches(ev, keys.search)) a.focusSearch()
       else if (matches(ev, keys.split)) a.toggleSplit()
       else if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !isEditable(document.activeElement)) a.focusSearch()
@@ -1298,6 +1347,11 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           </div>
           {!searching && (
             <nav class="sidebar-nav" aria-label="more">
+              <a class={'sidebar-link' + (route.kind === 'tasks' ? ' selected' : '')} href="/tasks" onClick={(ev) => { ev.preventDefault(); openTasksPage() }}>
+                <Icon name="check-square" />
+                Tasks
+                {openTasks !== null && openTasks > 0 && <span class="sidebar-count">{openTasks}</span>}
+              </a>
               <a class={'sidebar-link' + (route.kind === 'tags' || route.kind === 'tag' ? ' selected' : '')} href="/tags" onClick={(ev) => { ev.preventDefault(); openTags() }}>
                 <Icon name="tag" />
                 Tags
@@ -1345,6 +1399,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               pinned={currentPinned}
               onPin={() => { if (current.current) pinNote(current.current) }}
               highlight={hit?.text ?? null}
+              taskLine={hit?.line ?? null}
               lookup={completions}
             />
           )}
@@ -1354,6 +1409,26 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           )}
           {route.kind === 'tags' && <TagsIndex onTag={openTag} />}
           {route.kind === 'tag' && <TagPage tag={route.tag} onOpen={navigate} onAll={() => openTags()} />}
+          {route.kind === 'tasks' && (
+            <TasksPage
+              key={route.space + ':' + route.tag + ':' + route.path}
+              space={route.space}
+              tag={route.tag}
+              path={route.path}
+              spaces={spaceList}
+              notes={notes}
+              onOpen={openTask}
+              onNavigate={(space, tag, path) => {
+                const q = new URLSearchParams()
+                if (space) q.set('space', space)
+                if (tag) q.set('tag', tag)
+                if (path) q.set('path', path)
+                const qs = q.toString()
+                openPage({ kind: 'tasks', space, tag, path }, '/tasks' + (qs ? '?' + qs : ''), 'Tasks')
+              }}
+              onToast={say}
+            />
+          )}
           {route.kind === 'activity' && (
             <ActivityPage
               key={route.space + ':' + route.path}
@@ -1390,10 +1465,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               pins={pinList}
               spaces={spaces ?? []}
               loading={spaces === null}
+              openTasks={openTasks}
               onOpen={navigate}
               onNew={() => newNote()}
               onCapture={capturePrompt}
               onDaily={() => void openDaily()}
+              onTasks={() => openTasksPage()}
               onGuide={() => openGuide()}
               onActivity={() => openActivity()}
               onInstall={net.canInstall ? () => void pwa.promptInstall() : null}
@@ -1418,6 +1495,11 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           <button type="button" class="bottombar-btn" onClick={() => void openDaily()}>
             <Icon name="calendar" size={20} />
             Today
+          </button>
+          <button type="button" class={'bottombar-btn' + (route.kind === 'tasks' ? ' on' : '')} onClick={() => openTasksPage()}>
+            <Icon name="check-square" size={20} />
+            Tasks
+            {openTasks !== null && openTasks > 0 && <span class="bottombar-badge">{openTasks > 99 ? '99+' : openTasks}</span>}
           </button>
           <button type="button" class="bottombar-btn" onClick={() => newNote()}>
             <Icon name="plus" size={20} />
@@ -1476,10 +1558,14 @@ interface HomeProps {
   pins: prefs.Pin[]
   spaces: SpaceTree[]
   loading: boolean
+  /** Open tasks across the account's spaces, when the count is in. */
+  openTasks: number | null
   onOpen: (id: string) => void
   onNew: () => void
   onCapture: () => void
   onDaily: () => void
+  /** The tasks page. */
+  onTasks: () => void
   /** The starter note: opened, or made first. */
   onGuide: () => void
   /** The activity feed. */
@@ -1491,7 +1577,7 @@ interface HomeProps {
 // The home page: the three things people come here to do, each with a
 // line saying what it is, then what they pinned and what they opened
 // last. Shortcuts are in the account menu and the palette.
-function Home({ notes, pins, spaces, loading, onOpen, onNew, onCapture, onDaily, onGuide, onActivity, onInstall }: HomeProps) {
+function Home({ notes, pins, spaces, loading, openTasks, onOpen, onNew, onCapture, onDaily, onTasks, onGuide, onActivity, onInstall }: HomeProps) {
   const byId = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
   const recent = prefs.recents().map((id) => byId.get(id)).filter((n): n is FlatNote => Boolean(n))
   const pinned = pins
@@ -1531,6 +1617,17 @@ function Home({ notes, pins, spaces, loading, onOpen, onNew, onCapture, onDaily,
           <span class="home-action-text">
             <span class="home-action-title">Today</span>
             <span class="home-action-sub">Today's note, made if it is not there yet.</span>
+          </span>
+        </button>
+        <button type="button" class="home-action" onClick={onTasks}>
+          <Icon name="check-square" size={18} />
+          <span class="home-action-text">
+            <span class="home-action-title">
+              Tasks{openTasks !== null && openTasks > 0 ? <span class="home-action-count">{openTasks}</span> : null}
+            </span>
+            <span class="home-action-sub">
+              {openTasks === null ? 'Every open box across your spaces.' : openTasks === 0 ? 'Nothing open. Write `- [ ]` on a line to make one.' : `${openTasks} open across your spaces.`}
+            </span>
           </span>
         </button>
         {onInstall && (

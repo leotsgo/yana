@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/madeofpendletonwool/yana/internal/render"
 )
 
 // Note is one row of the notes table.
@@ -47,10 +49,10 @@ func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 	return n, nil
 }
 
-// UpsertNote writes a note row, its body (for search) and its tags inside
-// tx. A note is identified by id; a changed rel_path is a move. raw is the
-// untransformed body (the markdown itself, or the HTML source) links are
-// extracted from; body is what search reads.
+// UpsertNote writes a note row, its body (for search), its tags and its
+// tasks inside tx. A note is identified by id; a changed rel_path is a
+// move. raw is the untransformed body (the markdown itself, or the HTML
+// source) links and tasks are extracted from; body is what search reads.
 func UpsertNote(tx *sql.Tx, n Note, body, raw string, tags []string) error {
 	var order any
 	if n.Order != nil {
@@ -99,7 +101,13 @@ func UpsertNote(tx *sql.Tx, n Note, body, raw string, tags []string) error {
 			return err
 		}
 	}
-	return nil
+	var tasks []Task
+	if n.Kind == "md" {
+		for _, t := range render.Tasks([]byte(raw)) {
+			tasks = append(tasks, Task{Line: t.Line, Indent: t.Indent, Text: t.HTML, Done: t.Done, Heading: t.Heading})
+		}
+	}
+	return ReplaceTasksForNote(tx, n.ID, tasks, n.UpdatedAt)
 }
 
 // DeleteNotesExcept removes every note whose rel_path is not in keep. It is

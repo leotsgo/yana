@@ -152,3 +152,96 @@ func wsRead(ctx context.Context, ws *websocket.Conn, out any) error {
 	}
 	return msgpack.Unmarshal(data, out)
 }
+
+// TestSpaceWatch checks the watch half of the relay: a connection that
+// watches a space hears a chg frame when a note in that space changes,
+// without joining the note's room.
+func TestSpaceWatch(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir+"/home", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	root, err := pathsafe.NewRoot(dir, pathsafe.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := index.Open(filepath.Join(dir, ".sync", "index.db"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	sc := scanner.New(root, db, scanner.Options{SettleTime: time.Millisecond}, log)
+	rec := reconcile.New(root, db, sc, reconcile.Options{UnloadAfter: -1}, log)
+	if err := rec.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := rec.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	id := scanner.NewID(time.Now())
+	if err := os.WriteFile(filepath.Join(dir, "home", "note.md"),
+		[]byte("---\nid: "+id+"\n---\n# Note\n\n- [ ] one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	hub := rt.New(rec, nil, rt.Options{}, log)
+	t.Cleanup(hub.Close)
+	srv := New(Deps{DB: db, Root: root, Log: log, Version: "test", Sync: rec, RT: hub})
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close(websocket.StatusNormalClosure, "bye")
+
+	watch := struct {
+		Type   string `msgpack:"t"`
+		Space  string `msgpack:"s"`
+		Author string `msgpack:"a"`
+	}{Type: "watch", Space: "home", Author: "user:ada"}
+	w, err := ws.Writer(ctx, websocket.MessageBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := msgpack.NewEncoder(w).Encode(&watch); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var watched struct {
+		Type  string `msgpack:"t"`
+		Space string `msgpack:"s"`
+	}
+	if err := wsRead(ctx, ws, &watched); err != nil {
+		t.Fatal(err)
+	}
+	if watched.Type != "watchd" || watched.Space != "home" {
+		t.Fatalf("watch reply: %+v", watched)
+	}
+
+	// An edit through the loop fans a change frame out to the watcher.
+	if err := rec.SetText(ctx, id, "# Note\n\n- [x] one\n", "user:ada"); err != nil {
+		t.Fatal(err)
+	}
+	var chg struct {
+		Type string `msgpack:"t"`
+		Note string `msgpack:"n"`
+		Path string `msgpack:"path"`
+	}
+	if err := wsRead(ctx, ws, &chg); err != nil {
+		t.Fatal(err)
+	}
+	if chg.Type != "chg" || chg.Note != id {
+		t.Fatalf("change frame: %+v", chg)
+	}
+}

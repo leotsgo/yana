@@ -48,6 +48,8 @@ A list item that starts with `[ ]` is a task. In reading mode, tick the box and 
 - [x] This one is done
 - [ ] Add a task of your own with the Task button
 
+Every open box also gathers on the **Tasks** page: the sidebar, the bottom bar on a phone, the palette, or the keyboard shortcut in Help. It lists them by the note they live in across a whole space (or all of them), each row links back to its line in the note, and ticking there ticks the note. Filters narrow it to a folder or a tag, and a toggle shows what was completed in the last thirty days.
+
 ## Tags
 
 A word with `#` in front of it is a tag: #guide, for example. Tags are clickable in the rendered note and in the title area. A tag's page lists every note carrying it, and the note switcher finds notes by tag when you type `#`. Tags are not folders; a note can carry as many as you like.

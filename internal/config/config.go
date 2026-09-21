@@ -64,9 +64,10 @@ type Config struct {
 	RipgrepTimeout time.Duration `yaml:"ripgrep_timeout"`
 
 	// Realtime relay bounds (GET /ws).
-	WSMaxConnections  int   `yaml:"ws_max_connections"`
-	WSMaxRoomsPerConn int   `yaml:"ws_max_rooms_per_conn"`
-	WSMaxMessageBytes int64 `yaml:"ws_max_message_bytes"`
+	WSMaxConnections   int   `yaml:"ws_max_connections"`
+	WSMaxRoomsPerConn  int   `yaml:"ws_max_rooms_per_conn"`
+	WSMaxSpacesPerConn int   `yaml:"ws_max_spaces_per_conn"`
+	WSMaxMessageBytes  int64 `yaml:"ws_max_message_bytes"`
 	// WSUserRate and WSAgentRate bound update and awareness messages per
 	// author per minute. A client that batches keystrokes on a 50ms timer
 	// peaks at 20 messages a second, so the user default is 1200/min.
@@ -121,39 +122,40 @@ func Defaults() Config {
 		root = filepath.Join(home, ".yana")
 	}
 	return Config{
-		NotesRoot:         root,
-		Listen:            ":8080",
-		ContentListen:     ":8081",
-		ContentOrigin:     "",
-		LogLevel:          "info",
-		MaxNoteSize:       10 << 20,
-		MaxAssetSize:      50 << 20,
-		MaxNotesPerSpace:  100_000,
-		ScanSettleTime:    2 * time.Second,
-		WritebackIdle:     2 * time.Second,
-		WatchDebounce:     200 * time.Millisecond,
-		CompactAfter:      500,
-		CRDTRetention:     30 * 24 * time.Hour,
-		Ripgrep:           true,
-		RipgrepTimeout:    5 * time.Second,
-		WSMaxConnections:  256,
-		WSMaxRoomsPerConn: 16,
-		WSMaxMessageBytes: 1 << 20,
-		WSUserRate:        1200,
-		WSAgentRate:       300,
-		WSPingInterval:    30 * time.Second,
-		Git:               true,
-		GitQuiet:          5 * time.Minute,
-		GitInterval:       time.Hour,
-		GitRemote:         "",
-		GitPushHour:       2,
-		GitUserName:       "yana user",
-		GitUserEmail:      "user@yana.local",
-		AccessTTL:         15 * time.Minute,
-		RefreshTTL:        30 * 24 * time.Hour,
-		AgentRate:         30,
-		DailyPattern:      "journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md",
-		DailyTemplate:     "templates/daily.md",
+		NotesRoot:          root,
+		Listen:             ":8080",
+		ContentListen:      ":8081",
+		ContentOrigin:      "",
+		LogLevel:           "info",
+		MaxNoteSize:        10 << 20,
+		MaxAssetSize:       50 << 20,
+		MaxNotesPerSpace:   100_000,
+		ScanSettleTime:     2 * time.Second,
+		WritebackIdle:      2 * time.Second,
+		WatchDebounce:      200 * time.Millisecond,
+		CompactAfter:       500,
+		CRDTRetention:      30 * 24 * time.Hour,
+		Ripgrep:            true,
+		RipgrepTimeout:     5 * time.Second,
+		WSMaxConnections:   256,
+		WSMaxRoomsPerConn:  16,
+		WSMaxSpacesPerConn: 32,
+		WSMaxMessageBytes:  1 << 20,
+		WSUserRate:         1200,
+		WSAgentRate:        300,
+		WSPingInterval:     30 * time.Second,
+		Git:                true,
+		GitQuiet:           5 * time.Minute,
+		GitInterval:        time.Hour,
+		GitRemote:          "",
+		GitPushHour:        2,
+		GitUserName:        "yana user",
+		GitUserEmail:       "user@yana.local",
+		AccessTTL:          15 * time.Minute,
+		RefreshTTL:         30 * 24 * time.Hour,
+		AgentRate:          30,
+		DailyPattern:       "journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md",
+		DailyTemplate:      "templates/daily.md",
 	}
 }
 
@@ -285,6 +287,9 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		return err
 	}
 	if err := i("WS_MAX_ROOMS_PER_CONN", &cfg.WSMaxRoomsPerConn); err != nil {
+		return err
+	}
+	if err := i("WS_MAX_SPACES_PER_CONN", &cfg.WSMaxSpacesPerConn); err != nil {
 		return err
 	}
 	if err := i64("WS_MAX_MESSAGE_BYTES", &cfg.WSMaxMessageBytes); err != nil {
