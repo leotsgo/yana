@@ -63,6 +63,8 @@ export interface SyncEvents {
   /** The local copy of the document is loaded (or storage was
    * unavailable); the note can be read and edited offline from here. */
   onLocal?(): void
+  /** This client changed the document: typing, a ticked box, a title. */
+  onEdit?(): void
 }
 
 const FLUSH_MS = 50 // keystroke batching window
@@ -152,6 +154,8 @@ export class SyncClient {
       if (origin === 'remote') return
       this.pending.push(update)
       this.scheduleFlush()
+      // What the device copy brings back was typed before, not now.
+      if (origin !== this.idb) this.events.onEdit?.()
     })
     // Only this client's own state goes out; remote states arrive
     // through the relay and must not be echoed back.

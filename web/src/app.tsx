@@ -7,6 +7,9 @@
 // too; see hotkeys.ts for the bindings. The everyday actions — new note
 // without a path, quick capture into today's note, pins, tags, the tree
 // actions behind a right-click or a long press — are wired here as well.
+// Notes open in tabs (workspace.ts): the strip sits above the note on
+// tablets and desktops, the URL is always the active tab's note, and a
+// page like tasks or settings shows in its place without being a tab.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
@@ -17,10 +20,10 @@ import * as auth from './auth'
 import * as cache from './cache'
 import { Confirm } from './confirm'
 import type { ConfirmSpec } from './confirm'
-import { isEditable, keys, label, matches } from './hotkeys'
+import { isEditable, isMac, keys, label, matches, tabDigit } from './hotkeys'
 import { Icon } from './icons'
 import { useVisualViewport } from './keyboard'
-import { coarsePointer, useLayout } from './layout'
+import { coarsePointer, current as currentLayout, useLayout } from './layout'
 import { renderUnresolvedReport } from './links'
 import { Menu } from './menu'
 import type { MenuItem, MenuSpec } from './menu'
@@ -40,8 +43,13 @@ import { appendToNote, composeShareBlock, today } from './sharelib'
 import { TagPage, TagsIndex } from './tags'
 import { TasksPage } from './tasks'
 import { TrashPage } from './trash'
+import { TabStrip } from './tabstrip'
+import type { TabInfo } from './tabstrip'
 import { Tree, flatten, folders } from './tree'
 import type { FlatNote, TreeEdit, TreeTarget } from './tree'
+import * as workspace from './workspace'
+import { openProps } from './workspace'
+import type { OpenHow, Tab } from './workspace'
 
 type Route =
   | { kind: 'home' }
@@ -79,6 +87,25 @@ function parseRoute(): Route {
   return m && m[1] ? { kind: 'note', id: m[1] } : { kind: 'home' }
 }
 
+/** A page shown in place of the active tab: anything but a note. */
+interface Page {
+  route: Route
+  path: string
+}
+
+/** What the address says at load. A note comes to the front of the
+ * strip, opened in a tab if it was not there; the bare root shows the
+ * tab that was active last time, or the home screen. */
+function initialPage(): Page | null {
+  const r = parseRoute()
+  if (r.kind === 'home') return null
+  if (r.kind !== 'note') return { route: r, path: location.pathname + location.search }
+  const had = workspace.pane().tabs.find((t) => t.id === r.id)
+  if (had) workspace.activate(had.key)
+  else workspace.open(r.id, currentLayout() === 'phone' ? 'here' : 'tab', { mode: prefs.openMode() })
+  return null
+}
+
 /** Track a subscribe/get module state in a component. */
 function useExternal<T>(get: () => T, subscribe: (l: () => void) => () => void): T {
   const [value, setValue] = useState(get)
@@ -101,7 +128,10 @@ interface NoteRef {
 
 export function App({ onSignOut }: { onSignOut: () => void }) {
   const layout = useLayout()
-  const [route, setRoute] = useState<Route>(parseRoute)
+  // The open tabs, and the page shown instead of the active one, if any.
+  // The route follows from the two.
+  const ws = useExternal(workspace.get, workspace.subscribe)
+  const [page, setPage] = useState<Page | null>(initialPage)
   const [spaces, setSpaces] = useState<SpaceTree[] | null>(null)
   const [spaceList, setSpaceList] = useState<SpaceInfo[] | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
@@ -113,7 +143,6 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const [menu, setMenu] = useState<MenuSpec | null>(null)
   const [confirmSpec, setConfirmSpec] = useState<ConfirmSpec | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
-  const [mode, setMode] = useState<prefs.OpenMode>(prefs.openMode)
   const [openPref, setOpenPref] = useState<prefs.OpenMode>(prefs.openMode)
   const [live, setLive] = useState(prefs.livePreview)
   const [editing, setEditing] = useState(false) // the phone is showing an editor
@@ -129,51 +158,80 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // A search hit opens with its match scrolled into view, and a task
   // row with its box; the sequence remounts the page so a second one on
   // the same note scrolls too.
-  const [hit, setHit] = useState<{ text: string | null; line: number | null; seq: number } | null>(null)
+  const [hit, setHit] = useState<{ key: string; text: string | null; line: number | null; seq: number } | null>(null)
   const [openTasks, setOpenTasks] = useState<number | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const current = useRef<Note | null>(null)
   const user = auth.user()
   const narrow = layout !== 'desktop'
   const sidebarShown = narrow ? drawer : !collapsed
+  const focused = ws.panes[ws.focus] ?? { tabs: [], active: null }
+  const active = page ? null : (focused.tabs.find((t) => t.key === focused.active) ?? null)
+  const route: Route = page ? page.route : active ? { kind: 'note', id: active.id } : { kind: 'home' }
+  const mode: prefs.OpenMode = active?.mode ?? openPref
 
   // --- navigation --------------------------------------------------------
 
-  // Every note opens in the preferred mode; a new one opens in the editor.
-  const navigate = useCallback((id: string | null, push = true, edit = false) => {
-    const path = id ? `/n/${id}` : '/'
-    if (push && location.pathname !== path) history.pushState(null, '', path)
-    setRoute(id ? { kind: 'note', id } : { kind: 'home' })
-    setMode(edit ? 'edit' : prefs.openMode())
-    setHit(null)
-    setDrawer(false)
-    if (!id) document.title = 'YANA/'
+  // What history does when the active tab changes next: a new entry for
+  // opening a note, the same entry for switching tabs, nothing after
+  // back or forward (the browser has moved already).
+  const histMode = useRef<'push' | 'replace' | 'none'>('replace')
+  const layoutNow = useRef(layout)
+  layoutNow.current = layout
+  const pageNow = useRef(page)
+  pageNow.current = page
+  // Titles by note id, from the tree: a tab shows one before its note loads.
+  const titles = useRef(new Map<string, string>())
+
+  const setMode = useCallback((m: prefs.OpenMode) => {
+    const t = workspace.activeTab()
+    if (t) workspace.setMode(t.key, m)
   }, [])
+
+  // A note opens in the preview tab unless asked otherwise, in the
+  // preferred mode; a new one opens in a tab of its own, in the editor.
+  // A phone has no strip: the note takes the place of the one showing.
+  // Null is the home screen.
+  const navigate = useCallback(
+    (id: string | null, how: OpenHow = 'preview', opts: { mode?: prefs.OpenMode; hit?: { text: string | null; line: number | null } } = {}) => {
+      setDrawer(false)
+      if (!id) {
+        if (location.pathname !== '/') history.pushState({ tab: null }, '', '/')
+        setPage({ route: { kind: 'home' }, path: '/' })
+        setHit(null)
+        document.title = 'YANA/'
+        return
+      }
+      const h: OpenHow = layoutNow.current === 'phone' ? 'here' : how
+      const tab = workspace.open(id, h, { mode: opts.mode ?? prefs.openMode(), title: titles.current.get(id) ?? '' })
+      if (h === 'background') return
+      if (opts.mode) workspace.setMode(tab.key, opts.mode)
+      histMode.current = 'push'
+      setPage(null)
+      const want = opts.hit
+      setHit((prev) => (want ? { key: tab.key, text: want.text, line: want.line, seq: (prev?.seq ?? 0) + 1 } : null))
+    },
+    [],
+  )
 
   // A search result: read mode, scrolled to the match.
-  const openHit = useCallback((id: string, highlight: string | null) => {
-    const path = `/n/${id}`
-    if (location.pathname !== path) history.pushState(null, '', path)
-    setRoute({ kind: 'note', id })
-    setMode('read')
-    setHit((h) => (highlight ? { text: highlight, line: null, seq: (h?.seq ?? 0) + 1 } : null))
-    setDrawer(false)
-    setQuery('')
-  }, [])
+  const openHit = useCallback(
+    (id: string, highlight: string | null, how?: OpenHow) => {
+      navigate(id, how, highlight ? { mode: 'read', hit: { text: highlight, line: null } } : { mode: 'read' })
+      if (how !== 'background') setQuery('')
+    },
+    [navigate],
+  )
 
   // A task row: read mode, scrolled to its box.
-  const openTask = useCallback((id: string, line: number | null) => {
-    const path = `/n/${id}`
-    if (location.pathname !== path) history.pushState(null, '', path)
-    setRoute({ kind: 'note', id })
-    setMode('read')
-    setHit((h) => ({ text: null, line, seq: (h?.seq ?? 0) + 1 }))
-    setDrawer(false)
-  }, [])
+  const openTask = useCallback(
+    (id: string, line: number | null, how?: OpenHow) => navigate(id, how, { mode: 'read', hit: { text: null, line } }),
+    [navigate],
+  )
 
   const openPage = useCallback((r: Route, path: string, title: string, push = true) => {
-    if (push && location.pathname !== path) history.pushState(null, '', path)
-    setRoute(r)
+    if (push && location.pathname + location.search !== path) history.pushState({ tab: null }, '', path)
+    setPage({ route: r, path })
     setDrawer(false)
     document.title = `${title} — YANA/`
   }, [])
@@ -215,14 +273,40 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     [openPage],
   )
 
+  // Back and forward: an entry made by a tab goes back to that tab, at
+  // the note it showed then; one whose tab is closed opens its note in
+  // the preview tab.
   useEffect(() => {
     const onPop = () => {
-      setRoute(parseRoute())
-      setMode(prefs.openMode())
+      const r = parseRoute()
+      histMode.current = 'none'
+      setHit(null)
+      if (r.kind !== 'note') {
+        setPage(r.kind === 'home' && workspace.pane().tabs.length === 0 ? null : { route: r, path: location.pathname + location.search })
+        return
+      }
+      const key = (history.state as { tab?: string | null } | null)?.tab
+      const at = key ? workspace.find(key) : null
+      const title = titles.current.get(r.id) ?? ''
+      if (at) workspace.retarget(at.tab.key, r.id, prefs.openMode(), title)
+      else workspace.open(r.id, layoutNow.current === 'phone' ? 'here' : 'preview', { mode: prefs.openMode(), title })
+      setPage(null)
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
+
+  // The address follows the active tab. Pages set their own on the way in.
+  useEffect(() => {
+    const how = histMode.current
+    histMode.current = 'replace'
+    if (page || how === 'none') return
+    const path = active ? `/n/${active.id}` : '/'
+    const state = { tab: active?.key ?? null }
+    if (how === 'push' && location.pathname !== path) history.pushState(state, '', path)
+    else history.replaceState(state, '', path)
+    if (!active) document.title = 'YANA/'
+  }, [page, active?.key, active?.id])
 
   // The drawer is a phone thing; a resize to desktop leaves it closed.
   useEffect(() => {
@@ -232,8 +316,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // The search page is the phone's; wider, the box is in the sidebar.
   useEffect(() => {
     if (route.kind !== 'search' || layout === 'phone') return
-    history.replaceState(null, '', '/')
-    setRoute({ kind: 'home' })
+    history.replaceState({ tab: null }, '', '/')
+    setPage(null)
     window.setTimeout(() => searchInput.current?.focus(), 0)
   }, [route.kind, layout])
 
@@ -346,7 +430,19 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // --- actions -----------------------------------------------------------
 
   const notes = useMemo(() => flatten(spaces ?? []), [spaces])
+  const byId = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
   const dirs = useMemo(() => folders(spaces ?? []), [spaces])
+  // A tab whose note the tree no longer has — deleted, trashed, or in a
+  // space this account lost — is greyed, and closes when it is picked.
+  // Only a tree fresh from the server says so.
+  const treeReady = spaces !== null && !staleTree && treeError === null
+  const gone = useCallback((id: string) => treeReady && !byId.has(id), [treeReady, byId])
+
+  // Tabs follow renames through the tree.
+  useEffect(() => {
+    titles.current = new Map(notes.map((n) => [n.id, n.title]))
+    if (treeReady) workspace.setTitles(titles.current)
+  }, [notes, treeReady])
   /** The folder paths in one space, or in every space. */
   const foldersIn = useCallback(
     (space: string | null) => dirs.filter((d) => d.depth > 0 && (space === null || d.path.startsWith(space + '/'))).map((d) => d.path),
@@ -436,7 +532,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       try {
         const res = await api.createNote(p, seed)
         setFresh((f) => ({ id: res.id, seq: (f?.seq ?? 0) + 1 }))
-        navigate(res.id, true, true)
+        navigate(res.id, 'tab', { mode: 'edit' })
         void loadTree()
       } catch (err) {
         if (cache.networkDown(err)) {
@@ -487,7 +583,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         setFresh((f) => ({ id: res.id, seq: (f?.seq ?? 0) + 1 }))
         void loadTree()
       }
-      navigate(res.id, true, res.created)
+      navigate(res.id, 'tab', res.created ? { mode: 'edit' } : {})
     } catch (err) {
       if (cache.networkDown(err)) {
         void outbox.enqueue({ kind: 'daily', space: dailySpace(), date })
@@ -654,10 +750,11 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     })
   }
 
-  /** Open a note with its title selected: rename it from the tree. */
+  /** Open a note with its title selected: rename it from the tree. A
+   * double-click keeps the preview tab the first click opened. */
   function openTitle(id: string): void {
     setFresh((f) => ({ id, seq: (f?.seq ?? 0) + 1 }))
-    navigate(id, true, true)
+    navigate(id, 'tab', { mode: 'edit' })
   }
 
   // Deleting shows the note's inbound links first: whoever points at it
@@ -682,7 +779,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               .then(() => {
                 prefs.forgetRecent(n.id)
                 prefs.forgetPin({ kind: 'note', id: n.id })
-                if (route.kind === 'note' && route.id === n.id) navigate(null)
+                workspace.closeNote(n.id)
                 void loadTree()
                 say(`Deleted ${n.title}. It is in the trash.`)
               })
@@ -699,7 +796,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         )
         .catch(() => ask([]))
     },
-    [navigate, loadTree, say, route],
+    [loadTree, say],
   )
 
   // --- folders -----------------------------------------------------------
@@ -816,7 +913,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           .deleteDir(node.path)
           .then((res) => {
             prefs.repinDir(node.path, null)
-            if (current.current && current.current.path.startsWith(node.path + '/')) navigate(null)
+            for (const n of notes) if (n.path.startsWith(node.path + '/')) workspace.closeNote(n.id)
             void loadTree()
             say(
               res.deleted > 0
@@ -861,6 +958,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       subtitle = n.path
       items = [
         { id: 'open', label: 'Open', icon: 'book-open', run: () => navigate(ref.id) },
+        ...(layout === 'phone' ? [] : [{ id: 'open-tab', label: 'Open in new tab', icon: 'layers' as const, run: () => navigate(ref.id, 'background') }]),
         { id: 'pin', label: pinned ? 'Unpin' : 'Pin to the top', icon: pinned ? 'pin-off' : 'pin', run: () => pinNote(ref) },
         'sep',
         { id: 'move', label: 'Move to a folder', icon: 'move', run: () => moveNotePicker(ref) },
@@ -914,8 +1012,129 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // Mod+E: the editor beside the render on a wide screen; on a phone,
   // in and out of the editor.
   const toggleSplit = useCallback(() => {
-    setMode((m) => (layout === 'phone' ? (m === 'edit' ? 'read' : 'edit') : m === 'split' ? 'edit' : 'split'))
+    const t = workspace.activeTab()
+    if (!t || pageNow.current) return
+    const m = t.mode
+    workspace.setMode(t.key, layout === 'phone' ? (m === 'edit' ? 'read' : 'edit') : m === 'split' ? 'edit' : 'split')
   }, [layout])
+
+  // --- tabs --------------------------------------------------------------
+
+  /** Brings a tab to the front, unless its note is gone: then the tab
+   * closes and says so. */
+  const activateTab = useCallback(
+    (key: string) => {
+      const at = workspace.find(key)
+      if (!at) return
+      if (gone(at.tab.id)) {
+        workspace.closeNote(at.tab.id)
+        say(`${at.tab.title || 'That note'} is no longer there. A deleted note waits in the trash.`)
+        return
+      }
+      histMode.current = pageNow.current ? 'push' : 'replace'
+      workspace.activate(key)
+      setPage(null)
+      setHit(null)
+    },
+    [gone, say],
+  )
+
+  const closeTab = useCallback((key: string) => {
+    histMode.current = 'replace'
+    workspace.close(key)
+  }, [])
+
+  /** Mod+W: the active tab closes; a pinned one stays. With a page up,
+   * the page goes and the tab under it shows again. False when there is
+   * nothing to close, so the browser does its own. */
+  function closeActiveTab(): boolean {
+    if (layout === 'phone') return false
+    const t = workspace.activeTab()
+    if (!t) return false
+    if (page) {
+      histMode.current = 'push'
+      setPage(null)
+      return true
+    }
+    if (t.pinned) {
+      say('A pinned tab closes from its menu.')
+      return true
+    }
+    closeTab(t.key)
+    return true
+  }
+
+  function stepTab(dir: 1 | -1): void {
+    const t = workspace.step(dir)
+    if (t) activateTab(t.key)
+  }
+
+  function jumpTab(n: number): void {
+    const t = workspace.nth(n)
+    if (t) activateTab(t.key)
+  }
+
+  function reopenTab(): void {
+    const t = workspace.reopen()
+    if (!t) return
+    histMode.current = 'push'
+    setPage(null)
+  }
+
+  function tabInfo(t: Tab): TabInfo {
+    const n = byId.get(t.id)
+    return { title: n?.title ?? t.title, kind: n?.kind, public: n?.public, gone: gone(t.id) }
+  }
+
+  function tabMenu(t: Tab, anchor: HTMLElement, at?: { x: number; y: number }): void {
+    const where = workspace.find(t.key)
+    if (!where) return
+    const tabs = workspace.pane(where.pane).tabs
+    const idx = tabs.findIndex((x) => x.key === t.key)
+    const items: Array<MenuItem | 'sep'> = [
+      { id: 'close', label: 'Close', icon: 'x', detail: t.pinned ? undefined : label(keys.closeTabAlt), run: () => closeTab(t.key) },
+      {
+        id: 'others',
+        label: 'Close others',
+        disabled: tabs.every((x) => x.key === t.key || x.pinned),
+        run: () => {
+          histMode.current = 'replace'
+          workspace.closeOthers(t.key)
+        },
+      },
+      {
+        id: 'right',
+        label: 'Close to the right',
+        disabled: !tabs.slice(idx + 1).some((x) => !x.pinned),
+        run: () => {
+          histMode.current = 'replace'
+          workspace.closeRight(t.key)
+        },
+      },
+      'sep',
+      ...(t.preview ? [{ id: 'keep', label: 'Keep open', icon: 'check' as const, run: () => workspace.keep(t.key) }] : []),
+      { id: 'pin', label: t.pinned ? 'Unpin tab' : 'Pin tab', icon: t.pinned ? ('pin-off' as const) : ('pin' as const), run: () => workspace.togglePin(t.key) },
+    ]
+    const spec: MenuSpec = { anchor, items, label: 'tab actions', title: tabInfo(t).title || 'Untitled' }
+    if (at) spec.at = at
+    setMenu(spec)
+  }
+
+  // Right-click on a wikilink in a rendered note.
+  const linkMenu = useCallback((id: string, anchor: HTMLElement, at: { x: number; y: number }) => {
+    const title = titles.current.get(id)
+    const spec: MenuSpec = {
+      anchor,
+      at,
+      label: 'link actions',
+      items: [
+        { id: 'open', label: 'Open', icon: 'book-open', run: () => navigate(id) },
+        { id: 'open-tab', label: 'Open in new tab', icon: 'layers', run: () => navigate(id, 'background') },
+      ],
+    }
+    if (title) spec.title = title
+    setMenu(spec)
+  }, [navigate])
 
   function setOpenPrefTo(m: prefs.OpenMode): void {
     prefs.setOpenMode(m)
@@ -1013,7 +1232,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ['Let an agent read and write notes', 'files, or MCP with a key', 'Agents'],
     ]
     const rows: Array<[string, string]> = [
-      ['New note', label(keys.newNote)],
+      ['New note', `${label(keys.newNote)} or ${label(keys.newNoteAlt)}`],
       ['Capture a line into today\'s note', label(keys.capture)],
       ["Today's note", label(keys.daily)],
       ['Open the tasks page', label(keys.tasks)],
@@ -1023,11 +1242,17 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ['Edit the open note', 'E'],
       ['Back to reading', 'Esc'],
       ['Editor and preview side by side', label(keys.split)],
+      ['Open a note in a new tab', `${isMac ? '⌘' : 'Ctrl'}-click or middle-click`],
+      ['Next and previous tab', `${isMac ? '⌃Tab / ⌃⇧Tab' : 'Ctrl+Tab / Ctrl+Shift+Tab'}, or ${label(keys.nextTabAlt)} / ${label(keys.prevTabAlt)}`],
+      ['Go to tab 1 to 8, or the last', `${isMac ? '⌥' : 'Alt+'}1 … ${isMac ? '⌥' : 'Alt+'}9, or ${isMac ? '⌘' : 'Ctrl+'}1 … 9`],
+      ['Close the tab', `${label(keys.closeTab)} or ${label(keys.closeTabAlt)}`],
+      ['Reopen the tab closed last', `${label(keys.reopenTab)} or ${label(keys.reopenTabAlt)}`],
+      ['Keep a preview tab open', 'double-click it, or edit the note'],
       ['Name a new note, then write', 'Enter in the title'],
       ['Link to a note while writing', '[[ then a name'],
       ['Undo and redo in the editor', `${label({ key: 'z', mod: true })} / ${label({ key: 'z', mod: true, shift: true })}`],
       ['Find in the open note', label({ key: 'f', mod: true })],
-      ['Actions for a note or folder in the tree', 'Right-click, or hold on a phone'],
+      ['Actions for a note or folder in the tree, or a tab', 'Right-click, or hold on a touch screen'],
       ['Close a dialog', 'Esc'],
     ]
     const items: PaletteItem[] = [
@@ -1067,6 +1292,13 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         items.push({ id: 'split', label: 'Editor and preview side by side', hint: label(keys.split), run: () => setMode('split') })
       }
     }
+    const tab = layout === 'phone' ? null : workspace.activeTab()
+    if (tab && !page) {
+      if (tab.preview) items.push({ id: 'keep-tab', label: 'Keep this tab open', detail: 'the preview tab becomes a normal one', run: () => workspace.keep(tab.key) })
+      items.push({ id: 'close-tab', label: 'Close this tab', hint: label(keys.closeTabAlt), run: () => closeTab(tab.key) })
+      items.push({ id: 'pin-tab', label: tab.pinned ? 'Unpin this tab' : 'Pin this tab', detail: 'pinned tabs sit leftmost', run: () => workspace.togglePin(tab.key) })
+    }
+    if (layout !== 'phone') items.push({ id: 'reopen-tab', label: 'Reopen closed tab', hint: label(keys.reopenTabAlt), run: reopenTab })
     if (current.current) {
       const n = current.current
       const pinned = prefs.isPinned({ kind: 'note', id: n.id })
@@ -1155,8 +1387,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // --- hotkeys -----------------------------------------------------------
 
-  const actions = useRef({ openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage })
-  actions.current = { openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage }
+  const actions = useRef({ openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage, closeActiveTab, stepTab, jumpTab, reopenTab })
+  actions.current = { openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage, closeActiveTab, stepTab, jumpTab, reopenTab }
+  const tabKeys = layout !== 'phone'
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
@@ -1166,14 +1399,21 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         return
       }
       let handled = true
+      const digit = tabKeys ? tabDigit(ev) : 0
       if (matches(ev, keys.palette)) a.openPalette()
       else if (matches(ev, keys.switcher)) a.openSwitcher()
-      else if (matches(ev, keys.newNote)) a.newNote()
+      else if (matches(ev, keys.newNote) || matches(ev, keys.newNoteAlt)) a.newNote()
       else if (matches(ev, keys.daily)) void a.openDaily()
       else if (matches(ev, keys.capture)) a.capturePrompt()
       else if (matches(ev, keys.tasks)) a.openTasksPage()
       else if (matches(ev, keys.search)) a.focusSearch()
       else if (matches(ev, keys.split)) a.toggleSplit()
+      else if (tabKeys && ev.ctrlKey && !ev.altKey && !ev.metaKey && ev.key === 'Tab') a.stepTab(ev.shiftKey ? -1 : 1)
+      else if (tabKeys && matches(ev, keys.nextTabAlt)) a.stepTab(1)
+      else if (tabKeys && matches(ev, keys.prevTabAlt)) a.stepTab(-1)
+      else if (digit) a.jumpTab(digit)
+      else if (tabKeys && (matches(ev, keys.closeTab) || matches(ev, keys.closeTabAlt))) handled = a.closeActiveTab()
+      else if (tabKeys && (matches(ev, keys.reopenTab) || matches(ev, keys.reopenTabAlt))) a.reopenTab()
       else if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !isEditable(document.activeElement)) a.focusSearch()
       else handled = false
       if (handled) {
@@ -1184,13 +1424,20 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     // Capture phase, so the editor's own keymap does not see these first.
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
-  }, [palette])
+  }, [palette, tabKeys])
 
   // --- render ------------------------------------------------------------
 
   const onNote = useCallback((n: Note | null) => {
     current.current = n
-    if (n) prefs.touchRecent(n.id)
+    if (!n) return
+    prefs.touchRecent(n.id)
+    workspace.setTitles(new Map([[n.id, n.title]]))
+  }, [])
+  // Typing in a preview tab keeps it.
+  const onEdited = useCallback(() => {
+    const t = workspace.activeTab()
+    if (t?.preview) workspace.keep(t.key)
   }, [])
   const searching = query.trim() !== ''
   const selected = route.kind === 'note' ? route.id : null
@@ -1390,20 +1637,41 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         </aside>
         {narrow && drawer && <div class="scrim" onClick={() => setDrawer(false)} />}
         <main class="content">
-          {route.kind === 'note' && (
+          {layout !== 'phone' && focused.tabs.length > 0 && (
+            <TabStrip
+              tabs={focused.tabs}
+              active={active?.key ?? null}
+              info={tabInfo}
+              onActivate={activateTab}
+              onClose={closeTab}
+              onKeep={(k) => workspace.keep(k)}
+              onMenu={tabMenu}
+              onMove={(k, i) => workspace.move(k, i)}
+              onDropNote={(id, title, i) => {
+                const t = workspace.open(id, 'background', { mode: prefs.openMode(), title })
+                workspace.move(t.key, i)
+                activateTab(t.key)
+              }}
+            />
+          )}
+          {active && (
             <NotePage
-              key={`${route.id}:${rev}:${hit?.seq ?? 0}`}
-              id={route.id}
+              key={`${active.key}:${active.id}:${rev}:${hit?.key === active.key ? hit.seq : 0}`}
+              id={active.id}
               layout={layout}
-              mode={mode}
+              mode={active.mode}
               onMode={setMode}
               live={live}
               onEditing={setEditing}
               onOpen={navigate}
+              onLinkMenu={layout === 'phone' ? undefined : linkMenu}
+              onEdited={onEdited}
+              scroll={active.scroll}
+              onScroll={(y) => workspace.setScroll(active.key, y)}
               onNote={onNote}
               onToast={say}
               onMenu={setMenu}
-              fresh={fresh?.id === route.id}
+              fresh={fresh?.id === active.id}
               freshSeq={fresh?.seq ?? 0}
               onDelete={() => deleteNotePrompt()}
               onRename={() => renamePrompt()}
@@ -1415,8 +1683,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               onTag={openTag}
               pinned={currentPinned}
               onPin={() => { if (current.current) pinNote(current.current) }}
-              highlight={hit?.text ?? null}
-              taskLine={hit?.line ?? null}
+              highlight={hit?.key === active.key ? hit.text : null}
+              taskLine={hit?.key === active.key ? hit.line : null}
               lookup={completions}
             />
           )}
@@ -1577,7 +1845,7 @@ interface HomeProps {
   loading: boolean
   /** Open tasks across the account's spaces, when the count is in. */
   openTasks: number | null
-  onOpen: (id: string) => void
+  onOpen: (id: string, how?: OpenHow) => void
   onNew: () => void
   onCapture: () => void
   onDaily: () => void
@@ -1700,7 +1968,7 @@ function Home({ notes, pins, spaces, loading, openTasks, onOpen, onNew, onCaptur
               <ul class="recents-list">
                 {recent.map((n) => (
                   <li key={n.id}>
-                    <a class="recent" href={`/n/${n.id}`} onClick={(ev) => { ev.preventDefault(); onOpen(n.id) }}>
+                    <a class="recent" href={`/n/${n.id}`} {...openProps((how) => onOpen(n.id, how))}>
                       <span class="recent-title">{n.title}</span>
                       <span class="recent-path">{n.path}</span>
                     </a>

@@ -411,6 +411,48 @@ kbd {
 .recent-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .recent-path { font: 11.5px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* --- tabs ------------------------------------------------------------- */
+
+/* The strip above the note: one row, scrolling sideways when it fills.
+   The active tab takes the page's colour so it reads as the top of it. */
+/* The line under the strip is a shadow, not a border, so the tabs are
+   exactly as tall as the strip and it never scrolls up and down. */
+.tabstrip {
+  position: relative; display: flex; align-items: stretch; flex: none; height: 36px; padding: 0 6px 0 4px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  background: var(--bg-2); box-shadow: inset 0 -1px 0 var(--line);
+}
+.tabstrip::-webkit-scrollbar { display: none; }
+.tab {
+  position: relative; display: flex; align-items: center; gap: 6px; flex: 0 1 auto;
+  min-width: 112px; max-width: 220px; height: 100%; padding: 0 6px 0 12px;
+  font-size: 13px; color: var(--ink-2); cursor: pointer; user-select: none; white-space: nowrap;
+  border-right: 1px solid var(--line);
+}
+.tab:first-child { border-left: 1px solid var(--line); }
+.tab:hover { color: var(--ink); background: var(--hover); }
+.tab.tab-active { color: var(--ink); background: var(--bg); }
+.tab.tab-active::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--line-2);
+}
+.tab-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab.tab-preview .tab-title { font-style: italic; }
+.tab.tab-gone .tab-title { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--line-2); }
+.tab-icon { color: var(--ink-3); }
+.tab.tab-pinned { flex: none; min-width: 0; padding: 0 12px; }
+.tab.tab-pinned .tab-icon { color: var(--ink-2); }
+.tab-close {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 20px; height: 20px; padding: 0; color: var(--ink-3); background: none; border: 0;
+  border-radius: 4px; cursor: pointer; visibility: hidden;
+}
+.tab:hover .tab-close, .tab.tab-active .tab-close { visibility: visible; }
+.tab-close:hover { color: var(--ink); background: var(--bg-3); }
+.tab.tab-drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.tab.tab-drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+.tab:focus-visible { outline-offset: -2px; }
+@media (pointer: coarse) { .tab-close { visibility: visible; } }
+
 /* --- note page --------------------------------------------------------- */
 
 .placeholder { padding: 80px var(--page-x); color: var(--ink-2); max-width: 600px; }
