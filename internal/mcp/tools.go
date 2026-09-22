@@ -59,7 +59,15 @@ func toolList() []map[string]any {
 		return map[string]any{"type": "string", "description": desc}
 	}
 	req := func(props map[string]any, required ...string) map[string]any {
-		return map[string]any{"type": "object", "properties": props, "required": required}
+		schema := map[string]any{"type": "object", "properties": props}
+		// Omit "required" when nothing is required: a nil variadic marshals as
+		// JSON null, which is not a valid JSON Schema "required" and makes
+		// strict clients reject the whole tools/list response. Absence already
+		// means every property is optional.
+		if len(required) > 0 {
+			schema["required"] = required
+		}
+		return schema
 	}
 	return []map[string]any{
 		{
