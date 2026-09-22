@@ -21,6 +21,8 @@ import { Icon } from './icons'
 import { coarsePointer } from './layout'
 import type { Pin } from './prefs'
 import * as prefs from './prefs'
+import { howFrom } from './workspace'
+import type { OpenHow } from './workspace'
 
 /** How long a drag hovers over a closed space or folder before it opens. */
 const SPRING_MS = 600
@@ -41,7 +43,8 @@ export interface TreeProps {
   spaces: SpaceTree[]
   selected: string | null
   pins: Pin[]
-  onOpen: (id: string) => void
+  /** Open a note: in the preview tab, or as the click asks (Mod-click, the middle button). */
+  onOpen: (id: string, how?: OpenHow) => void
   /** Open a note with its title selected: the way to rename one from here. */
   onOpenTitle: (id: string) => void
   onMove: (id: string, from: string, toDir: string) => void
@@ -263,8 +266,14 @@ export function Tree(props: TreeProps) {
         onClick={(ev) => {
           ev.preventDefault()
           if (!id) return
-          clicked.current = id
-          onOpen(id)
+          const how = howFrom(ev)
+          if (how !== 'background') clicked.current = id
+          onOpen(id, how)
+        }}
+        onAuxClick={(ev) => {
+          if (ev.button !== 1 || !id) return
+          ev.preventDefault()
+          onOpen(id, 'background')
         }}
         onDblClick={(ev) => {
           ev.preventDefault()
@@ -531,13 +540,17 @@ export interface FlatNote {
   title: string
   name: string
   tags: string[]
+  kind?: 'md' | 'html'
+  public?: boolean
 }
 
 /** Every note in the tree, flat, for the quick switcher. */
 export function flatten(spaces: SpaceTree[]): FlatNote[] {
   const out: FlatNote[] = []
   const walk = (n: TreeNode) => {
-    if (n.type === 'note' && n.id) out.push({ id: n.id, path: n.path, title: n.title || baseOf(n.path), name: n.name, tags: n.tags ?? [] })
+    if (n.type === 'note' && n.id) {
+      out.push({ id: n.id, path: n.path, title: n.title || baseOf(n.path), name: n.name, tags: n.tags ?? [], kind: n.kind, public: n.public })
+    }
     for (const c of n.children ?? []) walk(c)
   }
   for (const s of spaces) for (const c of s.children) walk(c)

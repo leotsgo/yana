@@ -55,6 +55,24 @@ narrow it to a folder or a tag; a toggle shows what was completed in
 the last thirty days. It is in the sidebar, the bottom bar on a phone,
 the command palette, and the keyboard shortcut listed in Help.
 
+## Tabs
+
+On a tablet or a computer, notes open in tabs above the page. Clicking
+around the tree fills one preview tab (its title in italics) instead of
+opening a new tab each time; start typing in it, or double-click it,
+and it stays. `Ctrl`-click (`⌘`-click on a Mac) or middle-click a note
+anywhere to open it in a new tab behind the one you are reading.
+Right-click a tab to close others, pin it, or keep it open. The tabs
+come back after a reload, each where you left it. `Alt+]` and `Alt+[`
+move between them, `Alt+1` to `Alt+9` jump to one, `Alt+W` closes one,
+and Help lists the rest of the keys.
+
+On a computer you can also put two notes side by side: pick Open to the
+right on a note's menu, or press `Ctrl+\` (`⌘\` on a Mac) to open the
+note you are in beside itself, one side reading and the other editing.
+Drag the bar between them to resize, and drag tabs from one side to the
+other.
+
 ## Tags
 
 A word with `#` in front is a tag, anywhere in the note. Tags are

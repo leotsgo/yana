@@ -1,6 +1,7 @@
 // Per-browser preferences: theme, text size and measure, editor layout,
 // sidebar state, what the tree has open, default spaces, the display name,
-// recently opened notes, pinned notes and folders, recent searches. Everything lives in localStorage under one prefix and is read
+// recently opened notes, pinned notes and folders, the open tabs, recent
+// searches. Everything lives in localStorage under one prefix and is read
 // through here so the shell, the editor and the settings pages agree on
 // the keys. Storage can be unavailable (private windows, blocked site
 // data); every access is guarded and falls back to the default. A change
@@ -359,6 +360,23 @@ export function activitySeen(): number | null {
 
 export function touchActivitySeen(): void {
   write('activity.seen', String(Date.now()))
+}
+
+// --- tabs ------------------------------------------------------------------
+
+/** The open tabs, as workspace.ts writes them. Stored without announcing
+ * a change: the tabs have their own listeners, and a scroll position is
+ * written often. */
+export function tabState(): string | null {
+  return read('tabs')
+}
+
+export function setTabState(v: string): void {
+  try {
+    localStorage.setItem(PREFIX + 'tabs', v)
+  } catch {
+    // The tabs just do not come back after a reload.
+  }
 }
 
 // --- recent searches ------------------------------------------------------

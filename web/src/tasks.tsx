@@ -11,6 +11,8 @@ import type { SpaceInfo, TagCount, Task } from './api'
 import { Icon } from './icons'
 import type { FlatNote } from './tree'
 import { SpaceWatch } from './watch'
+import { howFrom, openProps, wireOpen } from './workspace'
+import type { OpenHow } from './workspace'
 
 /** How long a change signal waits before the list refetches, so a run
  * of typing (or a write-back settling) arrives as one refresh. */
@@ -25,7 +27,7 @@ export interface TasksPageProps {
   /** The tree's notes, for resolving wikilinks in task text and listing
    * the folders a filter can pick. */
   notes: FlatNote[]
-  onOpen: (id: string, line: number | null) => void
+  onOpen: (id: string, line: number | null, how?: OpenHow) => void
   /** Change the filters; reroutes the page. */
   onNavigate: (space: string, tag: string, path: string) => void
   onToast: (msg: string, action?: { label: string; run: () => void }) => void
@@ -245,7 +247,7 @@ function TaskGroup({
   group: NoteGroup
   showDone: boolean
   notes: FlatNote[]
-  onOpen: (id: string, line: number | null) => void
+  onOpen: (id: string, line: number | null, how?: OpenHow) => void
   onTick: (t: Task, to: boolean) => void
   onTag: (tag: string) => void
 }) {
@@ -266,10 +268,7 @@ function TaskGroup({
           class="task-group-title"
           href={`/n/${note.id}`}
           title={note.path}
-          onClick={(ev) => {
-            ev.preventDefault()
-            onOpen(note.id, first ? first.line : null)
-          }}
+          {...openProps((how) => onOpen(note.id, first ? first.line : null, how))}
         >
           {note.title || note.path}
         </a>
@@ -297,7 +296,13 @@ function TaskGroup({
                 onClick={(ev) => {
                   const target = ev.target as HTMLElement
                   if (target.closest('a, span.tag')) return
-                  onOpen(note.id, t.line)
+                  onOpen(note.id, t.line, howFrom(ev))
+                }}
+                onAuxClick={(ev) => {
+                  const target = ev.target as HTMLElement
+                  if (ev.button !== 1 || target.closest('a, span.tag')) return
+                  ev.preventDefault()
+                  onOpen(note.id, t.line, 'background')
                 }}
               />
               {newHeading && t.heading && <span class="task-heading">{t.heading}</span>}
@@ -330,7 +335,7 @@ function groupByNote(rows: Task[]): NoteGroup[] {
  * against the tree's notes in the linking note's space — the same
  * by-name rule the editor's completions use — and an unresolved one
  * stays plain text rather than offering to create anything here. */
-function wireTaskLinks(el: HTMLElement, space: string, notes: FlatNote[], onOpen: (id: string, line: number | null) => void, onTag: (tag: string) => void): void {
+function wireTaskLinks(el: HTMLElement, space: string, notes: FlatNote[], onOpen: (id: string, line: number | null, how?: OpenHow) => void, onTag: (tag: string) => void): void {
   const byStem = new Map<string, string[]>()
   for (const n of notes) {
     if (spaceOf(n.path) !== space) continue
@@ -367,10 +372,7 @@ function wireTaskLinks(el: HTMLElement, space: string, notes: FlatNote[], onOpen
     a.className = 'wikilink resolved'
     a.title = raw
     a.textContent = span.textContent ?? raw
-    a.addEventListener('click', (ev) => {
-      ev.preventDefault()
-      onOpen(id, null)
-    })
+    wireOpen(a, (how) => onOpen(id, null, how))
     span.replaceWith(a)
   }
 }

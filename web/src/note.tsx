@@ -2,7 +2,8 @@
 // switches, overflow), the body in one of three modes, and the details
 // drawer (path and dates, backlinks, history). The realtime session
 // starts as soon as the id is known so the editor is typeable as early
-// as the relay answers.
+// as the relay answers. Two panes on the same note share one session
+// (sessions.ts), so each sees the other's keystrokes as they land.
 //
 // Read shows the rendered note; its task boxes write back through the
 // CRDT. Edit is the source editor, with a formatting bar above the
@@ -27,24 +28,37 @@ import { coarsePointer } from './layout'
 import type { Layout } from './layout'
 import type { MenuSpec } from './menu'
 import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
+import type { LinkMenu, OpenNote } from './panels'
 import { resolveTitle } from './paths'
 import { ShareLinkDialog } from './publiclink'
 import { renderRich } from './rich-load'
 import { wireAttachments } from './attach'
 import type { OpenMode } from './prefs'
+import * as sessions from './sessions'
 import { SyncClient, presence } from './sync'
-import type { PresenceState, PresenceUser, SyncStatus } from './sync'
+import type { PresenceState, PresenceUser, SyncEvents, SyncStatus } from './sync'
 
 export interface NotePageProps {
   id: string
   layout: Layout
+  /** This page is in the focused pane: its bare keys (E, Escape) are live. */
+  focused: boolean
   mode: OpenMode
   onMode: (m: OpenMode) => void
   /** Hide markdown syntax on the lines the caret is not on. */
   live: boolean
   /** The page is showing the editor on a phone; the shell swaps its bottom bar for the formatting bar. */
   onEditing: (editing: boolean) => void
-  onOpen: (id: string) => void
+  /** Open another note: a wikilink, a backlink, a restored revision. */
+  onOpen: OpenNote
+  /** The menu for a wikilink in the rendered note. */
+  onLinkMenu?: LinkMenu
+  /** This device changed the note; a preview tab becomes a normal one. */
+  onEdited: () => void
+  /** Where to scroll to once the note shows, in pixels. */
+  scroll: number
+  /** The note was scrolled; the tab keeps the position. */
+  onScroll: (y: number) => void
   onNote: (note: Note | null) => void
   onToast: (msg: string) => void
   onMenu: (spec: MenuSpec | null) => void
@@ -77,7 +91,7 @@ export interface NotePageProps {
 }
 
 export function NotePage(props: NotePageProps) {
-  const { id, layout, mode, onMode, live, onEditing, onOpen, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, taskLine, lookup } = props
+  const { id, layout, focused, mode, onMode, live, onEditing, onOpen, onLinkMenu, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, taskLine, lookup, scroll, onScroll } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -104,6 +118,12 @@ export function NotePage(props: NotePageProps) {
   const editing = shown !== 'read'
   // A rename from the title moves the file; the relay's "moved" for it is ours.
   const expectMove = useRef<string | null>(null)
+  const edited = useRef(props.onEdited)
+  edited.current = props.onEdited
+  const article = useRef<HTMLElement>(null)
+  // The tab's scroll position is put back once, when the note first has
+  // the height for it; a search hit or a task line scrolls instead.
+  const restored = useRef(scroll <= 0 || highlight !== null || taskLine !== null)
 
   // Fetch the note's metadata, then open the realtime session for
   // markdown notes. HTML notes do not merge — no session, no CRDT — so
@@ -121,6 +141,7 @@ export function NotePage(props: NotePageProps) {
     setOthers([])
     setStatus('connecting')
     let client: SyncClient | null = null
+    let release = () => {}
     api
       .note(id)
       .then((n) => {
@@ -142,7 +163,7 @@ export function NotePage(props: NotePageProps) {
         // A viewer reads: no pencil, no formatting bar, no title edit.
         if (n.role === 'viewer') setReadOnly(true)
         if (n.kind !== 'md') return
-        client = new SyncClient(id, {
+        const events: SyncEvents = {
           onStatus(s) {
             if (!alive) return
             setStatus(s)
@@ -150,6 +171,9 @@ export function NotePage(props: NotePageProps) {
           },
           onLocal() {
             if (alive) setLocal(true)
+          },
+          onEdit() {
+            if (alive) edited.current()
           },
           onError(code) {
             if (!alive) return
@@ -182,7 +206,18 @@ export function NotePage(props: NotePageProps) {
             }
             setOthers(out)
           },
-        })
+        }
+        const got = sessions.acquire(id, events)
+        client = got.client
+        release = () => sessions.release(id, events)
+        // A session another pane started is past the events that would
+        // have said where it is.
+        if (got.joined) {
+          setStatus(client.status)
+          if (client.status === 'synced') setSynced(true)
+          if (client.isLocalReady) setLocal(true)
+          events.onPresence?.()
+        }
         setSync(client)
       })
       .catch((err: unknown) => {
@@ -193,25 +228,25 @@ export function NotePage(props: NotePageProps) {
       alive = false
       onNote(null)
       setSync(null)
-      client?.destroy()
+      release()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   // Escape closes the details drawer when it is an overlay.
   useEffect(() => {
-    if (!details || layout === 'desktop') return
+    if (!details || layout === 'desktop' || !focused) return
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') setDetails(false)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [details, layout])
+  }, [details, layout, focused])
 
   // In the read view a bare `e` opens the editor; in the editor, Escape
   // goes back (the editor's own keymap handles it while it has focus).
   useEffect(() => {
-    if (note?.kind !== 'md') return
+    if (note?.kind !== 'md' || !focused) return
     const onKey = (ev: KeyboardEvent) => {
       if (isEditable(document.activeElement)) return
       if (shown === 'read' && ev.key === 'e' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
@@ -223,7 +258,7 @@ export function NotePage(props: NotePageProps) {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [shown, note?.kind, onMode, readOnly])
+  }, [shown, note?.kind, onMode, readOnly, focused])
 
   useEffect(() => {
     if (shown === 'edit') setHitShown(null)
@@ -235,6 +270,40 @@ export function NotePage(props: NotePageProps) {
     onEditing(phone && md && shown === 'edit')
     return () => onEditing(false)
   }, [phone, md, shown, onEditing])
+
+  // The scroll position goes back where the tab left it, and follows
+  // the note from there. Read mode scrolls the render, edit and split
+  // the editor.
+  const docReady = synced || (local && status === 'offline')
+  useEffect(() => {
+    const root = article.current
+    if (!root || note?.kind !== 'md') return
+    const el = root.querySelector<HTMLElement>(shown === 'read' ? '.reader' : '.cm-scroller')
+    if (!el) return
+    let frame = 0
+    let tries = 0
+    const restore = () => {
+      if (restored.current) return
+      // The render or the editor may still be filling in; wait for the
+      // height, up to a second and a half.
+      if (el.scrollHeight - el.clientHeight >= scroll || tries++ > 90) {
+        el.scrollTop = scroll
+        restored.current = true
+        return
+      }
+      frame = requestAnimationFrame(restore)
+    }
+    restore()
+    const follow = () => {
+      if (restored.current) onScroll(el.scrollTop)
+    }
+    el.addEventListener('scroll', follow, { passive: true })
+    return () => {
+      cancelAnimationFrame(frame)
+      el.removeEventListener('scroll', follow)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, note?.kind, docReady, sync])
 
   // The title edit: the H1 in the document follows, then the file name.
   // Slashes in the title place the note: `projects/kiln` moves it into
@@ -369,8 +438,8 @@ export function NotePage(props: NotePageProps) {
 
   const split = shown === 'split'
   // The editor opens once the document is in step with the server, or —
-  // offline — once the local copy has loaded; edits are kept either way.
-  const docReady = synced || (local && status === 'offline')
+  // offline — once the local copy has loaded; edits are kept either way
+  // (docReady, above).
   const modeBtn = (m: OpenMode, icon: 'book-open' | 'pencil' | 'columns', text: string, title: string) => (
     <button type="button" role="tab" aria-selected={shown === m} class={shown === m ? 'on' : ''} title={title} onClick={() => onMode(m)}>
       <Icon name={icon} />
@@ -379,7 +448,7 @@ export function NotePage(props: NotePageProps) {
   )
 
   return (
-    <article class={'page' + (split ? ' split' : '') + (details ? ' with-details' : '') + (editing ? ' editing' : ' reading')}>
+    <article ref={article} class={'page' + (split ? ' split' : '') + (details ? ' with-details' : '') + (editing ? ' editing' : ' reading')}>
       {header}
       <div class="editor-toolbar">
         <span class={'sync-status ' + status} title={statusTitle(status)}>
@@ -463,6 +532,7 @@ export function NotePage(props: NotePageProps) {
             readOnly={readOnly}
             cls={split ? 'preview' : 'reader'}
             onOpen={onOpen}
+            onLinkMenu={onLinkMenu}
             onTag={onTag}
             highlight={hitShown}
             taskLine={shown === 'read' ? taskLine : null}
@@ -669,7 +739,8 @@ interface ReaderProps {
   note: Note
   readOnly: boolean
   cls: 'reader' | 'preview'
-  onOpen: (id: string) => void
+  onOpen: OpenNote
+  onLinkMenu?: LinkMenu | undefined
   onTag: (tag: string) => void
   /** Text to scroll to and mark on the first render. */
   highlight: string | null
@@ -687,7 +758,7 @@ interface ReaderProps {
 // it matches every other render (same goldmark, same wikilink handling);
 // a short debounce keeps it from rendering every keystroke. Task boxes
 // carry the line their marker is on and flip it through the CRDT.
-function Reader({ html, sync, note, readOnly, cls, onOpen, onTag, highlight, taskLine, onEdit, phone }: ReaderProps) {
+function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, highlight, taskLine, onEdit, phone }: ReaderProps) {
   const host = useRef<HTMLDivElement>(null)
   // The search hit is marked on every render (the live one replaces the
   // first) and scrolled to once, on whichever render lands first. So is
@@ -696,7 +767,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onTag, highlight, tas
 
   const wire = (el: HTMLElement) => {
     rewriteRelative(el, note.base)
-    wireWikiLinks(el, note, onOpen)
+    wireWikiLinks(el, note, onOpen, onLinkMenu)
     wireTags(el, onTag)
     wireAttachments(el, note, phone)
     renderRich(el)
@@ -883,7 +954,7 @@ function wireTasks(el: HTMLElement, sync: SyncClient, rerender: () => void): voi
 
 interface DetailsProps {
   note: Note
-  onOpen: (id: string) => void
+  onOpen: OpenNote
   overlay: boolean
   onClose: () => void
   /** The path is a button: rename or move by path. */

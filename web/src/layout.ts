@@ -9,7 +9,8 @@ export type Layout = 'phone' | 'tablet' | 'desktop'
 const phone = window.matchMedia('(max-width: 719px)')
 const tablet = window.matchMedia('(max-width: 1023px)')
 
-function current(): Layout {
+/** The layout right now, outside a component. */
+export function current(): Layout {
   if (phone.matches) return 'phone'
   if (tablet.matches) return 'tablet'
   return 'desktop'

@@ -10,6 +10,8 @@ import { api, ApiError } from './api'
 import type { AttachmentHit, RegexHit, SearchHit, Status } from './api'
 import { Icon } from './icons'
 import * as prefs from './prefs'
+import { openProps } from './workspace'
+import type { OpenHow } from './workspace'
 
 type Result =
   | { kind: 'idle' }
@@ -22,7 +24,7 @@ export interface SearchResultsProps {
   query: string
   regex: boolean
   /** Open a hit; the second argument is the matched text, for scrolling to it. */
-  onOpen: (id: string, highlight: string | null) => void
+  onOpen: (id: string, highlight: string | null, how?: OpenHow) => void
 }
 
 export function SearchResults({ query, regex, onOpen }: SearchResultsProps) {
@@ -68,7 +70,7 @@ export function SearchResults({ query, regex, onOpen }: SearchResultsProps) {
               key={hit.note.id}
               class="hit"
               href={`/n/${hit.note.id}`}
-              onClick={(ev) => { ev.preventDefault(); prefs.touchQuery(query); onOpen(hit.note.id, markedText(hit.snippet) ?? query) }}
+              {...openProps((how) => { prefs.touchQuery(query); onOpen(hit.note.id, markedText(hit.snippet) ?? query, how) })}
             >
               <div class="hit-title">{hit.note.title}</div>
               <div class="hit-path">{hit.note.path}</div>
@@ -92,7 +94,7 @@ export function SearchResults({ query, regex, onOpen }: SearchResultsProps) {
                       {i > 0 && ', '}
                       <a
                         href={`/n/${ref.id}`}
-                        onClick={(ev) => { ev.preventDefault(); prefs.touchQuery(query); onOpen(ref.id, att.name) }}
+                        {...openProps((how) => { prefs.touchQuery(query); onOpen(ref.id, att.name, how) })}
                       >
                         {ref.title || ref.path}
                       </a>
@@ -113,12 +115,11 @@ export function SearchResults({ query, regex, onOpen }: SearchResultsProps) {
               key={`${hit.path}:${hit.line}:${i}`}
               class={'hit hit-regex' + (hit.id ? '' : ' unindexed')}
               href={hit.id ? `/n/${hit.id}` : '#'}
-              onClick={(ev) => {
-                ev.preventDefault()
+              {...openProps((how) => {
                 if (!hit.id) return
                 prefs.touchQuery(query)
-                onOpen(hit.id, regexMatch(query, hit.text))
-              }}
+                onOpen(hit.id, regexMatch(query, hit.text), how)
+              })}
             >
               <div class="hit-path">{`${hit.path}:${hit.line}`}</div>
               <pre class="hit-line">{hit.text}</pre>

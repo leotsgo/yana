@@ -12,6 +12,8 @@ import type { ActivityEntry, ActivityKind, SpaceInfo } from './api'
 import { fmtDate } from './dom'
 import { Icon } from './icons'
 import * as prefs from './prefs'
+import { openProps } from './workspace'
+import type { OpenHow } from './workspace'
 
 /** How far back the feed reaches. */
 type FeedWindow = 'seen' | 'day' | 'week' | 'month' | 'all'
@@ -40,7 +42,7 @@ export interface ActivityPageProps {
   /** A folder inside the space, from a folder's context menu. */
   path: string
   spaces: SpaceInfo[] | null
-  onOpen: (id: string) => void
+  onOpen: (id: string, how?: OpenHow) => void
   /** Change the space or folder filter; reroutes the page. */
   onNavigate: (space: string, path: string) => void
 }
@@ -264,7 +266,7 @@ export function ActivityPage({ space, path, spaces, onOpen, onNavigate }: Activi
   )
 }
 
-function Entry({ row, showSpace, onOpen }: { row: Row; showSpace: boolean; onOpen: (id: string) => void }) {
+function Entry({ row, showSpace, onOpen }: { row: Row; showSpace: boolean; onOpen: (id: string, how?: OpenHow) => void }) {
   return (
     <li class="activity-entry">
       <div class="activity-head">
@@ -291,10 +293,7 @@ function Entry({ row, showSpace, onOpen }: { row: Row; showSpace: boolean; onOpe
                 class="activity-note"
                 href={`/n/${c.id}`}
                 title={c.path}
-                onClick={(ev) => {
-                  ev.preventDefault()
-                  onOpen(c.id as string)
-                }}
+                {...openProps((how) => onOpen(c.id as string, how))}
               >
                 {c.title || c.path}
               </a>

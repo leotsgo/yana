@@ -7,6 +7,14 @@ import { api, ApiError, join } from './api'
 import type { Backlink, HistoryEntry, Note } from './api'
 import { assetURL } from './auth'
 import { h, clear, fmtDate } from './dom'
+import { wireOpen } from './workspace'
+import type { OpenHow } from './workspace'
+
+/** Opens a note, as the click asked. */
+export type OpenNote = (id: string, how?: OpenHow) => void
+
+/** The menu for a link to a note: right-click on it. */
+export type LinkMenu = (id: string, anchor: HTMLElement, at: { x: number; y: number }) => void
 
 // The create affordance needs a path for the note it will make: the raw
 // target joined onto the linking note's directory, falling back to the
@@ -25,27 +33,24 @@ function createPathFor(note: Note, raw: string): string {
 
 // Wikilinks render as spans carrying the raw target. Resolution from the
 // note payload turns them into note links; unresolved ones become the
-// create affordance.
-export function wireWikiLinks(body: HTMLElement, note: Note, onOpen: (id: string) => void): void {
+// create affordance. A resolved link opens in the preview tab, in a
+// background tab on Mod-click or the middle button, and has a menu on
+// right-click.
+export function wireWikiLinks(body: HTMLElement, note: Note, onOpen: OpenNote, onMenu?: LinkMenu): void {
   const byRaw = new Map(note.links.map((l) => [l.raw_target, l]))
   for (const span of [...body.querySelectorAll<HTMLSpanElement>('span.wikilink[data-target]')]) {
     const raw = span.dataset['target'] ?? ''
     const link = byRaw.get(raw)
     if (link?.resolved && link.to_id) {
       const id = link.to_id
-      const a = h(
-        'a',
-        {
-          class: 'wikilink resolved',
-          href: `/n/${id}`,
-          title: raw,
-          onClick: (ev) => {
-            ev.preventDefault()
-            onOpen(id)
-          },
-        },
-        span.textContent ?? raw,
-      )
+      const a = h('a', { class: 'wikilink resolved', href: `/n/${id}`, title: raw }, span.textContent ?? raw)
+      wireOpen(a, (how) => onOpen(id, how))
+      if (onMenu) {
+        a.addEventListener('contextmenu', (ev) => {
+          ev.preventDefault()
+          onMenu(id, a, { x: ev.clientX, y: ev.clientY })
+        })
+      }
       span.replaceWith(a)
       continue
     }
@@ -74,7 +79,7 @@ export function wireWikiLinks(body: HTMLElement, note: Note, onOpen: (id: string
   }
 }
 
-export function backlinksPanel(note: Note, onOpen: (id: string) => void): HTMLElement {
+export function backlinksPanel(note: Note, onOpen: OpenNote): HTMLElement {
   const panel = h('section', { class: 'backlinks panel', 'aria-label': 'linked from' }, h('h2', { class: 'panel-title' }, 'Linked from'))
   const list = h('ul', { class: 'backlinks-list' })
   const empty = h('p', { class: 'panel-empty' }, 'Loading…')
@@ -95,24 +100,10 @@ export function backlinksPanel(note: Note, onOpen: (id: string) => void): HTMLEl
   return panel
 }
 
-function backlinkRow(b: Backlink, onOpen: (id: string) => void): HTMLElement {
-  return h(
-    'li',
-    { class: 'backlink' },
-    h(
-      'a',
-      {
-        class: 'backlink-note',
-        href: `/n/${b.note.id}`,
-        onClick: (ev) => {
-          ev.preventDefault()
-          onOpen(b.note.id)
-        },
-      },
-      b.note.title || b.note.path,
-    ),
-    b.context ? h('p', { class: 'backlink-context' }, b.context) : null,
-  )
+function backlinkRow(b: Backlink, onOpen: OpenNote): HTMLElement {
+  const a = h('a', { class: 'backlink-note', href: `/n/${b.note.id}` }, b.note.title || b.note.path)
+  wireOpen(a, (how) => onOpen(b.note.id, how))
+  return h('li', { class: 'backlink' }, a, b.context ? h('p', { class: 'backlink-context' }, b.context) : null)
 }
 
 // Who is behind a history row's author chip.
