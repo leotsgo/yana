@@ -348,9 +348,9 @@ func (c *Content) serveAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Cache-Control", "private, max-age=60")
+	applyAssetHeaders(w, fi.Name())
 	http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
 }
 

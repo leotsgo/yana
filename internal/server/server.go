@@ -164,6 +164,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/search", s.authed(s.handleSearch))
 	s.mux.HandleFunc("GET /api/files/{path...}", s.authed(s.handleFile))
 	s.mux.HandleFunc("PUT /api/files/{path...}", s.authed(s.handleFileUpload))
+	s.mux.HandleFunc("DELETE /api/files/{path...}", s.authed(s.handleAssetTrash))
+	s.mux.HandleFunc("GET /api/attachments/{path...}", s.authed(s.handleAttachmentGet))
+	s.mux.HandleFunc("GET /api/assets/orphans", s.authed(s.handleAssetOrphans))
 	s.mux.HandleFunc("POST /api/notes/daily", s.authed(s.handleDailyNote))
 	s.mux.HandleFunc("POST /api/guide", s.authed(s.handleGuide))
 	s.mux.HandleFunc("POST /api/render", s.authed(s.handleRender))
@@ -177,6 +180,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/trash/empty", s.authed(s.handleTrashEmpty))
 	s.mux.HandleFunc("POST /api/notes", s.authed(s.handleCreateNote))
 	s.mux.HandleFunc("GET /api/notes/{id}/view", s.authed(s.handleNoteView))
+	s.mux.HandleFunc("GET /api/notes/{id}/asset-view", s.authed(s.handleNoteViewAsset))
 	s.mux.HandleFunc("PUT /api/notes/{id}/source", s.authed(s.handleNoteSource))
 	s.mux.HandleFunc("POST /api/notes/{id}/trust", s.authed(s.handleNoteTrust))
 	s.mux.HandleFunc("POST /api/spaces/{space}/conventions", s.authed(s.handleConventions))
@@ -607,7 +611,35 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if hits == nil {
 		hits = []index.SearchHit{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"mode": "fts", "hits": hits})
+	// Attachments answer too, as their own result kind: a phrase inside a
+	// PDF, or the file's name, with the notes that reference the file.
+	resp := map[string]any{"mode": "fts", "hits": hits, "attachments": []map[string]any{}}
+	if atts, err := s.DB.SearchAttachments(r.Context(), query, allowed, limit); err == nil {
+		out := make([]map[string]any, 0, len(atts))
+		for _, a := range atts {
+			row := map[string]any{
+				"path": a.RelPath, "name": a.Name, "snippet": a.Snippet, "rank": a.Rank,
+			}
+			if a.Pages != nil {
+				row["pages"] = *a.Pages
+			}
+			tail := "_assets/" + a.Name
+			if i := strings.LastIndex(a.RelPath, "_assets/"); i >= 0 {
+				tail = a.RelPath[i:]
+			}
+			refs, err := s.DB.NotesReferencing(r.Context(), tail, allowed, 5)
+			if err != nil {
+				refs = nil
+			}
+			if refs == nil {
+				refs = []index.Note{}
+			}
+			row["refs"] = refs
+			out = append(out, row)
+		}
+		resp["attachments"] = out
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleFile serves files from _assets directories so rendered notes can
@@ -645,8 +677,8 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such file")
 		return
 	}
-	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	applyAssetHeaders(w, fi.Name())
 	http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
 }
 

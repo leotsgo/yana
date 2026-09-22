@@ -1001,7 +1001,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   function showHelp(): void {
     const how: Array<[string, string, string]> = [
       ['Make a link to another note', 'type [[ or use the Link button', 'Links between notes'],
-      ['Put a picture in a note', 'drag, paste, or the Image button', 'Pictures and files'],
+      ['Put a picture or file in a note', 'drag, paste, or the Attach button', 'Pictures and files'],
       ['Make a task list and tick it', '- [ ] on a line; tick it while reading', 'Tasks'],
       ['See every open task in one place', 'the tasks page, with filters', 'Tasks'],
       ['Tag a note', '#word anywhere in it', 'Tags'],

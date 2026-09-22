@@ -4,6 +4,7 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -14,6 +15,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,6 +26,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/fsutil"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
+	"github.com/madeofpendletonwool/yana/internal/pdftext"
 	"github.com/madeofpendletonwool/yana/internal/render"
 	"github.com/madeofpendletonwool/yana/internal/spaces"
 )
@@ -36,6 +39,9 @@ type Options struct {
 	// MaxNoteSize and MaxAssetSize skip files above these byte counts.
 	MaxNoteSize  int64
 	MaxAssetSize int64
+	// MaxExtractSize skips PDF text extraction above this byte count; the
+	// file is still indexed, by name only.
+	MaxExtractSize int64
 	// MaxNotesPerSpace stops indexing a space past this many notes.
 	MaxNotesPerSpace int
 	// Now is the clock (overridable for tests).
@@ -78,6 +84,9 @@ func New(root *pathsafe.Root, db *index.DB, opts Options, log *slog.Logger) *Sca
 	if opts.MaxAssetSize == 0 {
 		opts.MaxAssetSize = root.Limits().MaxAssetSize
 	}
+	if opts.MaxExtractSize == 0 {
+		opts.MaxExtractSize = 20 << 20
+	}
 	if opts.MaxNotesPerSpace == 0 {
 		opts.MaxNotesPerSpace = root.Limits().MaxNotesPerSpace
 	}
@@ -102,18 +111,26 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 	var res Result
 	keepNotes := map[string]struct{}{}
 	keepAssets := map[string]struct{}{}
+	keepAttachments := map[string]struct{}{}
 	seenIDs := map[string]string{} // id -> rel path
 	perSpace := map[string]int{}
 	spaceDirs := map[string]struct{}{}
 	var batch []indexed
 	var assets []index.Asset
+	var atts []attWrite
+	// What the previous scan extracted, so unchanged files are not read
+	// apart again.
+	prevStates, err := s.db.AttachmentStates(ctx)
+	if err != nil {
+		return res, err
+	}
 
 	flush := func() error {
-		if len(batch) == 0 && len(assets) == 0 {
+		if len(batch) == 0 && len(assets) == 0 && len(atts) == 0 {
 			return nil
 		}
-		b, a := batch, assets
-		batch, assets = nil, nil
+		b, a, at := batch, assets, atts
+		batch, assets, atts = nil, nil, nil
 		return s.db.Write(ctx, func(tx *sql.Tx) error {
 			for _, it := range b {
 				if err := index.UpsertNote(tx, it.note, it.body, it.raw, it.tags); err != nil {
@@ -125,12 +142,17 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 					return err
 				}
 			}
+			for _, w := range at {
+				if err := index.UpsertAttachment(tx, w.att, w.text, w.indexed); err != nil {
+					return err
+				}
+			}
 			return nil
 		})
 	}
 
 	rootDir := s.root.Dir()
-	err := filepath.WalkDir(rootDir, func(abs string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(rootDir, func(abs string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if abs == rootDir {
 				return err
@@ -194,6 +216,11 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 			assets = append(assets, index.Asset{Space: space, RelPath: cleanRel, Size: info.Size()})
 			keepAssets[cleanRel] = struct{}{}
 			res.Assets++
+			if IsPDF(cleanRel) {
+				att, text, indexed := s.indexPDF(abs, cleanRel, space, info, prevStates)
+				atts = append(atts, attWrite{att: att, text: text, indexed: indexed})
+				keepAttachments[cleanRel] = struct{}{}
+			}
 			return nil
 		}
 		kind := KindOf(cleanRel)
@@ -264,6 +291,9 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 		}
 		res.Retired = n
 		if err := index.DeleteAssetsExcept(tx, keepAssets); err != nil {
+			return err
+		}
+		if err := index.DeleteAttachmentsExcept(tx, keepAttachments); err != nil {
 			return err
 		}
 		if err := index.RecomputeAllLinks(tx); err != nil {
@@ -346,6 +376,118 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 		}
 		return index.ReplaceLinksForNote(tx, it.note.ID)
 	})
+}
+
+// ScanAsset re-indexes one file under _assets: the asset row always, the
+// attachment row and its extracted text when the file is a PDF whose
+// content changed. A missing file retires both rows. The watcher and the
+// upload endpoint call it, so an attachment becomes searchable without
+// waiting for a full scan.
+func (s *Scanner) ScanAsset(ctx context.Context, rel string) error {
+	abs, cleanRel, err := s.root.Resolve(rel)
+	if err != nil {
+		return err
+	}
+	if !IsAsset(cleanRel) {
+		return nil
+	}
+	info, err := os.Stat(abs)
+	if errors.Is(err, fs.ErrNotExist) {
+		return s.db.Write(ctx, func(tx *sql.Tx) error {
+			if err := index.DeleteAttachmentByPath(tx, cleanRel); err != nil {
+				return err
+			}
+			_, err := tx.Exec(`DELETE FROM assets WHERE rel_path = ?`, cleanRel)
+			return err
+		})
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() > s.opts.MaxAssetSize {
+		return nil
+	}
+	space := spaceOf(cleanRel)
+	asset := index.Asset{Space: space, RelPath: cleanRel, Size: info.Size()}
+	var att *attWrite
+	if IsPDF(cleanRel) {
+		prev := map[string]index.AttachmentState{}
+		if old, err := s.db.GetAttachment(ctx, cleanRel); err == nil {
+			p := 0
+			st := index.AttachmentState{ContentHash: old.ContentHash, Indexed: old.ExtractedAt != nil}
+			if old.Pages != nil {
+				p = *old.Pages
+				st.Pages = &p
+			}
+			prev[cleanRel] = st
+		}
+		a, text, indexed := s.indexPDF(abs, cleanRel, space, info, prev)
+		att = &attWrite{att: a, text: text, indexed: indexed}
+	}
+	return s.db.Write(ctx, func(tx *sql.Tx) error {
+		if err := index.UpsertAsset(tx, asset); err != nil {
+			return err
+		}
+		if att != nil {
+			return index.UpsertAttachment(tx, att.att, att.text, att.indexed)
+		}
+		return nil
+	})
+}
+
+// attWrite is one attachment upsert in flight: the row, the extracted
+// text, and whether the text reflects the row's content hash.
+type attWrite struct {
+	att     index.Attachment
+	text    string
+	indexed bool
+}
+
+// indexPDF builds the attachment row for one PDF. When the previous scan
+// already extracted this content hash, the row is refreshed and the old
+// text kept (indexed=false); otherwise text is extracted again — or left
+// empty, still indexed by name, for files over the extraction limit or
+// with no text layer.
+func (s *Scanner) indexPDF(abs, rel, space string, info fs.FileInfo, prev map[string]index.AttachmentState) (index.Attachment, string, bool) {
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		s.log.Warn("cannot read pdf for extraction", "path", rel, "err", err)
+		data = nil
+	}
+	sum := sha256.Sum256(data)
+	att := index.Attachment{
+		RelPath:     rel,
+		Space:       space,
+		Name:        path.Base(rel),
+		Size:        info.Size(),
+		MTime:       info.ModTime().UTC(),
+		ContentHash: hex.EncodeToString(sum[:]),
+	}
+	if old, ok := prev[rel]; ok && old.ContentHash == att.ContentHash && old.Indexed {
+		att.Pages = old.Pages
+		return att, "", false
+	}
+	if data == nil || int64(len(data)) > s.opts.MaxExtractSize {
+		if data != nil {
+			s.log.Info("pdf over extraction limit; indexed by name only", "path", rel, "size", info.Size(), "limit", s.opts.MaxExtractSize)
+		}
+		return att, "", true
+	}
+	pages, text, err := pdftext.Extract(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		// Not really a PDF, or broken: index the name and move on.
+		s.log.Warn("pdf text extraction failed; indexed by name only", "path", rel, "err", err)
+		return att, "", true
+	}
+	att.Pages = &pages
+	now := s.opts.Now().UTC()
+	att.ExtractedAt = &now
+	return att, text, true
+}
+
+// IsPDF reports whether rel names a PDF.
+func IsPDF(rel string) bool {
+	return strings.EqualFold(filepath.Ext(rel), ".pdf")
 }
 
 // syncSpaces reloads every space's .space.yml into the membership

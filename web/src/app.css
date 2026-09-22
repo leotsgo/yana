@@ -344,6 +344,36 @@ kbd {
 .hit-snippet mark, .note-body mark { background: var(--mark); color: inherit; padding: 0 1px; border-radius: 2px; }
 .hit-line { margin: 2px 0 0; font: 12px/1.4 var(--mono); white-space: pre-wrap; word-break: break-word; }
 .hit.unindexed { opacity: 0.6; }
+.hit-attachment { display: block; }
+.hit-attachment .hit-title { display: flex; align-items: center; gap: 6px; }
+.hit-attachment-icon { color: var(--ink-3); flex: none; }
+.hit-attachment-pages { font-size: 11px; font-weight: 400; color: var(--ink-3); }
+.hit-attachment-refs { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+.hit-attachment-refs a { color: var(--accent-ink); }
+
+/* --- attachment cards (read view) --------------------------------------- */
+
+.attach-card {
+  display: flex; align-items: flex-start; gap: 12px; margin: 10px 0; padding: 12px 14px;
+  border: 1px solid var(--line-2); border-radius: var(--r); background: var(--bg-2);
+}
+.attach-card-icon { color: var(--ink-3); flex: none; padding-top: 2px; }
+.attach-card-main { flex: 1; min-width: 0; }
+.attach-card-name { font-weight: 600; overflow-wrap: anywhere; }
+.attach-card-meta { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+.attach-card-actions { display: flex; flex: none; gap: 6px; flex-wrap: wrap; }
+.attach-card-download { text-decoration: none; }
+.attach-card-viewer { flex-basis: 100%; margin-top: 10px; }
+.attach-frame {
+  display: block; width: 100%; height: 70vh; max-height: 900px; border: 1px solid var(--line);
+  border-radius: var(--r-sm); background: #fff;
+}
+.attach-card-tappable { cursor: pointer; }
+.attach-card-tappable:hover { background: var(--hover); }
+@media (max-width: 720px) {
+  .attach-card { flex-wrap: wrap; }
+  .attach-frame { height: 60vh; }
+}
 
 /* --- home -------------------------------------------------------------- */
 

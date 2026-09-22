@@ -129,6 +129,51 @@ func (r *Reconciler) Delete(ctx context.Context, id string, may CanWrite) (Delet
 	return DeleteResult{TrashPath: trashRel}, nil
 }
 
+// TrashAsset moves one file under _assets into the trash directory and
+// retires its index rows. It is what the Data page offers for an asset no
+// note references: the same .trash/ conventions as notes (restorable by
+// hand with mv, swept after the retention window), never a delete.
+func (r *Reconciler) TrashAsset(ctx context.Context, rel string, may CanWrite) (string, error) {
+	if !scanner.IsAsset(rel) {
+		return "", errors.New("reconcile: not a path under _assets")
+	}
+	abs, clean, err := r.root.Resolve(rel)
+	if err != nil {
+		return "", err
+	}
+	space := ""
+	if i := strings.IndexByte(clean, '/'); i >= 0 {
+		space = clean[:i]
+	}
+	if may != nil {
+		if err := may(space); err != nil {
+			return "", &SpaceDeniedError{Space: space, Err: err}
+		}
+	}
+	if _, statErr := os.Lstat(abs); errors.Is(statErr, fs.ErrNotExist) {
+		return "", ErrNotFound
+	} else if statErr != nil {
+		return "", statErr
+	}
+	trashRel, err := r.moveToTrash(clean, abs, r.opts.Now())
+	if err != nil {
+		return "", err
+	}
+	if err := r.db.Write(ctx, func(tx *sql.Tx) error {
+		if err := index.DeleteAttachmentByPath(tx, clean); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM assets WHERE rel_path = ?`, clean); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return "", fmt.Errorf("reconcile: trash asset %s: %w", rel, err)
+	}
+	r.log.Info("asset trashed", "path", clean, "trash_path", trashRel)
+	return trashRel, nil
+}
+
 // moveToTrash renames a note file into .trash under its own path. A name
 // already held there (delete, recreate, delete again) gets a timestamped
 // suffix; the deletion time is the file's mtime, which the sweep reads.

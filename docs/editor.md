@@ -229,9 +229,9 @@ is not listed.
 While editing, a bar of formatting buttons sits above the keyboard:
 bold, italic, heading (cycles `#`, `##`, `###`, none), list, task,
 quote, code (inline, or a fence around a multi-line selection), link,
-image, undo and redo. Image opens the photo picker or the camera and
-uploads through the same `_assets/` path as drag and drop. The buttons
-take no focus, so the keyboard stays up.
+Attach, undo and redo. Attach opens the photo picker, the camera, or the
+file browser, and uploads through the same `_assets/` path as drag and
+drop. The buttons take no focus, so the keyboard stays up.
 
 The shell sizes itself to the visual viewport while the keyboard is
 open, so the caret and the bar stay above it. Lines wrap, long words
@@ -274,7 +274,7 @@ the bar above the note lists who else is on it.
 The same formatting buttons the phone shows above its keyboard sit in
 the toolbar on a desktop while editing (undo and redo are left to the
 keyboard there): bold, italic, heading, list, task, quote, code, link,
-image, tag. Each is a small command on the editor: wrap the selection,
+Attach, tag. Each is a small command on the editor: wrap the selection,
 toggle a line prefix, insert a mark. **Link** turns selected words into
 `[[words]]`, a selected URL into `[](url)`, and with nothing selected
 opens `[[` and the note list. **Tag** inserts `#` and the tags in use.
@@ -355,14 +355,27 @@ included, only when a page uses them.
 
 ## Files: drag, drop, paste
 
-Dropping files onto the editor, or pasting an image, uploads each one to
-the note's sibling `_assets/` directory with `PUT /api/files/<path>` and
-inserts `![alt](_assets/name.png)` at the drop point (a plain link for
-non-images). While the upload runs the document holds a placeholder link,
-so other clients see something sensible; the server picks a free name
-(`shot.png`, `shot-2.png`, …) rather than overwriting, and the link uses
-the name it actually wrote. Uploads are bounded by `YANA_MAX_ASSET_SIZE`
-and require write access to the space.
+Dropping a file onto the editor, pasting one from the clipboard, or picking
+one from the Attach button (the phone's formatting bar, or the toolbar on a
+desktop) uploads it to the note's sibling `_assets/` directory with `PUT
+/api/files/<path>` and inserts `![alt](_assets/name.png)` at the drop point
+for a picture, a plain `[name](_assets/name.ext)` link for anything else —
+a PDF, a spreadsheet, a document. While the upload runs the document holds a
+placeholder link, so other clients see something sensible; the server picks
+a free name (`shot.png`, `shot-2.png`, …) rather than overwriting, and the
+link uses the name it actually wrote. Uploads are bounded by
+`YANA_MAX_ASSET_SIZE` and require write access to the space.
+
+In the read view, a link into `_assets/` that is not a picture renders as a
+card: name, size, and for a PDF its page count and a button that expands an
+inline viewer on the content origin — sandboxed like an HTML note
+([html-notes.md](html-notes.md)) — plus a download link. On a phone the
+card opens the file in the system viewer instead. The scanner extracts a
+PDF's text into search, so a phrase from inside a manual finds it; search
+answers with attachments as their own kind alongside notes, each linking to
+the note that uses the file and to the file itself. An asset no note
+references shows up as unreferenced on the Data page, with a Trash button
+that moves it to `.trash/` — never a delete.
 
 Because an `<img>` cannot send an `Authorization` header, `GET
 /api/files/...` also accepts the access token as `?token=`, the same way
@@ -425,7 +438,11 @@ of its own like any other file.
 
 | Method and path | Purpose |
 |---|---|
-| `PUT /api/files/{path}` | Upload one file under an `_assets/` directory; body is the file, response carries the path written |
+| `PUT /api/files/{path}` | Upload one file under an `_assets/` directory; body is the file, response carries the path written (and a PDF's page count once extracted) |
+| `DELETE /api/files/{path}` | Move one asset to `.trash/` — never a delete |
+| `GET /api/attachments/{path}` | One attachment's metadata: name, size, and a PDF's page count |
+| `GET /api/assets/orphans` | Assets no note in their space references, for the Data page |
+| `GET /api/notes/{id}/asset-view?asset=` | Mints the content-origin URL an attachment card's inline viewer loads |
 | `POST /api/notes/daily` | `{space, date}` → today's note, created from the template if missing |
 | `POST /api/guide` | `{space}` → the starter note in that space, written first when missing (`201`), found otherwise (`200`); editors and up |
 | `POST /api/render` | `{markdown}` → `{html}` for the read view and the preview |

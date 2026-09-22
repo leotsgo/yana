@@ -39,6 +39,9 @@ type Config struct {
 	MaxNoteSize int64 `yaml:"max_note_size"`
 	// MaxAssetSize is the largest file under _assets/ that is indexed.
 	MaxAssetSize int64 `yaml:"max_asset_size"`
+	// MaxExtractSize is the largest PDF (bytes) whose text is extracted
+	// for search; bigger ones index by file name only.
+	MaxExtractSize int64 `yaml:"max_extract_size"`
 	// MaxNotesPerSpace caps how many notes one space may contain.
 	MaxNotesPerSpace int `yaml:"max_notes_per_space"`
 
@@ -129,6 +132,7 @@ func Defaults() Config {
 		LogLevel:           "info",
 		MaxNoteSize:        10 << 20,
 		MaxAssetSize:       50 << 20,
+		MaxExtractSize:     20 << 20,
 		MaxNotesPerSpace:   100_000,
 		ScanSettleTime:     2 * time.Second,
 		WritebackIdle:      2 * time.Second,
@@ -241,6 +245,9 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		return err
 	}
 	if err := i64("MAX_ASSET_SIZE", &cfg.MaxAssetSize); err != nil {
+		return err
+	}
+	if err := i64("MAX_EXTRACT_SIZE", &cfg.MaxExtractSize); err != nil {
 		return err
 	}
 	var perSpace int64 = int64(cfg.MaxNotesPerSpace)

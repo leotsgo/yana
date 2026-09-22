@@ -159,17 +159,50 @@ and the file is rewritten that way on the next write-back.
 
 ## Assets
 
-Any file under a directory named `_assets` is an asset. Images in a note are
-referenced relatively, as in any markdown file:
+Any file under a directory named `_assets` is an asset — a picture, a PDF, a
+spreadsheet, whatever. A note refers to one relatively, as in any markdown
+file:
 
 ```markdown
 ![diagram](_assets/diagram.png)
 ![shared](../_assets/logo.svg)
+[manual](_assets/kettle-manual.pdf)
 ```
 
-The UI rewrites those `src` attributes to `/api/files/<space>/<path>`. Only
-paths inside an `_assets` directory are served, with `nosniff` and a
+The UI rewrites those `src` and `href` attributes to `/api/files/<space>/<path>`.
+Only paths inside an `_assets` directory are served, with `nosniff` and a
 sandboxing content security policy. Assets do not get ids or frontmatter.
+
+The content type served is a deliberate, small set, not whatever the
+extension happens to sniff to: images render inline; PDF and plain text
+render inline too; everything else — office documents in particular — is
+`application/octet-stream` with a `Content-Disposition: attachment`, so the
+browser downloads rather than guesses. The size cap is `YANA_MAX_ASSET_SIZE`
+for every asset alike.
+
+In the read view, a link to a PDF renders as a card: its name, its size, its
+page count once the scanner has read it, a button that expands an inline
+viewer, and a download link. A link to anything else under `_assets` renders
+as a card with a download link. The viewer opens on the content origin in a
+sandboxed frame — the same policy an HTML note renders under
+([html-notes.md](html-notes.md)) — so a malicious PDF cannot reach the app's
+origin even if it carries a script. On a phone the card opens the file in
+the system viewer instead of expanding anything.
+
+### Attachment text in search
+
+The scanner extracts the text of every PDF under `_assets`, in pure Go, no
+external binary, into an FTS index keyed by path and content hash: a file is
+re-read only when its hash changes, not on every scan. A PDF over
+`YANA_MAX_EXTRACT_SIZE` (20 MB by default) or a scanned image with no text
+layer still indexes by file name, so it is still findable, just not by what
+it says. Search answers with attachments as their own result kind, snippet
+and all, alongside notes, each linking to the note or notes that reference
+the file and to the file itself.
+
+An asset no note in its space references shows up on the Data page as
+unreferenced; moving it to the trash follows the same `.trash/` convention
+as a deleted note ([trash.md](trash.md)) — never a delete outright.
 
 ## Space config
 
