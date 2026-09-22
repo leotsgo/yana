@@ -5,6 +5,14 @@ history is retained, and both come back on restore. Only two actions
 destroy anything permanently: deleting one entry forever from the trash,
 and emptying the trash. Both ask before they act.
 
+An asset the Data page lists as unreferenced follows the same `.trash/`
+convention when moved there (`DELETE /api/files/{path}`): the file, not
+deleted, sitting under `.trash/<space>/<original path>`, restorable by hand
+with `mv` and swept after the same retention window. It carries no edit
+history (assets never had one) and no id, so it does not appear in the
+trash page's Restore list the way a note does — it is there to be found by
+whoever goes looking, not a one-click undo.
+
 ## What a delete does
 
 Deleting a note in the app:

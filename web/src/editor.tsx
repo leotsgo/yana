@@ -200,7 +200,7 @@ export function Editor({ sync, note, lookup, readOnly, autofocus, atEnd, phone, 
         return true
       },
       paste(ev, view) {
-        const files = [...(ev.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'))
+        const files = [...(ev.clipboardData?.files ?? [])]
         if (files.length === 0) return false
         ev.preventDefault()
         void uploadInto(view, note, files, view.state.selection.main.head, onToast)

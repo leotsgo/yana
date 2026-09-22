@@ -73,7 +73,8 @@ sits above the keyboard.
 **Finding things.** Full-text search over titles and bodies, regex search
 over the files (with ripgrep), a switcher that opens a note by name or
 tag, recents and pins on the home screen, and a command palette that
-lists everything the app can do.
+lists everything the app can do. A PDF dropped into a note is searched
+too — its text, extracted in the background, turns up alongside notes.
 
 <p align="center"><img src="images/screenshots/switcher.png" alt="The switcher filtering notes by #recipe" width="700"></p>
 
@@ -270,8 +271,7 @@ merges to `main` publish the image.
 
 ## Roadmap
 
-Planned next, roughly in order: PDFs and other
-attachments with text search; importers for markdown vaults and Notion
+Planned next, roughly in order: importers for markdown vaults and Notion
 exports; search operators; templates with variables; vim keys; and an
 Android app.
 

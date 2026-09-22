@@ -197,7 +197,13 @@ func (w *watcher) handle(ev fsnotify.Event) {
 			return
 		}
 	}
-	if scanner.KindOf(rel) == "" || scanner.IsAsset(rel) {
+	if scanner.IsAsset(rel) {
+		// Assets carry no document, but a new PDF means new search text
+		// and a new card; index it like a note event.
+		w.enqueue(rel)
+		return
+	}
+	if scanner.KindOf(rel) == "" {
 		return
 	}
 	w.enqueue(rel)
@@ -261,7 +267,7 @@ func (w *watcher) enqueueTree(dir string) {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
-		if scanner.KindOf(rel) != "" && !scanner.IsAsset(rel) {
+		if scanner.KindOf(rel) != "" || scanner.IsAsset(rel) {
 			w.enqueue(rel)
 		}
 		return nil

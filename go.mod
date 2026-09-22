@@ -6,7 +6,9 @@ require (
 	github.com/Deln0r/ygo v1.19.0
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/coder/websocket v1.8.15
+	github.com/dslipak/pdf v0.0.2
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/reearth/ygo v1.50.0
 	github.com/sergi/go-diff v1.4.0
@@ -26,7 +28,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect

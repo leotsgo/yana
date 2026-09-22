@@ -30,6 +30,7 @@ import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './
 import { resolveTitle } from './paths'
 import { ShareLinkDialog } from './publiclink'
 import { renderRich } from './rich-load'
+import { wireAttachments } from './attach'
 import type { OpenMode } from './prefs'
 import { SyncClient, presence } from './sync'
 import type { PresenceState, PresenceUser, SyncStatus } from './sync'
@@ -466,6 +467,7 @@ export function NotePage(props: NotePageProps) {
             highlight={hitShown}
             taskLine={shown === 'read' ? taskLine : null}
             onEdit={!split && layout === 'desktop' && !coarsePointer && !readOnly ? () => onMode('edit') : undefined}
+            phone={phone}
           />
         )}
         {detailsPane}
@@ -676,13 +678,16 @@ interface ReaderProps {
   taskLine: number | null
   /** A click on the body (not a link or a box) opens the editor. */
   onEdit?: () => void
+  /** True on a phone: an attachment card opens the system viewer instead
+   * of expanding an inline preview. */
+  phone: boolean
 }
 
 // The rendered note. It renders the live document through the server so
 // it matches every other render (same goldmark, same wikilink handling);
 // a short debounce keeps it from rendering every keystroke. Task boxes
 // carry the line their marker is on and flip it through the CRDT.
-function Reader({ html, sync, note, readOnly, cls, onOpen, onTag, highlight, taskLine, onEdit }: ReaderProps) {
+function Reader({ html, sync, note, readOnly, cls, onOpen, onTag, highlight, taskLine, onEdit, phone }: ReaderProps) {
   const host = useRef<HTMLDivElement>(null)
   // The search hit is marked on every render (the live one replaces the
   // first) and scrolled to once, on whichever render lands first. So is
@@ -693,6 +698,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onTag, highlight, tas
     rewriteRelative(el, note.base)
     wireWikiLinks(el, note, onOpen)
     wireTags(el, onTag)
+    wireAttachments(el, note, phone)
     renderRich(el)
     if (highlight && markText(el, highlight, !scrolled.current)) scrolled.current = true
     if (taskLine !== null && markTaskLine(el, taskLine, !scrolled.current)) scrolled.current = true

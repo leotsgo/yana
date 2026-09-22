@@ -96,6 +96,7 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		SettleTime:       cfg.ScanSettleTime,
 		MaxNoteSize:      cfg.MaxNoteSize,
 		MaxAssetSize:     cfg.MaxAssetSize,
+		MaxExtractSize:   cfg.MaxExtractSize,
 		MaxNotesPerSpace: cfg.MaxNotesPerSpace,
 	}, base)
 

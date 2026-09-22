@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Attachments beyond images: PDFs, spreadsheets, documents — any file —
+  upload through the same drag, drop, paste and Attach button (renamed
+  from Image, its picker widened) as a picture, landing as a plain link
+  when it is not one. In the read view a link into `_assets/` renders as
+  a card: name, size, a PDF's page count, a download link, and — for a
+  PDF — a button that expands an inline viewer on the content origin,
+  sandboxed like an HTML note; on a phone the card opens the system
+  viewer instead. The scanner extracts PDF text in pure Go (no external
+  binary) into an `attachments` FTS table keyed by path and content
+  hash, re-extracting only when the hash changes; a PDF over
+  `YANA_MAX_EXTRACT_SIZE` or with no text layer still indexes by file
+  name. Search answers with attachments as their own result kind,
+  linking to the notes that reference them and to the file. The served
+  MIME set is now deliberate — images, PDF and plain text inline,
+  everything else (office formats among them) `application/octet-stream`
+  with `Content-Disposition: attachment`. The Data page lists assets no
+  note references and offers to move them to `.trash/` — never a delete
+  (migration `011_attachments.sql`).
+
 - What changed, by whom. The git history becomes a space-level activity
   feed: `GET /api/spaces/{space}/activity` walks the log with a cursor
   (never re-walking a page) and reports each entry's author and kind —

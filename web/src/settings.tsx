@@ -10,10 +10,10 @@ import type { ComponentChildren } from 'preact'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 
 import { api, ApiError, saveBlob } from './api'
-import type { Account, AgentKey, GitRemote, GitRemoteInput, PublicLinkRow, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
+import type { Account, AgentKey, GitRemote, GitRemoteInput, OrphanAsset, PublicLinkRow, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
 import * as auth from './auth'
 import type { ConfirmSpec } from './confirm'
-import { fmtDate, isSet } from './dom'
+import { fmtBytes, fmtDate, isSet } from './dom'
 import { Icon } from './icons'
 import type { IconName } from './icons'
 import type { Layout } from './layout'
@@ -1695,6 +1695,70 @@ function PublicLinksBlock({ ctx }: { ctx: Ctx }) {
   )
 }
 
+/** Assets no note references, each with a size and a Trash button — the
+ * only way this page removes anything: to .trash, never a delete. */
+function OrphanAssetsBlock({ ctx }: { ctx: Ctx }) {
+  const { say, confirm } = ctx
+  const [assets, setAssets] = useState<OrphanAsset[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    api
+      .assetOrphans()
+      .then((r) => setAssets(r.assets))
+      .catch((err: unknown) => {
+        setAssets([])
+        say(msgOf(err, 'Could not list unreferenced files.'))
+      })
+  }, [say])
+  useEffect(load, [load])
+
+  const trash = (a: OrphanAsset) => {
+    confirm({
+      title: `Move ${a.path.slice(a.path.lastIndexOf('/') + 1)} to the trash?`,
+      body: 'The file moves to .trash, recoverable for the same window as a deleted note. Nothing is deleted outright.',
+      confirmLabel: 'Move to trash',
+      onConfirm: () => {
+        setBusy(a.path)
+        api
+          .trashAsset(a.path)
+          .then(() => {
+            say('Moved to the trash.')
+            load()
+          })
+          .catch((err: unknown) => say(msgOf(err, 'Could not trash the file.')))
+          .finally(() => setBusy(null))
+      },
+    })
+  }
+
+  return (
+    <Block title="Unreferenced files" lead="Files under _assets/ no note links to. Listed so nothing is orphaned by accident; moving one to the trash never deletes it outright.">
+      {assets === null ? (
+        <p class="muted">Loading…</p>
+      ) : assets.length === 0 ? (
+        <p class="muted">Nothing unreferenced.</p>
+      ) : (
+        <ul class="settings-list">
+          {assets.map((a) => (
+            <li key={a.path} class="settings-row">
+              <Icon name="file-text" class="settings-row-icon" />
+              <div class="settings-row-main">
+                <span class="settings-row-title">{a.path.slice(a.path.lastIndexOf('/') + 1)}</span>
+                <span class="settings-row-sub mono">{a.path} · {fmtBytes(a.size)}</span>
+              </div>
+              <button type="button" class="btn small" disabled={busy !== null} onClick={() => trash(a)}>
+                <Icon name="trash" />
+                Trash
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Block>
+  )
+}
+
 function DataSection({ ctx }: { ctx: Ctx }) {
   const { user, status, spaces, notes, say, confirm, onOpenTrash, onStatus } = ctx
   const recent = useMemo(() => {
@@ -1776,6 +1840,7 @@ function DataSection({ ctx }: { ctx: Ctx }) {
         </div>
       </Block>
       <PublicLinksBlock ctx={ctx} />
+      <OrphanAssetsBlock ctx={ctx} />
       <Block title="Trash" lead={`Deleted notes stay recoverable for ${status?.trash?.retention_days ?? 30} days, then go for good. Emptying the trash is the only permanent deletion.`}>
         <div class="form-actions start">
           <button type="button" class="btn" onClick={onOpenTrash}>

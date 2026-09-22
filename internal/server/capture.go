@@ -132,13 +132,26 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	loggerFrom(r.Context()).Info("asset uploaded", "path", final, "bytes", len(data))
-	writeJSON(w, http.StatusCreated, map[string]any{
+	// Index the file right away (asset row, PDF text and page count), so
+	// the card and search see it without waiting for the next scan.
+	if s.Scanner != nil {
+		if err := s.Scanner.ScanAsset(r.Context(), final); err != nil {
+			loggerFrom(r.Context()).Warn("uploaded asset is not indexed yet", "path", final, "err", err)
+		}
+	}
+	resp := map[string]any{
 		"path": final,
 		"name": path.Base(final),
 		"size": len(data),
 		"url":  "/api/files/" + strings.Join(encodeSegments(final), "/"),
-	})
+	}
+	if scanner.IsPDF(final) {
+		if att, err := s.DB.GetAttachment(r.Context(), final); err == nil && att.Pages != nil {
+			resp["pages"] = *att.Pages
+		}
+	}
+	loggerFrom(r.Context()).Info("asset uploaded", "path", final, "bytes", len(data))
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 func encodeSegments(rel string) []string {

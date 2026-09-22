@@ -49,6 +49,7 @@ ripgrep: true
 | `YANA_CONFIG` | unset | Path to a YAML file |
 | `YANA_MAX_NOTE_SIZE` | `10485760` | Largest note indexed, bytes |
 | `YANA_MAX_ASSET_SIZE` | `52428800` | Largest asset indexed, bytes |
+| `YANA_MAX_EXTRACT_SIZE` | `20971520` | Largest PDF whose text is extracted for search, bytes; bigger ones index by file name only |
 | `YANA_MAX_NOTES_PER_SPACE` | `100000` | Cap per space |
 | `YANA_SCAN_SETTLE_TIME` | `2s` | Minimum mtime age before a file is assigned an id, or believed empty or gone |
 | `YANA_WRITEBACK_IDLE` | `2s` | Pause after the last edit before a document is written to its file |

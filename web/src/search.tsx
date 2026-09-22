@@ -7,14 +7,14 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 
 import { api, ApiError } from './api'
-import type { RegexHit, SearchHit, Status } from './api'
+import type { AttachmentHit, RegexHit, SearchHit, Status } from './api'
 import { Icon } from './icons'
 import * as prefs from './prefs'
 
 type Result =
   | { kind: 'idle' }
   | { kind: 'loading' }
-  | { kind: 'fts'; hits: SearchHit[] }
+  | { kind: 'fts'; hits: SearchHit[]; attachments: AttachmentHit[] }
   | { kind: 'regex'; hits: RegexHit[] }
   | { kind: 'error'; message: string }
 
@@ -39,7 +39,7 @@ export function SearchResults({ query, regex, onOpen }: SearchResultsProps) {
     const t = window.setTimeout(() => {
       const run = regex
         ? api.regex(q).then((r) => ({ kind: 'regex', hits: r.hits }) as Result)
-        : api.search(q).then((r) => ({ kind: 'fts', hits: r.hits }) as Result)
+        : api.search(q).then((r) => ({ kind: 'fts', hits: r.hits, attachments: r.attachments }) as Result)
       run
         .then((r) => { if (live) setResult(r) })
         .catch((err: unknown) => {
@@ -60,7 +60,7 @@ export function SearchResults({ query, regex, onOpen }: SearchResultsProps) {
     case 'error':
       return <p class="empty error">{result.message}</p>
     case 'fts':
-      if (result.hits.length === 0) return <p class="empty muted">No notes match. Search looks at titles and bodies; the .* switch matches a regular expression against the files instead.</p>
+      if (result.hits.length === 0 && result.attachments.length === 0) return <p class="empty muted">No notes match. Search looks at titles and bodies; the .* switch matches a regular expression against the files instead.</p>
       return (
         <div class="results">
           {result.hits.map((hit) => (
@@ -74,6 +74,33 @@ export function SearchResults({ query, regex, onOpen }: SearchResultsProps) {
               <div class="hit-path">{hit.note.path}</div>
               <div class="hit-snippet" dangerouslySetInnerHTML={{ __html: escapeExceptMark(hit.snippet) }} />
             </a>
+          ))}
+          {result.attachments.map((att) => (
+            <div key={att.path} class="hit hit-attachment">
+              <div class="hit-title">
+                <Icon name="file-text" size={14} class="hit-attachment-icon" />
+                {att.name}
+                {att.pages !== undefined && <span class="hit-attachment-pages">{att.pages} {att.pages === 1 ? 'page' : 'pages'}</span>}
+              </div>
+              <div class="hit-path">{att.path}</div>
+              {att.snippet && <div class="hit-snippet" dangerouslySetInnerHTML={{ __html: escapeExceptMark(att.snippet) }} />}
+              {att.refs.length > 0 && (
+                <div class="hit-attachment-refs">
+                  In{' '}
+                  {att.refs.map((ref, i) => (
+                    <span key={ref.id}>
+                      {i > 0 && ', '}
+                      <a
+                        href={`/n/${ref.id}`}
+                        onClick={(ev) => { ev.preventDefault(); prefs.touchQuery(query); onOpen(ref.id, att.name) }}
+                      >
+                        {ref.title || ref.path}
+                      </a>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       )

@@ -37,8 +37,10 @@ An image sits in an `_assets` folder beside the note and is shown with a line li
 
 How to add one:
 
-- **Desktop:** drag an image file onto the editor, paste one from the clipboard, or click the Image button in the bar above the editor. The file is uploaded and the line is written for you.
-- **Phone:** tap Image on the bar above the keyboard; it opens the photo picker or the camera.
+- **Desktop:** drag a file onto the editor, paste one from the clipboard, or click the Attach button in the bar above the editor. The file is uploaded and the line is written for you.
+- **Phone:** tap Attach on the bar above the keyboard; it opens the photo picker, the camera, or the file browser.
+
+A picture becomes an inline image. Anything else — a PDF, a spreadsheet, a document — becomes a plain link and a card in the rendered note: its name, its size, and for a PDF its page count, with a button to open it and a link to download it. A PDF opens inline in a sandboxed viewer; other files open in the system viewer or download. The text inside a PDF is searched along with your notes, so a phrase from page forty of a manual finds the manual.
 
 ## Tasks
 
@@ -107,7 +109,7 @@ yana --help
 | What | Where |
 |---|---|
 | Notes | `.md` files in the tree |
-| Pictures | `_assets/` beside the note |
+| Pictures and files | `_assets/` beside the note |
 | The index | `.sync/`, safe to delete |
 
 A footnote looks like this.[^1]

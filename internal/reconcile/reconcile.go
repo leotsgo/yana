@@ -1067,7 +1067,11 @@ func (r *Reconciler) processPath(ctx context.Context, rel string) {
 		r.log.Debug("ignoring path", "path", rel, "err", err)
 		return
 	}
-	if scanner.KindOf(rel) == "" || scanner.IsAsset(rel) {
+	if scanner.IsAsset(rel) {
+		r.assetChanged(ctx, rel)
+		return
+	}
+	if scanner.KindOf(rel) == "" {
 		return
 	}
 	info, err := os.Lstat(abs)
@@ -1239,6 +1243,16 @@ func (r *Reconciler) unloadedChanged(ctx context.Context, id, rel string) {
 	}
 	r.reindex(ctx, rel)
 	r.emit(Event{NoteID: id, Kind: EventChanged, Path: rel})
+}
+
+// assetChanged refreshes the index rows for one file under _assets: the
+// asset row, the attachment text, or both gone when the file is. A
+// watcher move produces the create at the new path before the removal at
+// the old one (the batch is sorted that way), so nothing flickers.
+func (r *Reconciler) assetChanged(ctx context.Context, rel string) {
+	if err := r.sc.ScanAsset(ctx, rel); err != nil {
+		r.log.Warn("asset reindex failed", "path", rel, "err", err)
+	}
 }
 
 // pathGone handles a path the watcher reported that no longer exists. A

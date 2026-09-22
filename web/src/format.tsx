@@ -181,7 +181,7 @@ const buttons: Array<{ id: string; icon: IconName; label: string; phoneOnly?: bo
   { id: 'quote', icon: 'quote', label: 'Quote' },
   { id: 'code', icon: 'code', label: 'Code' },
   { id: 'link', icon: 'link', label: 'Link to a note' },
-  { id: 'image', icon: 'image', label: 'Add a picture' },
+  { id: 'image', icon: 'paperclip', label: 'Attach a file' },
   { id: 'tag', icon: 'tag', label: 'Tag' },
   { id: 'undo', icon: 'undo', label: 'Undo', phoneOnly: true },
   { id: 'redo', icon: 'redo', label: 'Redo', phoneOnly: true },
@@ -223,7 +223,6 @@ export function FormatBar({ view, note, onToast, compact }: FormatBarProps) {
       <input
         ref={file}
         type="file"
-        accept="image/*"
         multiple
         hidden
         onChange={(ev) => {

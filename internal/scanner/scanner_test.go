@@ -12,6 +12,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
+	"github.com/madeofpendletonwool/yana/internal/testpdf"
 )
 
 type fixture struct {
@@ -307,5 +308,116 @@ func TestScanPerformance(t *testing.T) {
 	}
 	if second > 10*time.Second {
 		t.Fatalf("scan too slow: %s", second)
+	}
+}
+
+func TestScanIndexesPDFAttachments(t *testing.T) {
+	f := setup(t)
+	pdf := testpdf.Build("Kettle manual page one", "Descale quarterly")
+	f.write(t, "home/manuals/_assets/kettle.pdf", string(pdf))
+	f.write(t, "home/manuals/warranty.md", "# Warranty\n\nSee [kettle.pdf](_assets/kettle.pdf).\n")
+	if _, err := f.sc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	att, err := f.db.GetAttachment(context.Background(), "home/manuals/_assets/kettle.pdf")
+	if err != nil {
+		t.Fatalf("attachment row: %v", err)
+	}
+	if att.Pages == nil || *att.Pages != 2 {
+		t.Fatalf("pages = %v, want 2", att.Pages)
+	}
+	hits, err := f.db.SearchAttachments(context.Background(), "Descale quarterly", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Name != "kettle.pdf" {
+		t.Fatalf("text search hits: %+v", hits)
+	}
+	// A PDF with no text layer indexes by name only.
+	f.write(t, "home/manuals/_assets/scan.pdf", string(testpdf.Build("")))
+	if _, err := f.sc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	hits, err = f.db.SearchAttachments(context.Background(), "scan.pdf", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Name != "scan.pdf" {
+		t.Fatalf("name search hits: %+v", hits)
+	}
+}
+
+func TestScanPDFReextractOnlyOnChange(t *testing.T) {
+	f := setup(t)
+	f.write(t, "home/_assets/manual.pdf", string(testpdf.Build("first edition")))
+	if _, err := f.sc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	first, err := f.db.GetAttachment(context.Background(), "home/_assets/manual.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ExtractedAt == nil {
+		t.Fatal("expected an extraction timestamp")
+	}
+	// Unchanged content: the row refreshes but the text is not re-extracted.
+	time.Sleep(2 * time.Millisecond)
+	f.write(t, "home/_assets/manual.pdf", string(testpdf.Build("first edition")))
+	if _, err := f.sc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	same, err := f.db.GetAttachment(context.Background(), "home/_assets/manual.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.ExtractedAt.UnixNano() != first.ExtractedAt.UnixNano() {
+		t.Fatal("unchanged pdf was re-extracted")
+	}
+	hits, err := f.db.SearchAttachments(context.Background(), "first edition", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("hits after unchanged rescan: %+v", hits)
+	}
+	// Changed content: extracted again.
+	f.write(t, "home/_assets/manual.pdf", string(testpdf.Build("second edition words")))
+	if _, err := f.sc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	next, err := f.db.GetAttachment(context.Background(), "home/_assets/manual.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ExtractedAt.UnixNano() == first.ExtractedAt.UnixNano() {
+		t.Fatal("changed pdf was not re-extracted")
+	}
+	hits, err = f.db.SearchAttachments(context.Background(), "second edition", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("hits after change: %+v", hits)
+	}
+}
+
+func TestScanAssetSingleFile(t *testing.T) {
+	f := setup(t)
+	f.write(t, "home/_assets/manual.pdf", string(testpdf.Build("single page text")))
+	if err := f.sc.ScanAsset(context.Background(), "home/_assets/manual.pdf"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.GetAttachment(context.Background(), "home/_assets/manual.pdf"); err != nil {
+		t.Fatalf("attachment row: %v", err)
+	}
+	// A vanished file retires its rows.
+	if err := os.Remove(filepath.Join(f.dir, "home", "_assets", "manual.pdf")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.sc.ScanAsset(context.Background(), "home/_assets/manual.pdf"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.GetAttachment(context.Background(), "home/_assets/manual.pdf"); err != index.ErrAttachmentNotFound {
+		t.Fatalf("expected the row gone, got %v", err)
 	}
 }

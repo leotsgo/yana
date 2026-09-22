@@ -212,7 +212,7 @@ func (c *Content) servePublicAsset(w http.ResponseWriter, r *http.Request, n ind
 		return
 	}
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": fi.Name()}))
+	applyAssetHeaders(w, fi.Name())
 	http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
 }
 

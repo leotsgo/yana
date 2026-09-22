@@ -92,6 +92,40 @@ export interface SearchHit {
   snippet: string
 }
 
+/** A note an attachment result links back to. */
+export interface AttachmentRef {
+  id: string
+  space: string
+  path: string
+  title: string
+}
+
+/** One attachment search result: a PDF's text or its file name. */
+export interface AttachmentHit {
+  path: string
+  name: string
+  snippet: string
+  pages?: number
+  refs: AttachmentRef[]
+}
+
+/** An attachment's metadata for the read-view card. */
+export interface AttachmentMeta {
+  path: string
+  name: string
+  size: number
+  kind: 'pdf' | 'file'
+  pages?: number
+  url: string
+}
+
+/** An asset no note references, as the Data page lists it. */
+export interface OrphanAsset {
+  space: string
+  path: string
+  size: number
+}
+
 export interface RegexHit {
   path: string
   line: number
@@ -354,7 +388,7 @@ export const api = {
     get<{ spaces: SpaceTree[] }>('/api/tree' + (space ? `?space=${encodeURIComponent(space)}` : '')),
   note: (id: string) => get<Note>(`/api/notes/${encodeURIComponent(id)}`),
   search: (q: string, space?: string) =>
-    get<{ mode: 'fts'; hits: SearchHit[] }>(
+    get<{ mode: 'fts'; hits: SearchHit[]; attachments: AttachmentHit[] }>(
       `/api/search?q=${encodeURIComponent(q)}` + (space ? `&space=${encodeURIComponent(space)}` : ''),
     ),
   regex: (raw: string, space?: string) =>
@@ -434,6 +468,14 @@ export const api = {
   setTrusted: (id: string, trusted: boolean) =>
     post<{ ok: boolean; trusted: boolean }>(`/api/notes/${encodeURIComponent(id)}/trust`, { trusted }),
   upload: (path: string, file: Blob) => upload(path, file),
+  attachment: (path: string) => get<AttachmentMeta>(`/api/attachments/${path.split('/').map(encodeURIComponent).join('/')}`),
+  assetViewURL: (noteID: string, path: string) =>
+    get<{ url: string; expires_at: string }>(
+      `/api/notes/${encodeURIComponent(noteID)}/asset-view?asset=${encodeURIComponent(path)}`,
+    ),
+  assetOrphans: () => get<{ assets: OrphanAsset[] }>('/api/assets/orphans'),
+  trashAsset: (path: string) =>
+    post<{ ok: boolean; trash_path: string }>(`/api/files/${path.split('/').map(encodeURIComponent).join('/')}`, {}, 'DELETE'),
   exportNote: (id: string) => download(`/api/notes/${encodeURIComponent(id)}/export.html`),
   publicLink: (id: string) => get<{ link: PublicLink | null }>(`/api/notes/${encodeURIComponent(id)}/public-link`),
   createPublicLink: (id: string, expires: LinkExpiry) =>
