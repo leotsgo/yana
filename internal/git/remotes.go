@@ -205,7 +205,7 @@ func (l *Layer) seedRemote(ctx context.Context) error {
 		return err
 	}
 	l.mu.Lock()
-	l.remotes = countEnabled(existing)
+	l.noteRemotes(existing)
 	l.mu.Unlock()
 	if len(existing) > 0 || l.opts.Remote == "" {
 		return nil
@@ -383,8 +383,20 @@ func (l *Layer) Reload(ctx context.Context) {
 		return
 	}
 	l.mu.Lock()
-	l.remotes = countEnabled(remotes)
+	l.noteRemotes(remotes)
 	l.mu.Unlock()
+}
+
+// noteRemotes records what the remotes table says: how many are enabled
+// and the newest push any of them has seen, so the stats report a push
+// made before this process started. The caller holds l.mu.
+func (l *Layer) noteRemotes(remotes []index.GitRemote) {
+	l.remotes = countEnabled(remotes)
+	for _, r := range remotes {
+		if r.LastPush.After(l.lastPush) {
+			l.lastPush = r.LastPush
+		}
+	}
 }
 
 // pushDue runs from the loop: it pushes every enabled remote whose
@@ -401,7 +413,7 @@ func (l *Layer) pushDue(now time.Time) {
 		return
 	}
 	l.mu.Lock()
-	l.remotes = countEnabled(remotes)
+	l.noteRemotes(remotes)
 	lastMade := l.lastMade
 	l.mu.Unlock()
 	for _, r := range remotes {

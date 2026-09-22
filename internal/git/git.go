@@ -99,13 +99,20 @@ func (o *Options) defaults() {
 }
 
 // Stats is a snapshot of the layer's counters, reported by /api/status.
+// Commits and the two timestamps describe the repository, so they hold
+// their values across a restart; Pushes and Errors count since the
+// process started.
 type Stats struct {
-	Available  bool      `json:"available"`
-	Commits    int64     `json:"commits"`
+	Available bool `json:"available"`
+	// Commits is how many commits the history holds.
+	Commits int64 `json:"commits"`
+	// LastCommit is when the newest commit was made; zero with none.
 	LastCommit time.Time `json:"last_commit"`
 	Pushes     int64     `json:"pushes"`
-	LastPush   time.Time `json:"last_push"`
-	Errors     int64     `json:"errors"`
+	// LastPush is the newest successful push to any remote, including
+	// pushes made before this process started.
+	LastPush time.Time `json:"last_push"`
+	Errors   int64     `json:"errors"`
 	// LastError is the newest failure's message, so the UI can say what
 	// went wrong instead of pointing at the log.
 	LastError   string    `json:"last_error"`
@@ -153,9 +160,12 @@ type Layer struct {
 	// agent:*, filesystem) whose edits are pending in the open window.
 	windowAuthors map[string]map[string]struct{}
 	dirty         bool
-	commits       int64
-	pushes        int64
-	errors        int64
+	// commits is the history's length, read from the repository at
+	// Ensure and advanced per commit made, so a restart reports the
+	// repository rather than the process.
+	commits int64
+	pushes  int64
+	errors  int64
 	// committing is held while a commit cycle or a push runs so Snapshot,
 	// the loop, and the push endpoints serialise.
 	committing sync.Mutex
@@ -251,6 +261,7 @@ func (l *Layer) Ensure(ctx context.Context) error {
 		l.log.Warn("git state unreadable; the window opens at the last commit", "err", err)
 	}
 	last := l.lastCommitUnix(ctx)
+	count := l.commitCount(ctx)
 	l.mu.Lock()
 	if l.lastCommit.IsZero() {
 		l.lastCommit = time.Unix(last+1, 0)
@@ -258,6 +269,7 @@ func (l *Layer) Ensure(ctx context.Context) error {
 	if last > 0 {
 		l.lastMade = time.Unix(last, 0)
 	}
+	l.commits = count
 	l.mu.Unlock()
 	if err := l.loadSealKey(); err != nil {
 		l.log.Warn("remote credentials are unavailable", "err", err)
@@ -367,7 +379,7 @@ func (l *Layer) Stats() Stats {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return Stats{
-		Available: l.available, Commits: l.commits, LastCommit: l.lastCommit,
+		Available: l.available, Commits: l.commits, LastCommit: l.lastMade,
 		Pushes: l.pushes, LastPush: l.lastPush, Errors: l.errors,
 		LastError: l.lastError, LastErrorAt: l.lastErrorAt, Remotes: l.remotes,
 	}
@@ -690,6 +702,19 @@ func (l *Layer) fail(err error) {
 func (l *Layer) lastCommitUnix(ctx context.Context) int64 {
 	out, err := l.git(ctx, "log", "-1", "--format=%ct")
 	if err != nil || strings.TrimSpace(out) == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// commitCount reads the history's length; 0 with no history.
+func (l *Layer) commitCount(ctx context.Context) int64 {
+	out, err := l.git(ctx, "rev-list", "--count", "HEAD")
+	if err != nil {
 		return 0
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)

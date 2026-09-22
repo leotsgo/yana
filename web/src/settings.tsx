@@ -13,7 +13,7 @@ import { api, ApiError, saveBlob } from './api'
 import type { Account, AgentKey, GitRemote, GitRemoteInput, PublicLinkRow, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
 import * as auth from './auth'
 import type { ConfirmSpec } from './confirm'
-import { fmtDate } from './dom'
+import { fmtDate, isSet } from './dom'
 import { Icon } from './icons'
 import type { IconName } from './icons'
 import type { Layout } from './layout'
@@ -1724,7 +1724,7 @@ function DataSection({ ctx }: { ctx: Ctx }) {
     api
       .gitSnapshot()
       .then((r) => {
-        say(`Committed. ${r.commits} commits in the history.`)
+        say(r.commits > 0 ? `Committed ${r.commits === 1 ? 'a snapshot' : `${r.commits} snapshots`}.` : 'Nothing to commit; the history is up to date.')
         onStatus()
       })
       .catch((err: unknown) => say(msgOf(err, 'Could not commit now.')))
@@ -1791,11 +1791,11 @@ function DataSection({ ctx }: { ctx: Ctx }) {
               <dt>Commits</dt>
               <dd>{git.commits}</dd>
               <dt>Last commit</dt>
-              <dd>{git.last_commit && git.commits > 0 ? fmtDate(git.last_commit) : 'none yet'}</dd>
+              <dd>{git.commits > 0 ? fmtDate(git.last_commit) : 'none yet'}</dd>
               {git.remotes > 0 && (
                 <>
                   <dt>Last push</dt>
-                  <dd>{git.pushes > 0 && git.last_push ? fmtDate(git.last_push) : 'none yet'}</dd>
+                  <dd>{isSet(git.last_push) ? fmtDate(git.last_push) : 'none yet'}</dd>
                 </>
               )}
               {git.errors > 0 && (
