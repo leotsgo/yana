@@ -229,6 +229,60 @@ func TestInitializeAndToolList(t *testing.T) {
 	_, _ = f.rpcErr(t, "no/such/method")
 }
 
+// TestToolSchemasAreValid checks the JSON a client actually receives, not just
+// the tool names. A nil variadic in toolList's req() helper marshalled as
+// "required": null, which is invalid JSON Schema; strict clients (Claude Code)
+// rejected the whole tools/list response and were left with no usable tools.
+func TestToolSchemasAreValid(t *testing.T) {
+	f := newFixture(t)
+	raw, isErr := f.rpc(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+	if isErr {
+		t.Fatal("tools/list errored")
+	}
+	if bytes.Contains(raw, []byte(`"required":null`)) {
+		t.Fatalf("a tool schema serialised a null required: %s", raw)
+	}
+
+	var list struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			InputSchema struct {
+				Type       string                     `json:"type"`
+				Properties map[string]json.RawMessage `json:"properties"`
+				Required   *[]string                  `json:"required"`
+			} `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		t.Fatalf("tools/list is not the expected shape: %v (%s)", err, raw)
+	}
+	if len(list.Tools) == 0 {
+		t.Fatal("tools/list returned no tools")
+	}
+
+	for _, tl := range list.Tools {
+		if tl.Name == "" || tl.Description == "" {
+			t.Errorf("tool %q: name and description are both required", tl.Name)
+		}
+		if tl.InputSchema.Type != "object" {
+			t.Errorf("%s: inputSchema type is %q, want \"object\"", tl.Name, tl.InputSchema.Type)
+		}
+		if tl.InputSchema.Required == nil {
+			continue // absent is valid, and means everything is optional
+		}
+		req := *tl.InputSchema.Required
+		if len(req) == 0 {
+			t.Errorf("%s: required is present but empty — omit it instead", tl.Name)
+		}
+		for _, name := range req {
+			if _, declared := tl.InputSchema.Properties[name]; !declared {
+				t.Errorf("%s: required names %q, which is not a declared property", tl.Name, name)
+			}
+		}
+	}
+}
+
 func (f *fixture) rpcErr(t *testing.T, method string) (int, string) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 9, "method": method})
