@@ -5,11 +5,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/git"
+	"github.com/madeofpendletonwool/yana/internal/index"
 )
 
 func testOptions() git.Options {
@@ -260,5 +262,68 @@ func TestLogFollowsRenamesAndShowFindsOldContent(t *testing.T) {
 	}
 	if !git.ValidRevision(entries[0].Hash) {
 		t.Fatal("revision validation rejects a real hash")
+	}
+}
+
+// A restart must not zero the history: a layer opened over an existing
+// repository reports how many commits it holds and when the newest was
+// made, and a remote's recorded push is the last push even though this
+// process has not pushed.
+func TestStatsSurviveRestart(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	first := git.New(dir, testOptions(), nil)
+	if err := first.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	write(t, first, "home/a.md", "one\n")
+	if n, err := first.Snapshot(ctx); err != nil || n != 1 {
+		t.Fatalf("first snapshot: %d %v", n, err)
+	}
+	write(t, first, "home/b.md", "two\n")
+	if n, err := first.Snapshot(ctx); err != nil || n != 1 {
+		t.Fatalf("second snapshot: %d %v", n, err)
+	}
+	if st := first.Stats(); st.Commits != 2 || st.LastCommit.IsZero() {
+		t.Fatalf("stats before restart: %+v", st)
+	}
+
+	db, err := index.Open(filepath.Join(dir, ".sync", "index.db"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	pushed := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := db.CreateGitRemote(ctx, index.GitRemote{
+		ID: "r1", Name: "backup", URL: bareRemote(t), Schedule: git.ScheduleNightly, Enabled: true, CreatedAt: pushed,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordGitPush(ctx, "r1", pushed, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := testOptions()
+	opts.DB = db
+	second := git.New(dir, opts, nil)
+	if err := second.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := second.Stats()
+	if st.Commits != 2 {
+		t.Fatalf("commits after restart: %d", st.Commits)
+	}
+	if want := strconv.FormatInt(st.LastCommit.Unix(), 10); strings.TrimSpace(runGit(t, dir, "log", "-1", "--format=%ct")) != want {
+		t.Fatalf("last commit after restart: %v does not match the repository", st.LastCommit)
+	}
+	if !st.LastPush.Equal(pushed) || st.Pushes != 0 {
+		t.Fatalf("push stats after restart: %+v", st)
+	}
+	write(t, second, "home/c.md", "three\n")
+	if n, err := second.Snapshot(ctx); err != nil || n != 1 {
+		t.Fatalf("snapshot after restart: %d %v", n, err)
+	}
+	if st := second.Stats(); st.Commits != 3 {
+		t.Fatalf("commits after a new snapshot: %d", st.Commits)
 	}
 }

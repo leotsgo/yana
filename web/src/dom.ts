@@ -39,6 +39,12 @@ export function fmtDate(iso: string): string {
   return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
+// isSet reports whether a server timestamp holds a real time: Go encodes
+// a zero time as the year 0001, which reads as "never" here.
+export function isSet(iso: string | undefined): iso is string {
+  return !!iso && !iso.startsWith('0001-')
+}
+
 export function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`

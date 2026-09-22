@@ -145,8 +145,10 @@ by root. Once the directory is yours, you can drop root altogether with
   filesystem watcher is running; and a `realtime` object: live editing
   connections, rooms, updates relayed and dropped, and slow connections
   closed; and a `git` object: whether the history layer is available,
-  commits made, the last commit and push times, how many backup remotes
-  are enabled, the error count and the newest error's message.
+  how many commits the history holds, the last commit and push times
+  (both read from the repository and the remotes table, so they survive
+  a restart), how many backup remotes are enabled, and the error count
+  since the server started with the newest error's message.
 
 ## Reverse proxy
 
