@@ -8,8 +8,10 @@
 // without a path, quick capture into today's note, pins, tags, the tree
 // actions behind a right-click or a long press — are wired here as well.
 // Notes open in tabs (workspace.ts): the strip sits above the note on
-// tablets and desktops, the URL is always the active tab's note, and a
-// page like tasks or settings shows in its place without being a tab.
+// tablets and desktops, and the URL is always the focused pane's active
+// tab. Pages (tasks, tags, settings, the trash, home) are tabs as well,
+// one per kind. A desktop splits the content into two panes, each with a
+// strip.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
@@ -22,6 +24,7 @@ import { Confirm } from './confirm'
 import type { ConfirmSpec } from './confirm'
 import { isEditable, isMac, keys, label, matches, tabDigit } from './hotkeys'
 import { Icon } from './icons'
+import type { IconName } from './icons'
 import { useVisualViewport } from './keyboard'
 import { coarsePointer, current as currentLayout, useLayout } from './layout'
 import { renderUnresolvedReport } from './links'
@@ -43,12 +46,12 @@ import { appendToNote, composeShareBlock, today } from './sharelib'
 import { TagPage, TagsIndex } from './tags'
 import { TasksPage } from './tasks'
 import { TrashPage } from './trash'
-import { TabStrip } from './tabstrip'
+import { TAB_DRAG, TabStrip } from './tabstrip'
 import type { TabInfo } from './tabstrip'
 import { Tree, flatten, folders } from './tree'
 import type { FlatNote, TreeEdit, TreeTarget } from './tree'
 import * as workspace from './workspace'
-import { openProps } from './workspace'
+import { isPage, openProps } from './workspace'
 import type { OpenHow, Tab } from './workspace'
 
 type Route =
@@ -64,46 +67,74 @@ type Route =
   | { kind: 'activity'; space: string; path: string }
   | { kind: 'settings'; section: Section | null }
 
-function parseRoute(): Route {
-  if (location.pathname === '/share') return { kind: 'share' }
-  if (location.pathname === '/links') return { kind: 'links' }
-  if (location.pathname === '/trash') return { kind: 'trash' }
-  if (location.pathname === '/tags') return { kind: 'tags' }
-  if (location.pathname === '/search') return { kind: 'search' }
-  if (location.pathname === '/tasks') {
-    const q = new URLSearchParams(location.search)
-    return { kind: 'tasks', space: q.get('space') ?? '', tag: q.get('tag') ?? '', path: q.get('path') ?? '' }
-  }
-  if (location.pathname === '/activity') {
-    const q = new URLSearchParams(location.search)
-    return { kind: 'activity', space: q.get('space') ?? '', path: q.get('path') ?? '' }
-  }
-  if (location.pathname === '/settings') return { kind: 'settings', section: null }
-  const tg = location.pathname.match(/^\/tags\/(.+)$/)
+/** Where the address points: the window's own, or a page tab's path. */
+function parseRoute(url = location.pathname + location.search): Route {
+  const u = new URL(url, location.origin)
+  const path = u.pathname
+  const q = u.searchParams
+  if (path === '/share') return { kind: 'share' }
+  if (path === '/links') return { kind: 'links' }
+  if (path === '/trash') return { kind: 'trash' }
+  if (path === '/tags') return { kind: 'tags' }
+  if (path === '/search') return { kind: 'search' }
+  if (path === '/tasks') return { kind: 'tasks', space: q.get('space') ?? '', tag: q.get('tag') ?? '', path: q.get('path') ?? '' }
+  if (path === '/activity') return { kind: 'activity', space: q.get('space') ?? '', path: q.get('path') ?? '' }
+  if (path === '/settings') return { kind: 'settings', section: null }
+  const tg = path.match(/^\/tags\/(.+)$/)
   if (tg && tg[1]) return { kind: 'tag', tag: decodeURIComponent(tg[1]).toLowerCase() }
-  const st = location.pathname.match(/^\/settings\/([a-z]+)$/)
+  const st = path.match(/^\/settings\/([a-z]+)$/)
   if (st && st[1]) return { kind: 'settings', section: isSection(st[1]) ? st[1] : null }
-  const m = location.pathname.match(/^\/n\/([0-9A-Za-z]{26})$/)
+  const m = path.match(/^\/n\/([0-9A-Za-z]{26})$/)
   return m && m[1] ? { kind: 'note', id: m[1] } : { kind: 'home' }
 }
 
-/** A page shown in place of the active tab: anything but a note. */
-interface Page {
-  route: Route
-  path: string
+/** What a tab shows: a note, or the page at its path. */
+function routeOf(id: string): Route {
+  return isPage(id) ? parseRoute(id) : { kind: 'note', id }
 }
 
-/** What the address says at load. A note comes to the front of the
- * strip, opened in a tab if it was not there; the bare root shows the
- * tab that was active last time, or the home screen. */
-function initialPage(): Page | null {
+/** The name and icon a page tab carries. */
+function pageLabel(r: Route): { title: string; icon: IconName } {
+  switch (r.kind) {
+    case 'tasks':
+      return { title: 'Tasks', icon: 'check-square' }
+    case 'tags':
+      return { title: 'Tags', icon: 'tag' }
+    case 'tag':
+      return { title: '#' + r.tag, icon: 'tag' }
+    case 'links':
+      return { title: 'Unresolved links', icon: 'unlink' }
+    case 'trash':
+      return { title: 'Trash', icon: 'trash' }
+    case 'activity':
+      return { title: 'What changed', icon: 'history' }
+    case 'settings':
+      return { title: 'Settings', icon: 'settings' }
+    case 'share':
+      return { title: 'Share', icon: 'share' }
+    default:
+      return { title: 'Home', icon: 'home' }
+  }
+}
+
+/** The narrowest a pane gets beside another, and how near the middle
+ * the divider snaps to halves. */
+const PANE_MIN = 360
+const PANE_SNAP = 40
+
+/** What the address says at load. A note or a page comes to the front
+ * of the strip, opened in a tab if it was not there; the bare root shows
+ * the tab that was active last time, or the home screen. True for the
+ * phone's search screen. */
+function initialLoad(): boolean {
   const r = parseRoute()
-  if (r.kind === 'home') return null
-  if (r.kind !== 'note') return { route: r, path: location.pathname + location.search }
-  const had = workspace.pane().tabs.find((t) => t.id === r.id)
+  if (r.kind === 'search') return true
+  if (r.kind === 'home') return false
+  const id = r.kind === 'note' ? r.id : location.pathname + location.search
+  const had = workspace.pane().tabs.find((t) => t.id === id)
   if (had) workspace.activate(had.key)
-  else workspace.open(r.id, currentLayout() === 'phone' ? 'here' : 'tab', { mode: prefs.openMode() })
-  return null
+  else workspace.open(id, currentLayout() === 'phone' ? 'here' : 'tab', { mode: prefs.openMode() })
+  return false
 }
 
 /** Track a subscribe/get module state in a component. */
@@ -131,7 +162,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // The open tabs, and the page shown instead of the active one, if any.
   // The route follows from the two.
   const ws = useExternal(workspace.get, workspace.subscribe)
-  const [page, setPage] = useState<Page | null>(initialPage)
+  // The phone's search screen, the one view that is not a tab.
+  const [phoneSearch, setPhoneSearch] = useState(initialLoad)
   const [spaces, setSpaces] = useState<SpaceTree[] | null>(null)
   const [spaceList, setSpaceList] = useState<SpaceInfo[] | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
@@ -150,7 +182,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const [drawer, setDrawer] = useState(false) // phone and tablet
   // The note whose title should be focused: a new one, or one a person
   // double-clicked in the tree. The count makes a repeat on the open note count.
-  const [fresh, setFresh] = useState<{ id: string; seq: number } | null>(null)
+  // Keyed by the tab, so the same note in the other pane is left alone.
+  const [fresh, setFresh] = useState<{ key: string; seq: number } | null>(null)
   const [treeEdit, setTreeEdit] = useState<TreeEdit | null>(null) // a folder input open in the tree
   const [themePref, setThemePref] = useState(prefs.theme)
   const [pinList, setPinList] = useState(prefs.pins)
@@ -161,13 +194,22 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const [hit, setHit] = useState<{ key: string; text: string | null; line: number | null; seq: number } | null>(null)
   const [openTasks, setOpenTasks] = useState<number | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
+  // The focused pane's note, for the actions that act on "this note";
+  // each pane's own is kept so a focus change can hand it over.
   const current = useRef<Note | null>(null)
+  const paneNotes = useRef<Array<Note | null>>([null, null])
   const user = auth.user()
   const narrow = layout !== 'desktop'
   const sidebarShown = narrow ? drawer : !collapsed
-  const focused = ws.panes[ws.focus] ?? { tabs: [], active: null }
-  const active = page ? null : (focused.tabs.find((t) => t.key === focused.active) ?? null)
-  const route: Route = page ? page.route : active ? { kind: 'note', id: active.id } : { kind: 'home' }
+  // Two panes only on a desktop; narrower, the second merges away.
+  const split = ws.panes.length > 1 && layout === 'desktop'
+  /** The tab a pane shows. */
+  const tabIn = (i: number): Tab | null => {
+    const p = ws.panes[i]
+    return p ? (p.tabs.find((t) => t.key === p.active) ?? null) : null
+  }
+  const active = tabIn(ws.focus)
+  const route: Route = phoneSearch ? { kind: 'search' } : active ? routeOf(active.id) : { kind: 'home' }
   const mode: prefs.OpenMode = active?.mode ?? openPref
 
   // --- navigation --------------------------------------------------------
@@ -178,8 +220,6 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const histMode = useRef<'push' | 'replace' | 'none'>('replace')
   const layoutNow = useRef(layout)
   layoutNow.current = layout
-  const pageNow = useRef(page)
-  pageNow.current = page
   // Titles by note id, from the tree: a tab shows one before its note loads.
   const titles = useRef(new Map<string, string>())
 
@@ -191,26 +231,25 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // A note opens in the preview tab unless asked otherwise, in the
   // preferred mode; a new one opens in a tab of its own, in the editor.
   // A phone has no strip: the note takes the place of the one showing.
-  // Null is the home screen.
+  // Null is the home screen, which is a tab of its own.
   const navigate = useCallback(
-    (id: string | null, how: OpenHow = 'preview', opts: { mode?: prefs.OpenMode; hit?: { text: string | null; line: number | null } } = {}) => {
+    (id: string | null, how: OpenHow = 'preview', opts: { mode?: prefs.OpenMode; hit?: { text: string | null; line: number | null } } = {}): Tab | null => {
       setDrawer(false)
       if (!id) {
-        if (location.pathname !== '/') history.pushState({ tab: null }, '', '/')
-        setPage({ route: { kind: 'home' }, path: '/' })
-        setHit(null)
-        document.title = 'YANA/'
-        return
+        openPage('/')
+        return null
       }
-      const h: OpenHow = layoutNow.current === 'phone' ? 'here' : how
+      const lay = layoutNow.current
+      const h: OpenHow = lay === 'phone' ? 'here' : how === 'right' && lay !== 'desktop' ? 'tab' : how
       const tab = workspace.open(id, h, { mode: opts.mode ?? prefs.openMode(), title: titles.current.get(id) ?? '' })
-      if (h === 'background') return
+      if (h === 'background' || h === 'right') return tab
       if (opts.mode) workspace.setMode(tab.key, opts.mode)
       histMode.current = 'push'
-      setPage(null)
       const want = opts.hit
       setHit((prev) => (want ? { key: tab.key, text: want.text, line: want.line, seq: (prev?.seq ?? 0) + 1 } : null))
+      return tab
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   )
 
@@ -229,20 +268,19 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     [navigate],
   )
 
-  const openPage = useCallback((r: Route, path: string, title: string, push = true) => {
-    if (push && location.pathname + location.search !== path) history.pushState({ tab: null }, '', path)
-    setPage({ route: r, path })
+  // A page opens in its tab: the one of its kind, moved to this path,
+  // or a new one beside the active tab. A phone swaps it in.
+  function openPage(path: string, push = true): void {
+    workspace.open(path, layoutNow.current === 'phone' ? 'here' : 'tab', { mode: prefs.openMode() })
+    histMode.current = push ? 'push' : 'replace'
     setDrawer(false)
-    document.title = `${title} — YANA/`
-  }, [])
+    setHit(null)
+  }
 
-  const openLinks = useCallback((push = true) => openPage({ kind: 'links' }, '/links', 'Unresolved links', push), [openPage])
-  const openTrash = useCallback((push = true) => openPage({ kind: 'trash' }, '/trash', 'Trash', push), [openPage])
-  const openTags = useCallback((push = true) => openPage({ kind: 'tags' }, '/tags', 'Tags', push), [openPage])
-  const openTag = useCallback(
-    (tag: string, push = true) => openPage({ kind: 'tag', tag }, `/tags/${encodeURIComponent(tag)}`, `#${tag}`, push),
-    [openPage],
-  )
+  const openLinks = useCallback((push = true) => openPage('/links', push), [])
+  const openTrash = useCallback((push = true) => openPage('/trash', push), [])
+  const openTags = useCallback((push = true) => openPage('/tags', push), [])
+  const openTag = useCallback((tag: string, push = true) => openPage(`/tags/${encodeURIComponent(tag)}`, push), [])
   // The activity feed: every space by default, one space (or a folder in
   // it) from the tree's context menus and the filters on the page.
   const openActivity = useCallback(
@@ -251,9 +289,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       if (space) q.set('space', space)
       if (path) q.set('path', path)
       const qs = q.toString()
-      openPage({ kind: 'activity', space, path }, '/activity' + (qs ? '?' + qs : ''), 'What changed', push)
+      openPage('/activity' + (qs ? '?' + qs : ''), push)
     },
-    [openPage],
+    [],
   )
   // The tasks page: every space by default, one space (or a folder in
   // it) from a folder's context menu and the page's own filters.
@@ -263,50 +301,55 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       if (space) q.set('space', space)
       if (path) q.set('path', path)
       const qs = q.toString()
-      openPage({ kind: 'tasks', space, tag: '', path }, '/tasks' + (qs ? '?' + qs : ''), 'Tasks', push)
+      openPage('/tasks' + (qs ? '?' + qs : ''), push)
     },
-    [openPage],
+    [],
   )
   const openSettings = useCallback(
-    (section: Section | null = null, push = true) =>
-      openPage({ kind: 'settings', section }, section ? `/settings/${section}` : '/settings', 'Settings', push),
-    [openPage],
+    (section: Section | null = null, push = true) => openPage(section ? `/settings/${section}` : '/settings', push),
+    [],
   )
 
   // Back and forward: an entry made by a tab goes back to that tab, at
-  // the note it showed then; one whose tab is closed opens its note in
-  // the preview tab.
+  // the note or page it showed then; one whose tab is closed opens again
+  // (a note in the preview tab).
   useEffect(() => {
     const onPop = () => {
       const r = parseRoute()
       histMode.current = 'none'
       setHit(null)
-      if (r.kind !== 'note') {
-        setPage(r.kind === 'home' && workspace.pane().tabs.length === 0 ? null : { route: r, path: location.pathname + location.search })
-        return
-      }
+      setPhoneSearch(r.kind === 'search')
+      if (r.kind === 'search') return
+      if (r.kind === 'home' && workspace.pane().tabs.length === 0) return
+      const id = r.kind === 'note' ? r.id : location.pathname + location.search
       const key = (history.state as { tab?: string | null } | null)?.tab
       const at = key ? workspace.find(key) : null
-      const title = titles.current.get(r.id) ?? ''
-      if (at) workspace.retarget(at.tab.key, r.id, prefs.openMode(), title)
-      else workspace.open(r.id, layoutNow.current === 'phone' ? 'here' : 'preview', { mode: prefs.openMode(), title })
-      setPage(null)
+      const title = titles.current.get(id) ?? ''
+      if (at) workspace.retarget(at.tab.key, id, prefs.openMode(), title)
+      else workspace.open(id, layoutNow.current === 'phone' ? 'here' : r.kind === 'note' ? 'preview' : 'tab', { mode: prefs.openMode(), title })
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
-  // The address follows the active tab. Pages set their own on the way in.
+  // The address and the window title follow the focused pane's active tab.
+  const activePath = active ? (isPage(active.id) ? active.id : `/n/${active.id}`) : '/'
   useEffect(() => {
+    if (active && isPage(active.id)) document.title = `${pageLabel(routeOf(active.id)).title} — YANA/`
+    else if (!active) document.title = 'YANA/'
     const how = histMode.current
     histMode.current = 'replace'
-    if (page || how === 'none') return
-    const path = active ? `/n/${active.id}` : '/'
+    if (how === 'none' || phoneSearch) return
     const state = { tab: active?.key ?? null }
-    if (how === 'push' && location.pathname !== path) history.pushState(state, '', path)
-    else history.replaceState(state, '', path)
-    if (!active) document.title = 'YANA/'
-  }, [page, active?.key, active?.id])
+    if (how === 'push' && location.pathname + location.search !== activePath) history.pushState(state, '', activePath)
+    else history.replaceState(state, '', activePath)
+  }, [activePath, active?.key, phoneSearch])
+
+  // Below desktop width there is room for one pane: the right one's tabs
+  // join the left strip. Widening again does not split it back.
+  useEffect(() => {
+    if (layout !== 'desktop' && ws.panes.length > 1) workspace.merge()
+  }, [layout, ws.panes.length])
 
   // The drawer is a phone thing; a resize to desktop leaves it closed.
   useEffect(() => {
@@ -315,11 +358,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // The search page is the phone's; wider, the box is in the sidebar.
   useEffect(() => {
-    if (route.kind !== 'search' || layout === 'phone') return
-    history.replaceState({ tab: null }, '', '/')
-    setPage(null)
+    if (!phoneSearch || layout === 'phone') return
+    history.replaceState({ tab: active?.key ?? null }, '', activePath)
+    setPhoneSearch(false)
     window.setTimeout(() => searchInput.current?.focus(), 0)
-  }, [route.kind, layout])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phoneSearch, layout])
 
   // A session revoked from another device, or expired for good, puts
   // this one back at the sign-in screen on its next request.
@@ -436,7 +480,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // space this account lost — is greyed, and closes when it is picked.
   // Only a tree fresh from the server says so.
   const treeReady = spaces !== null && !staleTree && treeError === null
-  const gone = useCallback((id: string) => treeReady && !byId.has(id), [treeReady, byId])
+  const gone = useCallback((id: string) => !isPage(id) && treeReady && !byId.has(id), [treeReady, byId])
 
   // Tabs follow renames through the tree.
   useEffect(() => {
@@ -531,8 +575,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       const seed = `# ${title}\n\n`
       try {
         const res = await api.createNote(p, seed)
-        setFresh((f) => ({ id: res.id, seq: (f?.seq ?? 0) + 1 }))
-        navigate(res.id, 'tab', { mode: 'edit' })
+        const tab = navigate(res.id, 'tab', { mode: 'edit' })
+        if (tab) setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1 }))
         void loadTree()
       } catch (err) {
         if (cache.networkDown(err)) {
@@ -579,11 +623,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     const date = today()
     try {
       const res = await api.daily(dailySpace(), date)
-      if (res.created) {
-        setFresh((f) => ({ id: res.id, seq: (f?.seq ?? 0) + 1 }))
-        void loadTree()
-      }
-      navigate(res.id, 'tab', res.created ? { mode: 'edit' } : {})
+      if (res.created) void loadTree()
+      const tab = navigate(res.id, 'tab', res.created ? { mode: 'edit' } : {})
+      if (tab && res.created) setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1 }))
     } catch (err) {
       if (cache.networkDown(err)) {
         void outbox.enqueue({ kind: 'daily', space: dailySpace(), date })
@@ -753,8 +795,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   /** Open a note with its title selected: rename it from the tree. A
    * double-click keeps the preview tab the first click opened. */
   function openTitle(id: string): void {
-    setFresh((f) => ({ id, seq: (f?.seq ?? 0) + 1 }))
-    navigate(id, 'tab', { mode: 'edit' })
+    const tab = navigate(id, 'tab', { mode: 'edit' })
+    if (tab) setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1 }))
   }
 
   // Deleting shows the note's inbound links first: whoever points at it
@@ -959,6 +1001,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       items = [
         { id: 'open', label: 'Open', icon: 'book-open', run: () => navigate(ref.id) },
         ...(layout === 'phone' ? [] : [{ id: 'open-tab', label: 'Open in new tab', icon: 'layers' as const, run: () => navigate(ref.id, 'background') }]),
+        ...(layout === 'desktop' ? [{ id: 'open-right', label: 'Open to the right', icon: 'columns' as const, run: () => navigate(ref.id, 'right') }] : []),
         { id: 'pin', label: pinned ? 'Unpin' : 'Pin to the top', icon: pinned ? 'pin-off' : 'pin', run: () => pinNote(ref) },
         'sep',
         { id: 'move', label: 'Move to a folder', icon: 'move', run: () => moveNotePicker(ref) },
@@ -1013,7 +1056,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // in and out of the editor.
   const toggleSplit = useCallback(() => {
     const t = workspace.activeTab()
-    if (!t || pageNow.current) return
+    if (!t || isPage(t.id)) return
     const m = t.mode
     workspace.setMode(t.key, layout === 'phone' ? (m === 'edit' ? 'read' : 'edit') : m === 'split' ? 'edit' : 'split')
   }, [layout])
@@ -1031,9 +1074,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         say(`${at.tab.title || 'That note'} is no longer there. A deleted note waits in the trash.`)
         return
       }
-      histMode.current = pageNow.current ? 'push' : 'replace'
+      histMode.current = 'replace'
       workspace.activate(key)
-      setPage(null)
       setHit(null)
     },
     [gone, say],
@@ -1044,18 +1086,12 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     workspace.close(key)
   }, [])
 
-  /** Mod+W: the active tab closes; a pinned one stays. With a page up,
-   * the page goes and the tab under it shows again. False when there is
-   * nothing to close, so the browser does its own. */
+  /** Mod+W: the active tab closes; a pinned one stays. False when there
+   * is nothing to close, so the browser does its own. */
   function closeActiveTab(): boolean {
     if (layout === 'phone') return false
     const t = workspace.activeTab()
     if (!t) return false
-    if (page) {
-      histMode.current = 'push'
-      setPage(null)
-      return true
-    }
     if (t.pinned) {
       say('A pinned tab closes from its menu.')
       return true
@@ -1075,13 +1111,53 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   }
 
   function reopenTab(): void {
-    const t = workspace.reopen()
+    if (workspace.reopen()) histMode.current = 'push'
+  }
+
+  // --- panes -------------------------------------------------------------
+
+  /** Focuses a pane; the note actions follow it at once. */
+  function focusPane(i: number): void {
+    if (i === workspace.get().focus) return
+    current.current = paneNotes.current[i] ?? null
+    workspace.focusPane(i)
+  }
+
+  // Where the caret was in each pane, so a pane focused from the keyboard
+  // picks up where it was left: the editor, the title, a field.
+  const lastFocus = useRef<Array<HTMLElement | null>>([null, null])
+
+  /** Focuses a pane from the keyboard and puts the caret back. */
+  function focusPaneKeys(i: number): void {
+    if (ws.panes.length < 2) return
+    focusPane(i)
+    requestAnimationFrame(() => {
+      const el = lastFocus.current[i]
+      const pane = contentRef.current?.querySelectorAll<HTMLElement>(':scope > .pane')[i]
+      const editor = pane?.querySelector<HTMLElement>('.cm-content')
+      if (el?.isConnected && pane?.contains(el)) el.focus({ preventScroll: true })
+      else if (editor) editor.focus({ preventScroll: true })
+      // Reading: nothing to type into, and the other pane's caret must not keep the keys.
+      else if (document.activeElement instanceof HTMLElement && !pane?.contains(document.activeElement)) document.activeElement.blur()
+    })
+  }
+
+  /** Mod+\: the note to the right, or the right pane closed. The copy on
+   * the right opens in the other mode: read beside edit. */
+  function toggleSplitPane(): void {
+    if (layout !== 'desktop') return
+    if (ws.panes.length > 1) {
+      histMode.current = 'replace'
+      workspace.closePane(1)
+      return
+    }
+    const t = workspace.activeTab()
     if (!t) return
-    histMode.current = 'push'
-    setPage(null)
+    navigate(t.id, 'right', { mode: t.mode === 'read' ? 'edit' : 'read' })
   }
 
   function tabInfo(t: Tab): TabInfo {
+    if (isPage(t.id)) return { ...pageLabel(routeOf(t.id)), gone: false }
     const n = byId.get(t.id)
     return { title: n?.title ?? t.title, kind: n?.kind, public: n?.public, gone: gone(t.id) }
   }
@@ -1091,6 +1167,25 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     if (!where) return
     const tabs = workspace.pane(where.pane).tabs
     const idx = tabs.findIndex((x) => x.key === t.key)
+    const two = ws.panes.length > 1
+    const other = where.pane === 0 ? 1 : 0
+    const paneItems: Array<MenuItem | 'sep'> =
+      layout === 'desktop'
+        ? [
+            'sep',
+            { id: 'open-right', label: two ? 'Open in the other pane' : 'Open to the right', icon: 'columns', run: () => { focusPane(where.pane); navigate(t.id, 'right', { mode: t.mode }) } },
+            {
+              id: 'move-pane',
+              label: two ? 'Move to the other pane' : 'Move to the right',
+              icon: 'move',
+              disabled: !two && tabs.length < 2,
+              run: () => {
+                histMode.current = 'replace'
+                workspace.moveToPane(t.key, two ? other : 1)
+              },
+            },
+          ]
+        : []
     const items: Array<MenuItem | 'sep'> = [
       { id: 'close', label: 'Close', icon: 'x', detail: t.pinned ? undefined : label(keys.closeTabAlt), run: () => closeTab(t.key) },
       {
@@ -1114,6 +1209,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       'sep',
       ...(t.preview ? [{ id: 'keep', label: 'Keep open', icon: 'check' as const, run: () => workspace.keep(t.key) }] : []),
       { id: 'pin', label: t.pinned ? 'Unpin tab' : 'Pin tab', icon: t.pinned ? ('pin-off' as const) : ('pin' as const), run: () => workspace.togglePin(t.key) },
+      ...paneItems,
     ]
     const spec: MenuSpec = { anchor, items, label: 'tab actions', title: tabInfo(t).title || 'Untitled' }
     if (at) spec.at = at
@@ -1130,6 +1226,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       items: [
         { id: 'open', label: 'Open', icon: 'book-open', run: () => navigate(id) },
         { id: 'open-tab', label: 'Open in new tab', icon: 'layers', run: () => navigate(id, 'background') },
+        ...(layoutNow.current === 'desktop' ? [{ id: 'open-right', label: 'Open to the right', icon: 'columns' as const, run: () => navigate(id, 'right') }] : []),
       ],
     }
     if (title) spec.title = title
@@ -1161,7 +1258,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // own on a phone.
   function focusSearch(): void {
     if (layout === 'phone') {
-      openPage({ kind: 'search' }, '/search', 'Search')
+      if (location.pathname !== '/search') history.pushState({ tab: null }, '', '/search')
+      setPhoneSearch(true)
+      setDrawer(false)
       return
     }
     if (narrow) setDrawer(true)
@@ -1200,8 +1299,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // Exports are downloads the token has to travel with, so they run
   // through the API wrapper rather than a plain navigation.
-  function exportNote(): void {
-    const n = current.current
+  function exportNote(note?: Note): void {
+    const n = note ?? current.current
     if (!n) return
     api
       .exportNote(n.id)
@@ -1232,7 +1331,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ['Let an agent read and write notes', 'files, or MCP with a key', 'Agents'],
     ]
     const rows: Array<[string, string]> = [
-      ['New note', `${label(keys.newNote)} or ${label(keys.newNoteAlt)}`],
+      ['New note', label(keys.newNote)],
       ['Capture a line into today\'s note', label(keys.capture)],
       ["Today's note", label(keys.daily)],
       ['Open the tasks page', label(keys.tasks)],
@@ -1247,6 +1346,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ['Go to tab 1 to 8, or the last', `${isMac ? '⌥' : 'Alt+'}1 … ${isMac ? '⌥' : 'Alt+'}9, or ${isMac ? '⌘' : 'Ctrl+'}1 … 9`],
       ['Close the tab', `${label(keys.closeTab)} or ${label(keys.closeTabAlt)}`],
       ['Reopen the tab closed last', `${label(keys.reopenTab)} or ${label(keys.reopenTabAlt)}`],
+      ['Open the note to the right, or close the right pane', label(keys.splitPane)],
+      ['Open a note in the other pane', `${isMac ? '⌘⌥' : 'Ctrl+Alt+'}click`],
+      ['Move focus to the other pane', `${label(keys.paneSwap)}, or ${label(keys.paneLeft)} / ${label(keys.paneRight)}`],
       ['Keep a preview tab open', 'double-click it, or edit the note'],
       ['Name a new note, then write', 'Enter in the title'],
       ['Link to a note while writing', '[[ then a name'],
@@ -1293,12 +1395,17 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       }
     }
     const tab = layout === 'phone' ? null : workspace.activeTab()
-    if (tab && !page) {
+    if (tab) {
       if (tab.preview) items.push({ id: 'keep-tab', label: 'Keep this tab open', detail: 'the preview tab becomes a normal one', run: () => workspace.keep(tab.key) })
       items.push({ id: 'close-tab', label: 'Close this tab', hint: label(keys.closeTabAlt), run: () => closeTab(tab.key) })
       items.push({ id: 'pin-tab', label: tab.pinned ? 'Unpin this tab' : 'Pin this tab', detail: 'pinned tabs sit leftmost', run: () => workspace.togglePin(tab.key) })
     }
     if (layout !== 'phone') items.push({ id: 'reopen-tab', label: 'Reopen closed tab', hint: label(keys.reopenTabAlt), run: reopenTab })
+    if (layout === 'desktop' && ws.panes.length > 1) {
+      items.push({ id: 'close-pane', label: 'Close the right pane', detail: 'its tabs can be reopened', hint: label(keys.splitPane), run: toggleSplitPane })
+    } else if (layout === 'desktop' && tab) {
+      items.push({ id: 'split-pane', label: 'Open this note to the right', detail: 'a second pane beside this one', hint: label(keys.splitPane), run: toggleSplitPane })
+    }
     if (current.current) {
       const n = current.current
       const pinned = prefs.isPinned({ kind: 'note', id: n.id })
@@ -1387,9 +1494,11 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // --- hotkeys -----------------------------------------------------------
 
-  const actions = useRef({ openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage, closeActiveTab, stepTab, jumpTab, reopenTab })
-  actions.current = { openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage, closeActiveTab, stepTab, jumpTab, reopenTab }
+  const focusSide = focusPaneKeys
+  const actions = useRef({ openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage, closeActiveTab, stepTab, jumpTab, reopenTab, toggleSplitPane, focusSide })
+  actions.current = { openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage, closeActiveTab, stepTab, jumpTab, reopenTab, toggleSplitPane, focusSide }
   const tabKeys = layout !== 'phone'
+  const paneKeys = layout === 'desktop'
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
@@ -1402,12 +1511,16 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       const digit = tabKeys ? tabDigit(ev) : 0
       if (matches(ev, keys.palette)) a.openPalette()
       else if (matches(ev, keys.switcher)) a.openSwitcher()
-      else if (matches(ev, keys.newNote) || matches(ev, keys.newNoteAlt)) a.newNote()
+      else if (matches(ev, keys.newNote)) a.newNote()
       else if (matches(ev, keys.daily)) void a.openDaily()
       else if (matches(ev, keys.capture)) a.capturePrompt()
       else if (matches(ev, keys.tasks)) a.openTasksPage()
       else if (matches(ev, keys.search)) a.focusSearch()
       else if (matches(ev, keys.split)) a.toggleSplit()
+      else if (paneKeys && matches(ev, keys.splitPane)) a.toggleSplitPane()
+      else if (paneKeys && matches(ev, keys.paneLeft)) a.focusSide(0)
+      else if (paneKeys && matches(ev, keys.paneRight)) a.focusSide(1)
+      else if (paneKeys && matches(ev, keys.paneSwap)) a.focusSide(workspace.get().focus === 0 ? 1 : 0)
       else if (tabKeys && ev.ctrlKey && !ev.altKey && !ev.metaKey && ev.key === 'Tab') a.stepTab(ev.shiftKey ? -1 : 1)
       else if (tabKeys && matches(ev, keys.nextTabAlt)) a.stepTab(1)
       else if (tabKeys && matches(ev, keys.prevTabAlt)) a.stepTab(-1)
@@ -1424,24 +1537,245 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     // Capture phase, so the editor's own keymap does not see these first.
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
-  }, [palette, tabKeys])
+  }, [palette, tabKeys, paneKeys])
 
   // --- render ------------------------------------------------------------
 
-  const onNote = useCallback((n: Note | null) => {
-    current.current = n
-    if (!n) return
-    prefs.touchRecent(n.id)
-    workspace.setTitles(new Map([[n.id, n.title]]))
-  }, [])
-  // Typing in a preview tab keeps it.
-  const onEdited = useCallback(() => {
-    const t = workspace.activeTab()
-    if (t?.preview) workspace.keep(t.key)
-  }, [])
+  // A new note's title is asked for once: leaving its tab (or its pane)
+  // ends that, so coming back does not select the title again.
+  useEffect(() => {
+    if (fresh && active?.key !== fresh.key) setFresh(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.key, active?.id])
+
+  // --- panes: render ------------------------------------------------------
+
+  const contentRef = useRef<HTMLElement>(null)
+  const [dividerLive, setDividerLive] = useState<number | null>(null) // while dragging
+  const [edge, setEdge] = useState(false) // a tab is held over the right edge
+
+  // The divider drags between the panes, each at least 360px wide, and
+  // snaps to halves within 40px of the middle.
+  function dividerDown(ev: PointerEvent): void {
+    const el = contentRef.current
+    if (!el || ev.button !== 0) return
+    ev.preventDefault()
+    const bar = ev.currentTarget as HTMLElement
+    bar.setPointerCapture(ev.pointerId)
+    const rect = el.getBoundingClientRect()
+    let f = ws.divider
+    const move = (e: PointerEvent) => {
+      let x = Math.min(Math.max(e.clientX - rect.left, PANE_MIN), rect.width - PANE_MIN)
+      if (Math.abs(x - rect.width / 2) <= PANE_SNAP) x = rect.width / 2
+      f = x / rect.width
+      setDividerLive(f)
+    }
+    const up = () => {
+      bar.removeEventListener('pointermove', move)
+      bar.removeEventListener('pointerup', up)
+      bar.removeEventListener('pointercancel', up)
+      setDividerLive(null)
+      workspace.setDivider(f)
+    }
+    bar.addEventListener('pointermove', move)
+    bar.addEventListener('pointerup', up)
+    bar.addEventListener('pointercancel', up)
+  }
+
+  // Each pane reports its note; the focused one's is "this note".
+  const onNotes = useMemo(
+    () =>
+      [0, 1].map((i) => (n: Note | null) => {
+        paneNotes.current[i] = n
+        if (i === workspace.get().focus) current.current = n
+        if (!n) return
+        prefs.touchRecent(n.id)
+        workspace.setTitles(new Map([[n.id, n.title]]))
+      }),
+    [],
+  )
+  useEffect(() => {
+    current.current = paneNotes.current[ws.focus] ?? null
+  }, [ws.focus])
+
+  function paneView(i: number) {
+    const p = ws.panes[i] ?? { tabs: [], active: null }
+    const tab = tabIn(i)
+    const f = dividerLive ?? ws.divider
+    const style = split
+      ? i === 0
+        ? `flex: 0 0 clamp(${PANE_MIN}px, calc(${(f * 100).toFixed(3)}% - 3px), calc(100% - ${PANE_MIN + 6}px))`
+        : 'flex: 1 1 0'
+      : undefined
+    return (
+      <div
+        key={'pane' + i}
+        class={'pane' + (split && i === ws.focus ? ' pane-focused' : '')}
+        style={style}
+        onPointerDownCapture={() => focusPane(i)}
+        onFocusIn={(ev) => {
+          lastFocus.current[i] = ev.target as HTMLElement
+        }}
+      >
+        {layout !== 'phone' && p.tabs.length > 0 && (
+          <TabStrip
+            tabs={p.tabs}
+            active={tab?.key ?? null}
+            info={tabInfo}
+            onActivate={activateTab}
+            onClose={closeTab}
+            onKeep={(k) => workspace.keep(k)}
+            onMenu={tabMenu}
+            onMove={(k, at) => {
+              histMode.current = 'replace'
+              workspace.move(k, at, i)
+            }}
+            onDropNote={(id, title, at) => {
+              const t = workspace.open(id, 'background', { mode: prefs.openMode(), title }, i)
+              workspace.move(t.key, at, i)
+              activateTab(t.key)
+            }}
+          />
+        )}
+        {tab && (isPage(tab.id) ? renderPage(tab.id) : renderNote(tab, i))}
+        {!tab && homeView()}
+      </div>
+    )
+  }
+
+  function renderNote(tab: Tab, i: number) {
+    const mine = () => paneNotes.current[i] ?? undefined
+    return (
+      <NotePage
+        key={`${tab.key}:${tab.id}:${rev}:${hit?.key === tab.key ? hit.seq : 0}`}
+        id={tab.id}
+        layout={layout}
+        focused={i === ws.focus}
+        mode={tab.mode}
+        onMode={(m) => workspace.setMode(tab.key, m)}
+        live={live}
+        onEditing={setEditing}
+        onOpen={navigate}
+        onLinkMenu={layout === 'phone' ? undefined : linkMenu}
+        onEdited={() => {
+          // Typing in a preview tab keeps it.
+          if (workspace.find(tab.key)?.tab.preview) workspace.keep(tab.key)
+        }}
+        scroll={tab.scroll}
+        onScroll={(y) => workspace.setScroll(tab.key, y)}
+        onNote={onNotes[i] ?? onNotes[0]!}
+        onToast={say}
+        onMenu={setMenu}
+        fresh={fresh?.key === tab.key}
+        freshSeq={fresh?.seq ?? 0}
+        onDelete={() => deleteNotePrompt(mine())}
+        onRename={() => renamePrompt(mine())}
+        onMove={() => moveNotePicker(mine())}
+        hasDir={hasDir}
+        onExport={() => exportNote(mine())}
+        onShared={() => void loadTree()}
+        onMoved={onMoved}
+        onTag={openTag}
+        pinned={pinList.some((p) => p.kind === 'note' && p.id === tab.id)}
+        onPin={() => {
+          const n = mine()
+          if (n) pinNote(n)
+        }}
+        highlight={hit?.key === tab.key ? hit.text : null}
+        taskLine={hit?.key === tab.key ? hit.line : null}
+        lookup={completions}
+      />
+    )
+  }
+
+  function homeView() {
+    return (
+      <Home
+        notes={notes}
+        pins={pinList}
+        spaces={spaces ?? []}
+        loading={spaces === null}
+        openTasks={openTasks}
+        onOpen={navigate}
+        onNew={() => newNote()}
+        onCapture={capturePrompt}
+        onDaily={() => void openDaily()}
+        onTasks={() => openTasksPage()}
+        onGuide={() => openGuide()}
+        onActivity={() => openActivity()}
+        onInstall={net.canInstall ? () => void pwa.promptInstall() : null}
+      />
+    )
+  }
+
+  /** A page tab: everything that is not a note, by its path. */
+  function renderPage(path: string) {
+    const r = routeOf(path)
+    if (r.kind === 'home') return homeView()
+    return (
+      <>
+        {r.kind === 'links' && <LinksReport onOpen={navigate} />}
+        {r.kind === 'trash' && (
+          <TrashPage onOpen={navigate} onToast={(m) => say(m)} confirm={setConfirmSpec} onChanged={() => void loadTree()} />
+        )}
+        {r.kind === 'tags' && <TagsIndex onTag={openTag} />}
+        {r.kind === 'tag' && <TagPage tag={r.tag} onOpen={navigate} onAll={() => openTags()} />}
+        {r.kind === 'tasks' && (
+          <TasksPage
+            key={r.space + ':' + r.tag + ':' + r.path}
+            space={r.space}
+            tag={r.tag}
+            path={r.path}
+            spaces={spaceList}
+            notes={notes}
+            onOpen={openTask}
+            onNavigate={(space, tag, path) => {
+              const q = new URLSearchParams()
+              if (space) q.set('space', space)
+              if (tag) q.set('tag', tag)
+              if (path) q.set('path', path)
+              const qs = q.toString()
+              openPage('/tasks' + (qs ? '?' + qs : ''))
+            }}
+            onToast={say}
+          />
+        )}
+        {r.kind === 'activity' && (
+          <ActivityPage
+            key={r.space + ':' + r.path}
+            space={r.space}
+            path={r.path}
+            spaces={spaceList}
+            onOpen={navigate}
+            onNavigate={openActivity}
+          />
+        )}
+        {r.kind === 'share' && (
+          <SharePage notes={notes} dailySpace={dailySpace()} onOpen={navigate} onToast={(m) => say(m)} search={new URL(path, location.origin).search} />
+        )}
+        {r.kind === 'settings' && (
+          <SettingsPage
+            section={r.section}
+            layout={layout}
+            status={status}
+            spaces={spaceList}
+            notes={notes}
+            onSection={(s) => openSettings(s)}
+            onToast={(m) => say(m)}
+            confirm={setConfirmSpec}
+            onChanged={() => { void loadTree(); void loadSpaces() }}
+            onOpen={navigate}
+            onOpenTrash={() => openTrash()}
+            onSignOut={onSignOut}
+            onStatus={() => void loadStatus()}
+          />
+        )}
+      </>
+    )
+  }
+
   const searching = query.trim() !== ''
   const selected = route.kind === 'note' ? route.id : null
-  const currentPinned = route.kind === 'note' && pinList.some((p) => p.kind === 'note' && p.id === route.id)
 
   // While the phone keyboard is up the shell is sized to what is left
   // above it, so the formatting bar and the caret stay in view.
@@ -1636,131 +1970,52 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           )}
         </aside>
         {narrow && drawer && <div class="scrim" onClick={() => setDrawer(false)} />}
-        <main class="content">
-          {layout !== 'phone' && focused.tabs.length > 0 && (
-            <TabStrip
-              tabs={focused.tabs}
-              active={active?.key ?? null}
-              info={tabInfo}
-              onActivate={activateTab}
-              onClose={closeTab}
-              onKeep={(k) => workspace.keep(k)}
-              onMenu={tabMenu}
-              onMove={(k, i) => workspace.move(k, i)}
-              onDropNote={(id, title, i) => {
-                const t = workspace.open(id, 'background', { mode: prefs.openMode(), title })
-                workspace.move(t.key, i)
-                activateTab(t.key)
-              }}
+        <main
+          class={'content' + (split ? ' panes-split' : '')}
+          ref={contentRef}
+          onDragOver={(ev) => {
+            // A tab held near the right edge makes the second pane.
+            const el = contentRef.current
+            if (layout !== 'desktop' || ws.panes.length > 1 || !el || !ev.dataTransfer?.types.includes(TAB_DRAG)) return
+            const near = ev.clientX > el.getBoundingClientRect().right - 120
+            if (near !== edge) setEdge(near)
+            if (near) {
+              ev.preventDefault()
+              ev.dataTransfer.dropEffect = 'move'
+            }
+          }}
+          onDragLeave={(ev) => {
+            if (!(ev.currentTarget as HTMLElement).contains(ev.relatedTarget as Node | null)) setEdge(false)
+          }}
+          onDrop={(ev) => {
+            if (!edge) return
+            setEdge(false)
+            const raw = ev.dataTransfer?.getData(TAB_DRAG)
+            if (!raw) return
+            ev.preventDefault()
+            try {
+              const { key } = JSON.parse(raw) as { key: string }
+              histMode.current = 'replace'
+              workspace.moveToPane(key, 1)
+            } catch {
+              // not ours
+            }
+          }}
+        >
+          {paneView(0)}
+          {split && (
+            <div
+              class="pane-divider"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the panes"
+              title="Drag to resize; double-click for halves"
+              onPointerDown={dividerDown}
+              onDblClick={() => workspace.setDivider(0.5)}
             />
           )}
-          {active && (
-            <NotePage
-              key={`${active.key}:${active.id}:${rev}:${hit?.key === active.key ? hit.seq : 0}`}
-              id={active.id}
-              layout={layout}
-              mode={active.mode}
-              onMode={setMode}
-              live={live}
-              onEditing={setEditing}
-              onOpen={navigate}
-              onLinkMenu={layout === 'phone' ? undefined : linkMenu}
-              onEdited={onEdited}
-              scroll={active.scroll}
-              onScroll={(y) => workspace.setScroll(active.key, y)}
-              onNote={onNote}
-              onToast={say}
-              onMenu={setMenu}
-              fresh={fresh?.id === active.id}
-              freshSeq={fresh?.seq ?? 0}
-              onDelete={() => deleteNotePrompt()}
-              onRename={() => renamePrompt()}
-              onMove={() => moveNotePicker()}
-              hasDir={hasDir}
-              onExport={exportNote}
-              onShared={() => void loadTree()}
-              onMoved={onMoved}
-              onTag={openTag}
-              pinned={currentPinned}
-              onPin={() => { if (current.current) pinNote(current.current) }}
-              highlight={hit?.key === active.key ? hit.text : null}
-              taskLine={hit?.key === active.key ? hit.line : null}
-              lookup={completions}
-            />
-          )}
-          {route.kind === 'links' && <LinksReport onOpen={navigate} />}
-          {route.kind === 'trash' && (
-            <TrashPage onOpen={navigate} onToast={(m) => say(m)} confirm={setConfirmSpec} onChanged={() => void loadTree()} />
-          )}
-          {route.kind === 'tags' && <TagsIndex onTag={openTag} />}
-          {route.kind === 'tag' && <TagPage tag={route.tag} onOpen={navigate} onAll={() => openTags()} />}
-          {route.kind === 'tasks' && (
-            <TasksPage
-              key={route.space + ':' + route.tag + ':' + route.path}
-              space={route.space}
-              tag={route.tag}
-              path={route.path}
-              spaces={spaceList}
-              notes={notes}
-              onOpen={openTask}
-              onNavigate={(space, tag, path) => {
-                const q = new URLSearchParams()
-                if (space) q.set('space', space)
-                if (tag) q.set('tag', tag)
-                if (path) q.set('path', path)
-                const qs = q.toString()
-                openPage({ kind: 'tasks', space, tag, path }, '/tasks' + (qs ? '?' + qs : ''), 'Tasks')
-              }}
-              onToast={say}
-            />
-          )}
-          {route.kind === 'activity' && (
-            <ActivityPage
-              key={route.space + ':' + route.path}
-              space={route.space}
-              path={route.path}
-              spaces={spaceList}
-              onOpen={navigate}
-              onNavigate={openActivity}
-            />
-          )}
-          {route.kind === 'share' && (
-            <SharePage notes={notes} dailySpace={dailySpace()} onOpen={navigate} onToast={(m) => say(m)} />
-          )}
-          {route.kind === 'settings' && (
-            <SettingsPage
-              section={route.section}
-              layout={layout}
-              status={status}
-              spaces={spaceList}
-              notes={notes}
-              onSection={(s) => openSettings(s)}
-              onToast={(m) => say(m)}
-              confirm={setConfirmSpec}
-              onChanged={() => { void loadTree(); void loadSpaces() }}
-              onOpen={navigate}
-              onOpenTrash={() => openTrash()}
-              onSignOut={onSignOut}
-              onStatus={() => void loadStatus()}
-            />
-          )}
-          {route.kind === 'home' && (
-            <Home
-              notes={notes}
-              pins={pinList}
-              spaces={spaces ?? []}
-              loading={spaces === null}
-              openTasks={openTasks}
-              onOpen={navigate}
-              onNew={() => newNote()}
-              onCapture={capturePrompt}
-              onDaily={() => void openDaily()}
-              onTasks={() => openTasksPage()}
-              onGuide={() => openGuide()}
-              onActivity={() => openActivity()}
-              onInstall={net.canInstall ? () => void pwa.promptInstall() : null}
-            />
-          )}
+          {split && paneView(1)}
+          {edge && <div class="pane-drop-edge" aria-hidden="true" />}
         </main>
       </div>
       {layout === 'phone' && !editing && (

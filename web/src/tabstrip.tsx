@@ -22,6 +22,8 @@ export interface TabInfo {
   public?: boolean
   /** The note is not in the tree any more: deleted, or out of reach. */
   gone: boolean
+  /** A page tab's icon, always shown. */
+  icon?: IconName
 }
 
 export interface TabStripProps {
@@ -122,7 +124,7 @@ export function TabStrip({ tabs, active, info, onActivate, onClose, onKeep, onMe
       {tabs.map((t, i) => {
         const inf = info(t)
         const on = t.key === active
-        const icon: IconName | null = inf.kind === 'html' ? 'code' : inf.public ? 'globe' : t.pinned ? 'file' : null
+        const icon: IconName | null = inf.icon ?? (inf.kind === 'html' ? 'code' : inf.public ? 'globe' : t.pinned ? 'file' : null)
         const title = inf.title || 'Untitled'
         return (
           <div

@@ -4,6 +4,8 @@
 // on purpose since they cannot be intercepted. The tab keys use the
 // usual Mod+W and Mod+Shift+T, which a browser tab keeps for itself but
 // the installed app receives, so each has an Alt twin that always works.
+// Alt keys avoid the ones a Mac keyboard turns into accents (Option with
+// ` e i n u): the page cannot stop the accent landing in the editor.
 
 export const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
 
@@ -18,7 +20,6 @@ export const keys = {
   palette: { key: 'k', mod: true } as Hotkey,
   switcher: { key: 'p', mod: true } as Hotkey,
   newNote: { key: 't', alt: true } as Hotkey,
-  newNoteAlt: { key: 'n', alt: true } as Hotkey,
   daily: { key: 'd', alt: true } as Hotkey,
   capture: { key: 'c', alt: true } as Hotkey,
   tasks: { key: 'k', alt: true } as Hotkey,
@@ -30,6 +31,10 @@ export const keys = {
   reopenTabAlt: { key: 't', alt: true, shift: true } as Hotkey,
   nextTabAlt: { key: ']', alt: true } as Hotkey,
   prevTabAlt: { key: '[', alt: true } as Hotkey,
+  splitPane: { key: '\\', mod: true } as Hotkey,
+  paneLeft: { key: 'ArrowLeft', mod: true, alt: true } as Hotkey,
+  paneRight: { key: 'ArrowRight', mod: true, alt: true } as Hotkey,
+  paneSwap: { key: '\\', alt: true } as Hotkey,
 }
 
 /** The physical key, for the keys Alt or Shift change the character of. */

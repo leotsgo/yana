@@ -13,7 +13,7 @@ One component tree, three layouts, picked by width:
 |---|---|
 | under 720px | Phone. One pane, no tab strip. The sidebar is a drawer; a bar along the bottom has Notes, Search, Today and New. A note reads or edits, never both; while editing, a formatting bar replaces the bottom bar. |
 | 720 to 1023px | Tablet. The drawer stays; the top bar has room for New and Today. The tab strip sits above the note. Read, Edit and Split are all available. |
-| 1024px and up | Desktop. The sidebar is a column that collapses from the top-left button; the tab strip sits above the note; Split puts the editor beside the render. |
+| 1024px and up | Desktop. The sidebar is a column that collapses from the top-left button; the tab strip sits above the note; Split puts the editor beside the render; the content area splits into two panes. |
 
 The sidebar holds search (full text, or a regular expression with the `.*`
 switch when the server has ripgrep), the tree, and the links to the tag
@@ -80,9 +80,9 @@ and the bottom bar do the switching.
   where it lands. A middle-click closes a tab.
 - **The address.** The URL is always the active tab's note, so links,
   refresh and back and forward keep working; back and forward move
-  through the notes a tab showed. Tasks, tags, activity, settings and
-  the trash are pages, not tabs: they show in place of the active tab,
-  and picking a tab brings it back.
+  through the notes a tab showed. Tasks, tags, activity, settings, the
+  trash and home are tabs too, one of each: opening Tasks again, or
+  changing its filters, moves the Tasks tab rather than adding one.
 - **One editor.** Only the active tab's note is mounted and holds a
   realtime session; the others are records (note, mode, scroll position,
   preview, pinned). Switching remounts the note, reconnects its session,
@@ -92,6 +92,40 @@ and the bottom bar do the switching.
 - **Gone notes.** A tab whose note was deleted, moved to the trash or
   left in a space the account lost greys its title, and closes with a
   message when picked. A renamed note's tab follows the tree.
+
+## Split panes
+
+On a desktop (1024px and up) the content area splits into two panes
+side by side, each with its own tab strip. Open to the right, on a note's
+menu in the tree, a wikilink's right-click menu or a tab's menu, opens
+the note in a second pane; `Mod+Alt`-click on a tree row, a search hit or
+a wikilink does the same. There are two panes at most: with two, the
+note takes the place of the active tab in the pane that is not focused.
+
+- **Focus.** The focused pane has a line along the top of its strip. It
+  is the one the keys act on, the one a click in the tree opens into, and
+  the one the URL follows. A click anywhere in a pane focuses it;
+  `Alt+\` swaps focus to the other one, the caret back where it was,
+  and `Mod+Alt+Left` and `Mod+Alt+Right` pick a side.
+- **The divider** drags, keeps each pane at least 360px wide, snaps to
+  halves within 40px of the middle, and goes back to halves on a
+  double-click.
+- **Moving tabs.** A tab drags from one strip to the other. Dropping a
+  tab on the right edge of the content area when there is one pane makes
+  the second pane with it. Move to the other pane on the tab menu does it
+  from the keyboard.
+- **Closing.** Closing the last tab in a pane closes the pane, and the
+  other takes the full width. `Mod+\` opens the current note to the right
+  (in the other mode: read beside edit), or closes the right pane.
+- **The same note twice.** Both panes can show one note, read on one
+  side and edit on the other. They share one realtime session and one
+  document, so each sees the other's keystrokes as they land; closing
+  one leaves the other as it was. At most two note sessions are open,
+  one per pane; background tabs stay records.
+- **Narrow windows.** Below 1024px the right pane's tabs join the left
+  strip and the split closes; widening does not split it again. Tablets
+  and phones never split. The panes, which one is focused and the
+  divider position are kept per browser with the tabs.
 
 ## Settings
 
@@ -119,7 +153,7 @@ delete action; the toolbar shows a Viewer badge instead.
 
 ## New note
 
-New — the button, `Alt+T` (or `Alt+N`), the `+` on a space, "New note here" on a
+New — the button, `Alt+T`, the `+` on a space, "New note here" on a
 folder — never asks for a path. It creates `Untitled.md` (then
 `Untitled 2.md`, and so on) beside the open note, or at the top of the
 default space, opens it in the editor with the title selected, and
@@ -435,7 +469,7 @@ receives; each has an `Alt` twin that works everywhere.
 
 | Key | Does |
 |---|---|
-| `Alt+T` or `Alt+N` | New note, in a tab of its own: an untitled note with the title selected; Enter in the title moves to the body |
+| `Alt+T` | New note, in a tab of its own: an untitled note with the title selected; Enter in the title moves to the body |
 | `Alt+C` | Capture: one line onto the end of today's note, without opening it |
 | `Alt+D` | Today's daily note (created on first use) |
 | `Alt+K` | The tasks page |
@@ -449,6 +483,9 @@ receives; each has an `Alt` twin that works everywhere.
 | `Alt+1` … `Alt+9`, or `Mod+1` … `Mod+9` | That tab; 9 is the last one |
 | `Mod+W` or `Alt+W` | Close the active tab (a pinned one stays); with no tab open, the browser's own close |
 | `Mod+Shift+T` or `Alt+Shift+T` | Reopen the tab closed last |
+| `Mod+\` | Open the note to the right, or close the right pane (desktop) |
+| `Alt+\` | Move focus to the other pane, the caret back where it was |
+| `Mod+Alt+Left` / `Mod+Alt+Right` | Focus the left or right pane (the installed app; a browser tab keeps these for itself) |
 | `Mod+Z` / `Mod+Shift+Z` | Undo / redo (local edits only) |
 | `Mod+F` | Find in the open note |
 | `Esc` | Close whatever is open |

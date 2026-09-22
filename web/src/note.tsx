@@ -2,7 +2,8 @@
 // switches, overflow), the body in one of three modes, and the details
 // drawer (path and dates, backlinks, history). The realtime session
 // starts as soon as the id is known so the editor is typeable as early
-// as the relay answers.
+// as the relay answers. Two panes on the same note share one session
+// (sessions.ts), so each sees the other's keystrokes as they land.
 //
 // Read shows the rendered note; its task boxes write back through the
 // CRDT. Edit is the source editor, with a formatting bar above the
@@ -33,12 +34,15 @@ import { ShareLinkDialog } from './publiclink'
 import { renderRich } from './rich-load'
 import { wireAttachments } from './attach'
 import type { OpenMode } from './prefs'
+import * as sessions from './sessions'
 import { SyncClient, presence } from './sync'
-import type { PresenceState, PresenceUser, SyncStatus } from './sync'
+import type { PresenceState, PresenceUser, SyncEvents, SyncStatus } from './sync'
 
 export interface NotePageProps {
   id: string
   layout: Layout
+  /** This page is in the focused pane: its bare keys (E, Escape) are live. */
+  focused: boolean
   mode: OpenMode
   onMode: (m: OpenMode) => void
   /** Hide markdown syntax on the lines the caret is not on. */
@@ -87,7 +91,7 @@ export interface NotePageProps {
 }
 
 export function NotePage(props: NotePageProps) {
-  const { id, layout, mode, onMode, live, onEditing, onOpen, onLinkMenu, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, taskLine, lookup, scroll, onScroll } = props
+  const { id, layout, focused, mode, onMode, live, onEditing, onOpen, onLinkMenu, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, taskLine, lookup, scroll, onScroll } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -137,6 +141,7 @@ export function NotePage(props: NotePageProps) {
     setOthers([])
     setStatus('connecting')
     let client: SyncClient | null = null
+    let release = () => {}
     api
       .note(id)
       .then((n) => {
@@ -158,7 +163,7 @@ export function NotePage(props: NotePageProps) {
         // A viewer reads: no pencil, no formatting bar, no title edit.
         if (n.role === 'viewer') setReadOnly(true)
         if (n.kind !== 'md') return
-        client = new SyncClient(id, {
+        const events: SyncEvents = {
           onStatus(s) {
             if (!alive) return
             setStatus(s)
@@ -201,7 +206,18 @@ export function NotePage(props: NotePageProps) {
             }
             setOthers(out)
           },
-        })
+        }
+        const got = sessions.acquire(id, events)
+        client = got.client
+        release = () => sessions.release(id, events)
+        // A session another pane started is past the events that would
+        // have said where it is.
+        if (got.joined) {
+          setStatus(client.status)
+          if (client.status === 'synced') setSynced(true)
+          if (client.isLocalReady) setLocal(true)
+          events.onPresence?.()
+        }
         setSync(client)
       })
       .catch((err: unknown) => {
@@ -212,25 +228,25 @@ export function NotePage(props: NotePageProps) {
       alive = false
       onNote(null)
       setSync(null)
-      client?.destroy()
+      release()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   // Escape closes the details drawer when it is an overlay.
   useEffect(() => {
-    if (!details || layout === 'desktop') return
+    if (!details || layout === 'desktop' || !focused) return
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') setDetails(false)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [details, layout])
+  }, [details, layout, focused])
 
   // In the read view a bare `e` opens the editor; in the editor, Escape
   // goes back (the editor's own keymap handles it while it has focus).
   useEffect(() => {
-    if (note?.kind !== 'md') return
+    if (note?.kind !== 'md' || !focused) return
     const onKey = (ev: KeyboardEvent) => {
       if (isEditable(document.activeElement)) return
       if (shown === 'read' && ev.key === 'e' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
@@ -242,7 +258,7 @@ export function NotePage(props: NotePageProps) {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [shown, note?.kind, onMode, readOnly])
+  }, [shown, note?.kind, onMode, readOnly, focused])
 
   useEffect(() => {
     if (shown === 'edit') setHitShown(null)

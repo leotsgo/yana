@@ -28,10 +28,12 @@ export interface SharePageProps {
   dailySpace: string
   onOpen: (id: string) => void
   onToast: (msg: string) => void
+  /** The query the share arrived with (title, text, url). */
+  search: string
 }
 
-export function SharePage({ notes, dailySpace, onOpen, onToast }: SharePageProps) {
-  const params = new URLSearchParams(location.search)
+export function SharePage({ notes, dailySpace, onOpen, onToast, search }: SharePageProps) {
+  const params = new URLSearchParams(search)
   const [title, setTitle] = useState(params.get('title') ?? '')
   const [text, setText] = useState(params.get('text') ?? '')
   const [url, setUrl] = useState(params.get('url') ?? '')
