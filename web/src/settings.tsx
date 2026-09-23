@@ -662,6 +662,7 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
   const [busy, setBusy] = useState(false)
   const [defSpace, setDefSpace] = useState(prefs.defaultSpace)
   const [dailySpace, setDailySpace] = useState(prefs.dailySpace)
+  const [start, setStart] = useState(prefs.newNoteStart)
 
   const reload = useCallback(async () => {
     try {
@@ -761,10 +762,28 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
         </form>
         {msg && <p class="form-msg">{msg}</p>}
       </Block>
-      <Block title="Defaults" lead="Where new notes and the daily note go when no note is open. Kept in this browser.">
+      <Block title="Defaults" lead="Where new notes and the daily note go. Kept in this browser.">
+        <div class="pref-row">
+          <label class="pref-label" for="pref-start">
+            New notes start
+          </label>
+          <select
+            id="pref-start"
+            class="select"
+            value={start}
+            onChange={(ev) => {
+              const v = (ev.target as HTMLSelectElement).value === 'last' ? 'last' : 'beside'
+              prefs.setNewNoteStart(v)
+              setStart(v)
+            }}
+          >
+            <option value="beside">beside the open note, else the last folder</option>
+            <option value="last">always in the last folder</option>
+          </select>
+        </div>
         <div class="pref-row">
           <label class="pref-label" for="pref-space">
-            New notes
+            Space for new notes
           </label>
           <SpaceSelect
             id="pref-space"

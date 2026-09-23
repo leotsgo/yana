@@ -4,7 +4,9 @@
 // trailing slash makes an untitled note there), Tab completes the
 // highlighted folder into the input, Shift+Tab goes up a level. Folders
 // match fuzzily per segment, so `pe/da` then Tab lands on personal/Daily/.
-// A path that names a note that exists offers to open it instead.
+// A path that names a note that exists offers to open it instead. The
+// folders used lately on this device sit at the top until something is
+// typed, then match along with the rest.
 
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
@@ -36,6 +38,8 @@ interface Props {
   dirs: Array<{ path: string; depth: number }>
   spaces: string[]
   notes: PickerNote[]
+  /** Folders used lately on this device, newest first. */
+  recent: string[]
   /** A desktop: Alt+Enter has another pane to open in. */
   panes: boolean
   /** A touch screen: rows carry a button that completes into the folder. */
@@ -49,7 +53,7 @@ interface Props {
 type Row =
   | { kind: 'open'; id: string; label: string; detail: string }
   | { kind: 'note'; id: string; label: string; detail: string }
-  | { kind: 'folder'; path: string; label: string; detail?: string }
+  | { kind: 'folder'; path: string; label: string; recent?: boolean }
   | { kind: 'up'; path: string; label: string }
 
 /** What the typed path means: the folder the note lands in, the name, the
@@ -141,6 +145,17 @@ function children(dir: string, spaces: string[], dirs: Array<{ path: string }>):
   return dirs.filter((d) => dirOf(d.path) === dir && d.path !== dir).map((d) => d.path)
 }
 
+/** The heading above a row, where a group starts: the recent folders,
+ * and the folders after them. */
+function section(rows: Row[], i: number): string | null {
+  const row = rows[i]
+  const prev = rows[i - 1]
+  const isRecent = (r: Row | undefined) => r?.kind === 'folder' && r.recent === true
+  if (isRecent(row) && !isRecent(prev)) return 'Recent'
+  if (row?.kind === 'folder' && !row.recent && isRecent(prev)) return 'Folders'
+  return null
+}
+
 /** The file a name makes: `.md` unless it already names a note file. */
 export function noteFile(name: string): string {
   const clean = fileName(name)
@@ -175,7 +190,7 @@ export function freeName(notes: Array<{ path: string }>, dir: string, name: stri
   return `${stem} ${i}${ext}`
 }
 
-export function NewNotePicker({ spec, dirs, spaces, notes, panes, touch, onCreate, onOpen, onClose }: Props) {
+export function NewNotePicker({ spec, dirs, spaces, notes, recent, panes, touch, onCreate, onOpen, onClose }: Props) {
   const [text, setText] = useState(spec.initial)
   const [cursor, setCursor] = useState(0)
   // A message for the path it was said about; typing moves past it.
@@ -211,8 +226,15 @@ export function NewNotePicker({ spec, dirs, spaces, notes, panes, touch, onCreat
       for (const { n } of near.slice(0, exists ? 4 : 3)) out.push({ kind: 'note', id: n.id, label: n.title || baseOf(n.path), detail: n.path })
     }
     if (touch && browse) out.push({ kind: 'up', path: dirOf(browse), label: dirOf(browse) ? `Up to ${dirOf(browse)}/` : 'Up to the spaces' })
-    // The folders under what is typed, narrowed by the name part.
     const listed = new Set<string>()
+    // Untouched, the recent folders come first; typed, the ones that fit
+    // lead the folders from elsewhere.
+    const known = new Set(dirs.map((d) => d.path))
+    const recents = recent.filter((p) => known.has(p))
+    if (text === spec.initial) {
+      for (const p of recents) out.push({ kind: 'folder', path: p, label: p + '/', recent: true })
+    }
+    // The folders under what is typed, narrowed by the name part.
     if (browse !== null) {
       const kids = children(browse, spaces, dirs)
       let picked = kids
@@ -230,21 +252,27 @@ export function NewNotePicker({ spec, dirs, spaces, notes, panes, touch, onCreat
     }
     // Folders elsewhere that fit the name, by their whole path.
     if (name) {
-      const far = dirs
-        .filter((d) => d.path !== '' && d.path !== browse && !listed.has(d.path))
-        .map((d) => ({ d, m: fuzzy(name, d.path) }))
-        .filter((x) => x.m)
-        .sort((a, b) => (b.m?.score ?? 0) - (a.m?.score ?? 0))
-      for (const { d } of far.slice(0, 12)) out.push({ kind: 'folder', path: d.path, label: d.path + '/' })
+      const ranked = (paths: string[]) =>
+        paths
+          .filter((p) => p !== '' && p !== browse && !listed.has(p))
+          .map((p) => ({ p, m: fuzzy(name, p) }))
+          .filter((x) => x.m)
+          .sort((a, b) => (b.m?.score ?? 0) - (a.m?.score ?? 0))
+          .map((x) => x.p)
+      for (const p of ranked(recents).slice(0, 4)) {
+        listed.add(p)
+        out.push({ kind: 'folder', path: p, label: p + '/', recent: true })
+      }
+      for (const p of ranked(dirs.map((d) => d.path)).slice(0, 12)) out.push({ kind: 'folder', path: p, label: p + '/' })
     }
     return out
-  }, [parsed, exists, notes, dirs, spaces, touch])
+  }, [parsed, exists, notes, dirs, spaces, touch, recent, text, spec.initial])
 
   // The highlight starts on the first real row, not on the way up;
   // with only the way up there is none.
   useEffect(() => setCursor(rows.findIndex((r) => r.kind !== 'up')), [text])
   useEffect(() => {
-    const el = list.current?.children[cursor] as HTMLElement | undefined
+    const el = list.current?.querySelector<HTMLElement>(`[data-i="${cursor}"]`)
     el?.scrollIntoView({ block: 'nearest' })
   }, [cursor])
 
@@ -386,9 +414,15 @@ export function NewNotePicker({ spec, dirs, spaces, notes, panes, touch, onCreat
         </div>
         {rows.length > 0 && (
           <ul class="palette-list" ref={list} role="listbox">
-            {rows.map((row, i) => (
+            {rows.map((row, i) => [
+              section(rows, i) && (
+                <li key={'head' + i} class="palette-head" role="presentation">
+                  {section(rows, i)}
+                </li>
+              ),
               <li
-                key={row.kind + (row.kind === 'open' || row.kind === 'note' ? row.id : row.path)}
+                key={row.kind + (row.kind === 'folder' && row.recent ? ':recent:' : '') + (row.kind === 'open' || row.kind === 'note' ? row.id : row.path)}
+                data-i={i}
                 class={'palette-row' + (i === cursor ? ' active' : '') + (row.kind === 'open' ? ' newnote-open' : '')}
                 role="option"
                 aria-selected={i === cursor}
@@ -412,8 +446,8 @@ export function NewNotePicker({ spec, dirs, spaces, notes, panes, touch, onCreat
                 )}
                 {row.kind === 'folder' && !touch && i === cursor && <kbd class="palette-key">Tab</kbd>}
                 {row.kind === 'open' && !touch && <kbd class="palette-key">Enter</kbd>}
-              </li>
-            ))}
+              </li>,
+            ])}
           </ul>
         )}
         {!touch && (

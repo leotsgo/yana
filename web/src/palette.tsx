@@ -22,6 +22,8 @@ export interface PaletteItem {
   depth?: number
   /** Path mode: the row is where the thing already is; picking it does nothing. */
   here?: boolean
+  /** A heading shown above the row when it starts a group. */
+  section?: string
   run: () => void
 }
 
@@ -155,7 +157,7 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
   }, [query, rows, pathMode])
 
   useEffect(() => {
-    const el = list.current?.children[cursor] as HTMLElement | undefined
+    const el = list.current?.querySelector<HTMLElement>(`[data-i="${cursor}"]`)
     el?.scrollIntoView({ block: 'nearest' })
   }, [cursor])
 
@@ -216,9 +218,15 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
         ) : (
           <ul class="palette-list" ref={list} role="listbox">
             {rows.length === 0 && <li class="palette-empty">Nothing matches.</li>}
-            {rows.map((row, i) => (
+            {rows.map((row, i) => [
+              row.section && row.section !== rows[i - 1]?.section && (
+                <li key={'head:' + row.section} class="palette-head" role="presentation">
+                  {row.section}
+                </li>
+              ),
               <li
                 key={row.id}
+                data-i={i}
                 class={'palette-row' + (i === cursor ? ' active' : '') + (row.here ? ' here' : '')}
                 role="option"
                 aria-selected={i === cursor}
@@ -230,8 +238,8 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
                 <span class="palette-label">{row.label}</span>
                 {row.detail && <span class="palette-detail">{row.detail}</span>}
                 {row.here ? <span class="palette-here">here</span> : row.hint && <kbd class="palette-key">{row.hint}</kbd>}
-              </li>
-            ))}
+              </li>,
+            ])}
           </ul>
         )}
         {spec.mode === 'list' && spec.hint && <p class="palette-hint">{spec.hint}</p>}

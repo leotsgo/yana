@@ -925,6 +925,7 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .palette-folder { flex: none; color: var(--ink-3); }
 .palette-row.here .palette-folder, .palette-row.here .palette-label { color: var(--accent-ink); }
 .palette-here { margin-left: auto; font: 11px var(--mono); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 3px; padding: 0 5px; }
+.palette-head { padding: 8px 12px 4px; font: 600 10.5px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
 .palette-list + .palette-hint { padding-top: 6px; border-top: 1px solid var(--line); }
 
 /* The new-note picker: a line saying what Enter does, then the folders. */

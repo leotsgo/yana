@@ -139,7 +139,8 @@ one section at a time on a phone:
 - **People** (owner only) — the accounts: add, remove, reset a password.
 - **Spaces and sharing** — create, rename and remove spaces; each space's
   members and roles for its owners, your own role otherwise; the space
-  new notes and the daily note go into.
+  new notes and the daily note go into, and where the new-note picker
+  starts.
 - **Agents** (owner only) — keys for the MCP endpoint, with the URL and
   a copy button. See [agents.md](agents.md).
 - **Appearance** — the preferences above.
@@ -198,6 +199,18 @@ note. The keys are on a line at the bottom of the picker. On a phone the
 picker has no Tab key to lean on: tapping a folder goes into it, an "Up
 to" row goes back, and Enter on the keyboard or the Create button makes
 the note.
+
+The picker remembers places on each device. The last eight folders a
+note was made in or opened from (`yana.folders.recent` in
+`localStorage`, newest first, each once) sit at the top under "Recent"
+while the input is untouched, with the tree below; typing matches both.
+A recent folder that is renamed or moved follows it, one that is deleted
+drops out. With no note open — the home screen, a page tab, an empty
+pane — the picker starts in the folder a note was last made in
+(`yana.folders.last`) rather than the top of the default space. Settings
+→ Spaces → "New notes start" picks between "beside the open note, else
+the last folder" (the default) and "always in the last folder". The Move
+picker shows the same recent folders at the top.
 
 The title is also where the note goes. A slash in it places the note:
 `projects/kiln` moves it into `projects/` beside where it was (the folder

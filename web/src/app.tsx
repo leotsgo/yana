@@ -612,6 +612,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       const seed = /\.html?$/i.test(p) ? `<h1>${escapeHTML(title)}</h1>\n` : `# ${title}\n\n`
       try {
         const res = await api.createNote(p, seed)
+        prefs.touchFolder(dirOf(p))
+        prefs.setLastFolder(dirOf(p))
         const tab = navigate(res.id, how, { mode: 'edit' })
         if (tab && how === 'right') {
           const at = workspace.find(tab.key)
@@ -650,10 +652,23 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     void createNote(d ? `${d}/${name}` : name, true, how)
   }
 
+  /** Where the new-note picker starts: beside the open note, else the
+   * folder a note was last made in on this device, else the top of the
+   * default space. The setting can put the last folder first. */
+  function pickerStart(): string {
+    // A last folder since deleted gives way to the newest recent one.
+    const known = (p: string) => p !== '' && dirs.some((d) => d.path === p)
+    const last = [prefs.lastFolder(), ...prefs.recentFolders()].find(known) ?? ''
+    const lastOk = last !== ''
+    if (lastOk && prefs.newNoteStart() === 'last') return last
+    if (current.current) return dirOf(current.current.path)
+    return lastOk ? last : defaultSpace()
+  }
+
   /** New, from a key, a button or the palette: the picker, starting in
    * the folder the note would land in. */
   function openNewNote(): void {
-    const dir = defaultDir()
+    const dir = pickerStart()
     setPalette(null)
     setDrawer(false)
     setPicker({ initial: dir ? dir + '/' : '', space: dir.split('/')[0] ?? '' })
@@ -800,6 +815,16 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         here: d.path === here,
         run: () => pick(d.path),
       }))
+    // The folders used lately on this device lead, under their own heading.
+    const known = new Set(items.map((it) => it.path))
+    const recent: PaletteItem[] = prefs
+      .recentFolders()
+      .filter((p) => known.has(p) && p !== here && !exclude(p))
+      .map((p) => ({ id: 'recent:' + p, label: p + '/', path: p, section: 'Recent', run: () => pick(p) }))
+    if (recent.length) {
+      for (const it of items) it.section = 'Folders'
+      items.unshift(...recent)
+    }
     const spaceNames = new Set((spaces ?? []).map((sp) => sp.name))
     const space = here.split('/')[0] ?? ''
     // Typed from the root, unless the first part is not a space: then it
@@ -2112,10 +2137,15 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           dirs={dirs}
           spaces={(spaces ?? []).map((sp) => sp.name)}
           notes={notes}
+          recent={prefs.recentFolders()}
           panes={layout === 'desktop'}
           touch={coarsePointer || layout === 'phone'}
           onCreate={pickerCreate}
-          onOpen={(id, how) => navigate(id, how === 'right' ? 'right' : how === 'background' ? 'background' : 'tab')}
+          onOpen={(id, how) => {
+            const n = notes.find((x) => x.id === id)
+            if (n) prefs.touchFolder(dirOf(n.path))
+            navigate(id, how)
+          }}
           onClose={() => setPicker(null)}
         />
       )}
