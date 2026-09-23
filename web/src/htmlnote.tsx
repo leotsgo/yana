@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 
 import { api, ApiError } from './api'
 import type { Note } from './api'
+import { markLocalConflict } from './conflict'
 import { Icon } from './icons'
 
 export interface HtmlNoteProps {
@@ -83,6 +84,7 @@ export function HtmlNote({ note, onOpen, onToast, onMore, details, onToggleDetai
         setDirty(false)
         setSaving(false)
         if (res.conflict_copy) {
+          markLocalConflict(res.conflict_copy)
           setNotice(`Saved. The version that was on disk moved to ${res.conflict_copy}.`)
         } else {
           setNotice(null)

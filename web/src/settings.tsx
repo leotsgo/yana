@@ -10,9 +10,10 @@ import type { ComponentChildren } from 'preact'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 
 import { api, ApiError, saveBlob } from './api'
-import type { Account, AgentKey, DeletedNote, GitRemote, GitRemoteInput, OrphanAsset, PublicLinkRow, RestorePreview, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
+import type { Account, AgentKey, ConflictEntry, DeletedNote, GitRemote, GitRemoteInput, OrphanAsset, PublicLinkRow, RestorePreview, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
 import * as auth from './auth'
 import type { ConfirmSpec } from './confirm'
+import { ConflictDialog, fmtAge } from './conflict'
 import { fmtBytes, fmtDate, isSet } from './dom'
 import { Icon } from './icons'
 import type { IconName } from './icons'
@@ -2009,6 +2010,73 @@ function DeletedNotesBlock({ ctx }: { ctx: Ctx }) {
   )
 }
 
+/** Conflict copies: every one in the caller's spaces, with its age and
+ * size, and the resolve dialog a click away. A copy whose original is
+ * gone opens as the plain note it is. */
+function ConflictsBlock({ ctx }: { ctx: Ctx }) {
+  const { say, onChanged } = ctx
+  const [rows, setRows] = useState<ConflictEntry[] | null>(null)
+  const [resolving, setResolving] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    api
+      .conflicts()
+      .then((r) => setRows(r.conflicts))
+      .catch((err: unknown) => {
+        setRows([])
+        say(msgOf(err, 'Could not list the conflicts.'))
+      })
+  }, [say])
+  useEffect(load, [load])
+
+  return (
+    <Block title="Conflicts" lead="Copies parked beside a note when two writes met the same path: a restore over a newer note, or a save over a file that changed underneath it.">
+      {rows === null ? (
+        <p class="muted">Loading…</p>
+      ) : rows.length === 0 ? (
+        <p class="muted">No conflicts waiting.</p>
+      ) : (
+        <ul class="settings-list">
+          {rows.map((c) => (
+            <li key={c.note.id} class="settings-row">
+              <Icon name="alert" class="settings-row-icon conflict-row-icon" />
+              <div class="settings-row-main">
+                <span class="settings-row-title">{c.note.title || c.note.path}</span>
+                <span class="settings-row-sub mono">
+                  {c.note.path} · {fmtAge(c.note.mtime)} · {fmtBytes(c.note.size)}
+                  {c.of ? ` · beside ${c.of.title || c.of.path}` : ' · its original is gone'}
+                </span>
+              </div>
+              {c.of ? (
+                <button type="button" class="btn small" onClick={() => setResolving(c.of?.id ?? null)}>
+                  <Icon name="check" />
+                  Resolve
+                </button>
+              ) : (
+                <button type="button" class="btn small" onClick={() => ctx.onOpen(c.note.id)}>
+                  <Icon name="book-open" />
+                  Open
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {resolving && (
+        <ConflictDialog
+          noteId={resolving}
+          onClose={() => setResolving(null)}
+          onToast={say}
+          onResolved={() => {
+            load()
+            onChanged()
+          }}
+        />
+      )}
+    </Block>
+  )
+}
+
 function DataSection({ ctx }: { ctx: Ctx }) {
   const { user, status, spaces, notes, say, confirm, onChanged, onOpenTrash, onStatus } = ctx
   const recent = useMemo(() => {
@@ -2090,6 +2158,7 @@ function DataSection({ ctx }: { ctx: Ctx }) {
         </div>
       </Block>
       <PublicLinksBlock ctx={ctx} />
+      <ConflictsBlock ctx={ctx} />
       <OrphanAssetsBlock ctx={ctx} />
       <Block title="Trash" lead={`Deleted notes stay recoverable for ${status?.trash?.retention_days ?? 30} days, then go for good. Emptying the trash is the only permanent deletion.`}>
         <div class="form-actions start">

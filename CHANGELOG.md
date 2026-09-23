@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Conflict copies, surfaced and resolved. The scanner marks notes whose
+  file names say `*.conflict-<ts>.(md|html)` with a `conflict_of`
+  column pointing at the surviving note while it exists (migration
+  `012_conflicts.sql`; derived data, recomputed every pass). The
+  survivor's title bar carries a "1 conflict" chip; the tree nests the
+  copy under its note with a mark instead of interleaving it among the
+  siblings; the Data page lists every conflict in the caller's spaces
+  with its age and size; a copy whose original is gone is a plain note
+  with a line under its title saying so. The chip opens a diff of the
+  two bodies — the same unified view the history panel shows — with
+  three ways out: Keep mine moves the copy to the trash (never deletes),
+  Keep theirs writes the copy's text into the note as an edit that open
+  clients converge on, and Keep both renames the copy to
+  `name (older).ext`. Each resolution is one git commit under the
+  caller. The home screen counts waiting conflicts, and a toast says
+  when a copy appears for a note the user has open.
+
 - Attachments beyond images: PDFs, spreadsheets, documents — any file —
   upload through the same drag, drop, paste and Attach button (renamed
   from Image, its picker widened) as a picture, landing as a plain link

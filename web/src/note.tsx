@@ -24,6 +24,7 @@ import type { Completions } from './editor'
 import { isEditable } from './hotkeys'
 import { HtmlNote } from './htmlnote'
 import { Icon } from './icons'
+import { ConflictDialog, isConflictName } from './conflict'
 import { coarsePointer } from './layout'
 import type { Layout } from './layout'
 import type { MenuSpec } from './menu'
@@ -103,6 +104,7 @@ export function NotePage(props: NotePageProps) {
   const [notice, setNotice] = useState<string | null>(null)
   const [details, setDetails] = useState(false)
   const [share, setShare] = useState(false)
+  const [conflictDlg, setConflictDlg] = useState(false)
   const [view, setView] = useState<EditorView | null>(null)
   // A fresh note starts in the title; Enter there hands focus to the editor.
   // A double-click in the tree asks for the title again on an open note.
@@ -393,7 +395,29 @@ export function NotePage(props: NotePageProps) {
       onTag={onTag}
       onLocation={onMove}
       onShare={() => setShare(true)}
+      onConflicts={() => setConflictDlg(true)}
       hasDir={hasDir}
+    />
+  )
+  const conflictDialog = conflictDlg && (
+    <ConflictDialog
+      noteId={note.id}
+      onClose={() => setConflictDlg(false)}
+      onToast={onToast}
+      onResolved={() => {
+        // Markdown bodies arrive live through the session; the payload
+        // refetch covers the rest (an HTML body, the chip count).
+        api
+          .note(note.id)
+          .then((n) => {
+            setNote(n)
+            onNote(n)
+          })
+          .catch(() => {
+            // The tree reload below still lands the shape of it.
+          })
+        onShared()
+      }}
     />
   )
   const shareDialog = share && (
@@ -428,6 +452,7 @@ export function NotePage(props: NotePageProps) {
           {detailsPane}
         </div>
         {shareDialog}
+        {conflictDialog}
       </article>
     )
   }
@@ -544,6 +569,7 @@ export function NotePage(props: NotePageProps) {
       </div>
       {phone && shown === 'edit' && !readOnly && <FormatBar view={view} note={note} onToast={onToast} />}
       {shareDialog}
+      {conflictDialog}
     </article>
   )
 }
@@ -604,10 +630,12 @@ interface NoteHeaderProps {
   onLocation: () => void
   /** The globe beside the crumbs, while a public link is live. */
   onShare: () => void
+  /** Open the dialog that resolves this note's conflict copies. */
+  onConflicts: () => void
   hasDir: (path: string) => boolean
 }
 
-function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLocation, onShare, hasDir }: NoteHeaderProps) {
+function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLocation, onShare, onConflicts, hasDir }: NoteHeaderProps) {
   const el = useRef<HTMLHeadingElement>(null)
   const dir = dirOf(note.path)
   // What the title says while it is being typed; a slash in it places
@@ -661,6 +689,17 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLoca
           <button type="button" class="public-mark" title="A public link to this note is live" onClick={onShare}>
             <Icon name="globe" size={13} />
             Public
+          </button>
+        )}
+        {(note.conflict_count ?? 0) > 0 && (
+          <button
+            type="button"
+            class="conflict-chip"
+            title="Resolve the conflict copies parked beside this note"
+            onClick={onConflicts}
+          >
+            <Icon name="alert" size={13} />
+            {note.conflict_count} {note.conflict_count === 1 ? 'conflict' : 'conflicts'}
           </button>
         )}
       </nav>
@@ -717,6 +756,12 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLoca
               Stays in <b>{dir || '/'}</b> as <b>{target.title || 'Untitled'}</b>
             </>
           )}
+        </p>
+      )}
+      {isConflictName(note.path) && !note.conflict_of && (
+        <p class="title-hint conflict-hint">
+          <Icon name="alert" size={13} />
+          A conflict copy. The note it came from is gone, so it is a plain note now.
         </p>
       )}
       {note.tags.length > 0 && (

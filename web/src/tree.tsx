@@ -248,13 +248,13 @@ export function Tree(props: TreeProps) {
     )
   }
 
-  function noteRow(n: TreeNode) {
+  function noteRow(n: TreeNode, depth = 0) {
     const id = n.id ?? ''
     const target: TreeTarget = { kind: 'note', node: n }
-    return (
+    const row = (
       <a
         key={n.path}
-        class={'tree-note' + (id === selected ? ' selected' : '') + (dropOn === dirOf(n.path) ? ' drop' : '')}
+        class={'tree-note' + (id === selected ? ' selected' : '') + (n.conflict ? ' conflict' : '') + (dropOn === dirOf(n.path) ? ' drop' : '')}
         href={`/n/${id}`}
         title={n.path}
         draggable={!coarsePointer}
@@ -282,12 +282,26 @@ export function Tree(props: TreeProps) {
         {...dragProps(dirOf(n.path))}
         {...contextProps(target)}
       >
+        {n.conflict && <Icon name="alert" class="tree-conflict-mark" size={12} />}
         <span class="tree-title">{n.title || n.name}</span>
         {n.public && <Icon name="globe" class="tree-public" size={12} />}
         {n.kind === 'html' && <span class="tree-kind">html</span>}
         {moreButton(target, `Actions for ${n.title || n.name}`)}
       </a>
     )
+    // A note carrying conflict copies nests them under itself instead
+    // of letting them read as siblings of their survivor.
+    if (!n.conflict && (n.children?.length ?? 0) > 0) {
+      return (
+        <div key={n.path} class="tree-notewrap">
+          {row}
+          <div class="tree-conflicts" aria-label="conflict copies">
+            {(n.children ?? []).map((c) => noteRow(c, depth + 1))}
+          </div>
+        </div>
+      )
+    }
+    return row
   }
 
   function dirRow(n: TreeNode, depth: number) {
@@ -373,7 +387,7 @@ export function Tree(props: TreeProps) {
   }
 
   function render(n: TreeNode, depth: number) {
-    return n.type === 'dir' ? dirRow(n, depth) : noteRow(n)
+    return n.type === 'dir' ? dirRow(n, depth) : noteRow(n, depth)
   }
 
   if (spaces.length === 0) {
@@ -542,6 +556,10 @@ export interface FlatNote {
   tags: string[]
   kind?: 'md' | 'html'
   public?: boolean
+  /** The note's file name says it is a conflict copy. */
+  conflict?: boolean
+  /** The note this copy belongs to, when it still exists. */
+  conflictOf?: string
 }
 
 /** Every note in the tree, flat, for the quick switcher. */
@@ -549,7 +567,17 @@ export function flatten(spaces: SpaceTree[]): FlatNote[] {
   const out: FlatNote[] = []
   const walk = (n: TreeNode) => {
     if (n.type === 'note' && n.id) {
-      out.push({ id: n.id, path: n.path, title: n.title || baseOf(n.path), name: n.name, tags: n.tags ?? [], kind: n.kind, public: n.public })
+      out.push({
+        id: n.id,
+        path: n.path,
+        title: n.title || baseOf(n.path),
+        name: n.name,
+        tags: n.tags ?? [],
+        kind: n.kind,
+        public: n.public,
+        conflict: n.conflict || /\.conflict-\d{8}[-T]\d{6}/.test(n.path),
+        conflictOf: n.conflict_of,
+      })
     }
     for (const c of n.children ?? []) walk(c)
   }

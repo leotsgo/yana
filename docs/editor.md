@@ -321,6 +321,33 @@ caret onto a line and its marks come back. Block marks (list bullets,
 quotes, fences) and wikilinks are always shown. It is in the account
 menu as "Hide syntax while editing".
 
+## Conflicts
+
+Two writes can meet the same path: a restore onto a path a newer note
+holds, or an HTML save onto a file that changed underneath it. Neither
+overwrites anything — the older write is parked beside the winner as
+`name.conflict-<timestamp>.ext` — and the app shows those copies
+instead of leaving them to pile up unseen:
+
+- The note that survived carries a chip on its title bar: "1 conflict".
+- In the sidebar tree the copy sits indented under its note, marked,
+  rather than interleaved among the siblings.
+- The Data page in settings lists every conflict in your spaces with
+  its age and size.
+- A copy whose original is gone is a plain note with a line under its
+  title saying so.
+
+The chip opens the resolution: a diff of the two bodies — the same
+unified view the history panel shows — and three ways out. Keep mine
+moves the copy to the trash, never deletes it. Keep theirs writes the
+copy's text into the note as an edit, so open clients converge on it,
+and moves the copy to the trash. Keep both renames the copy to
+`name (older).ext`, an ordinary note. Each resolution is one commit in
+the history under your name.
+
+While any conflict exists, the home screen says how many. When a copy
+appears for a note you have open, a toast says so.
+
 ## Editing
 
 Each note's text is a Yjs document bound to the editor through
@@ -532,12 +559,18 @@ of its own like any other file.
 | `POST /api/dirs` | `{path}` → make an empty folder |
 | `POST /api/dirs/move` | `{path, to}` → move every note under a folder (links rewritten), then the rest, then remove the shell |
 | `DELETE /api/dirs?path=` | Trash every note under a folder and remove the directories left empty |
+| `GET /api/conflicts` | Every conflict copy in the caller's spaces, with the note it belongs to |
+| `GET /api/notes/{id}/conflicts` | The conflict copies behind one note, for its chip |
+| `GET /api/conflicts/{id}/diff` | A unified diff between one copy and its survivor |
+| `POST /api/conflicts/{id}/resolve` | `{action: mine, theirs, or both}` settles one copy |
 
-`GET /api/tree` lists empty directories as well as the notes, and each
-note row carries its `tags`.
+`GET /api/tree` lists empty directories as well as the notes, each
+note row carries its `tags`, and a conflict copy nests under the note
+it belongs to (marked `conflict`, the survivor named in `conflict_of`).
 
 `GET /api/status` now includes `daily` with the effective pattern and
-template.
+template, and `conflicts` with how many copies wait in the caller's
+spaces.
 
 ## Building
 

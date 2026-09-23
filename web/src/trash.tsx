@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'preact/hooks'
 
 import { api, ApiError } from './api'
 import type { TrashEntry } from './api'
+import { markLocalConflict } from './conflict'
 import { fmtDate } from './dom'
 import { Icon } from './icons'
 import type { ConfirmSpec } from './confirm'
@@ -49,6 +50,7 @@ export function TrashPage({ onOpen, onToast, confirm, onChanged }: TrashPageProp
         onChanged()
         void reload()
         if (res.conflict) {
+          markLocalConflict(res.path)
           onToast(`A note now lives at ${e.path}; restored beside it as ${res.path}.`)
         } else {
           onToast(`Restored ${e.path}.`)

@@ -161,6 +161,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/dirs/move", s.authed(s.handleDirMove))
 	s.mux.HandleFunc("DELETE /api/dirs", s.authed(s.handleDirDelete))
 	s.mux.HandleFunc("GET /api/notes/{id}", s.authed(s.handleNote))
+	s.mux.HandleFunc("GET /api/notes/{id}/conflicts", s.authed(s.handleNoteConflicts))
 	s.mux.HandleFunc("GET /api/search", s.authed(s.handleSearch))
 	s.mux.HandleFunc("GET /api/files/{path...}", s.authed(s.handleFile))
 	s.mux.HandleFunc("PUT /api/files/{path...}", s.authed(s.handleFileUpload))
@@ -178,6 +179,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/trash/{id}/restore", s.authed(s.handleTrashRestore))
 	s.mux.HandleFunc("DELETE /api/trash/{id}", s.authed(s.handleTrashDestroy))
 	s.mux.HandleFunc("POST /api/trash/empty", s.authed(s.handleTrashEmpty))
+	s.mux.HandleFunc("GET /api/conflicts", s.authed(s.handleConflicts))
+	s.mux.HandleFunc("GET /api/conflicts/{id}/diff", s.authed(s.handleConflictDiff))
+	s.mux.HandleFunc("POST /api/conflicts/{id}/resolve", s.authed(s.handleConflictResolve))
 	s.mux.HandleFunc("POST /api/notes", s.authed(s.handleCreateNote))
 	s.mux.HandleFunc("GET /api/notes/{id}/view", s.authed(s.handleNoteView))
 	s.mux.HandleFunc("GET /api/notes/{id}/asset-view", s.authed(s.handleNoteViewAsset))
@@ -261,6 +265,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"regex_search": s.Ripgrep != nil && s.Ripgrep.Available(),
 		"daily":        map[string]string{"pattern": daily.Pattern, "template": daily.Template},
 		"accounts":     !s.open(),
+	}
+	if n := s.conflictsCount(r); n > 0 {
+		status["conflicts"] = n
 	}
 	if s.Ripgrep != nil && s.Ripgrep.Available() {
 		status["regex_version"] = s.Ripgrep.Version()
@@ -450,6 +457,9 @@ type NoteResponse struct {
 	Source   string               `json:"source,omitempty"` // html notes: raw source
 	Role     string               `json:"role"`             // the caller's role in the note's space
 	Public   bool                 `json:"public"`           // a public link is live
+	// Conflicts is how many conflict copies point at this note, for
+	// the chip on its title bar.
+	Conflicts int `json:"conflict_count,omitempty"`
 }
 
 func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
@@ -500,6 +510,11 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 	resp := NoteResponse{Note: n, Tags: tags, Links: links, Base: path.Dir(n.RelPath), Role: role, Public: s.isPublic(r, id)}
 	if resp.Base == "." {
 		resp.Base = ""
+	}
+	if n.ConflictOf == "" {
+		if copies, err := s.DB.ConflictsOf(r.Context(), id); err == nil {
+			resp.Conflicts = len(copies)
+		}
 	}
 	switch n.Kind {
 	case "md":
