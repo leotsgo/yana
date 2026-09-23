@@ -67,7 +67,7 @@ ripgrep: true
 | `YANA_GIT` | `true` | Keep a git history of the notes root |
 | `YANA_GIT_QUIET` | `5m` | How long the tree must be unchanged before the window commits |
 | `YANA_GIT_INTERVAL` | `1h` | Bound on how long a continuously edited tree goes uncommitted |
-| `YANA_GIT_REMOTE` | unset | Seeds the backup remotes list on first run (see below); settings own it after that |
+| `YANA_GIT_REMOTE` | unset | Seeds the backup remotes list on first run (see below), and over an empty notes root is cloned before the first scan |
 | `YANA_GIT_PUSH_HOUR` | `2` | Local hour the seeded remote pushes at |
 | `YANA_GIT_USER_NAME` | `yana user` | Git identity human edits commit under |
 | `YANA_GIT_USER_EMAIL` | `user@yana.local` | Its email |
@@ -282,6 +282,15 @@ covering `.sync/` and its own temp files. The repository is derived state
 like the index: delete it and the next start rebuilds it, minus the
 history.
 
+When `YANA_GIT_REMOTE` is set and the root has never held notes — a
+fresh volume, nothing but `.sync/`, `.trash/` and dotfiles — the server
+clones that remote instead of initialising an empty repository, so a
+rebuilt container comes up with every space, note and id in place. The
+clone goes through the same credential handling a push uses. A root that
+already holds notes is never cloned over; a clone that fails (the backup
+is unreachable) leaves the root empty, is logged clearly, and the server
+starts without git history, retrying on the next start.
+
 Commits happen after the tree has been quiet for `YANA_GIT_QUIET`
 (default 5 minutes), or at most `YANA_GIT_INTERVAL` (1 hour) apart during
 continuous editing, never per keystroke or per write-back. `POST
@@ -349,6 +358,60 @@ backup repository — and is reported rather than forced over.
 `YANA_GIT_REMOTE`, when set, seeds one remote (nightly at
 `YANA_GIT_PUSH_HOUR`) into an empty remotes list on first start; after
 that the settings page owns the list and the variable is ignored.
+
+### Restoring from a backup
+
+Losing the volume does not lose the notes: any backup remote can bring
+them back, either by itself on a fresh install or on demand.
+
+**A fresh install restores itself.** Start the container over an empty
+volume with `YANA_GIT_REMOTE` pointing at the backup and the server
+clones it before the first scan (see above): every space, note and id
+arrives in place, tree browsable and search working, with no manual git.
+
+**An existing server restores from settings.** Settings → Data →
+History gains "Restore from a backup", owner-only. Pick an enabled
+remote and the server fetches it and shows a preview — how many commits
+and notes it holds, its newest commit, and how it stands against the
+local history (identical, ahead, behind, diverged) — before anything is
+touched. Confirming means typing the remote's name.
+
+The restore itself always moves by ref, never a merge: the current tree
+is committed and tagged `pre-restore/<timestamp>` first, so the
+pre-restore state is findable without the reflog, then the branch and
+the working tree are reset to the backup's newest commit. Local and
+backup histories may share no ancestor — a root that was re-initialised
+has an unrelated history — and the reset does not care. Notes keep the
+ids in their frontmatter, so links, tasks and public links that
+reference them survive; editors open on a changed note converge to the
+restored text without a reload; a rescan brings the index, search,
+tasks and links in line with the tree.
+
+`.sync/` and `.trash/` are gitignored and are not part of any backup:
+accounts, sessions, the auth and content secrets, the sealed remote
+credentials and the trash belong to this server. A restore replaces
+none of them and signs nobody out. The same surface is `POST
+/api/git/remotes/{id}/restore/preview` and `POST
+/api/git/remotes/{id}/restore` (body `{"confirm": "the remote's name"}`),
+owner-only; a restore is refused for a non-owner account and for a
+disabled remote, and an unreachable remote fails before anything is
+touched.
+
+**The manual fallback**, when the app is not available to drive it:
+
+```sh
+docker stop yana
+mv /srv/yana/notes /srv/yana/notes.broken
+git clone <backup-url> /srv/yana/notes
+mv /srv/yana/notes.broken/.sync /srv/yana/notes/.sync   # keeps accounts, sessions and public links
+chown -R $(stat -c %u /srv/yana/notes.broken) /srv/yana/notes
+docker start yana
+```
+
+Moving `.sync/` back is what keeps the owner account, sessions, agent
+tokens and public links; skip it to start over with a clean first-run
+setup instead. `notes.broken` is the manual pre-restore state — keep it
+until the restore is verified, then delete it.
 
 Remotes are one option. restic or rclone against the notes directory
 also see a consistent tree, because every write is a rename:

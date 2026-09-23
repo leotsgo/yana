@@ -211,6 +211,14 @@ func TestRemotePushFailureRecorded(t *testing.T) {
 
 func TestRemoteSeededFromEnvironment(t *testing.T) {
 	dir := t.TempDir()
+	// A root that already holds notes is never cloned from, so the test
+	// stays offline; the seeding is what is under test.
+	if err := os.MkdirAll(filepath.Join(dir, "home"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "home", "a.md"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	db, err := index.Open(filepath.Join(dir, ".sync", "index.db"), nil)
 	if err != nil {
 		t.Fatal(err)

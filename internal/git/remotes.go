@@ -265,7 +265,14 @@ func (l *Layer) credentialEnv(r index.GitRemote) (config, env []string, err erro
 	if err != nil {
 		return nil, nil, err
 	}
-	username := r.Username
+	hc, he := helperEnv(r.Username, token)
+	return append(config, hc...), append(env, he...), nil
+}
+
+// helperEnv is the inline credential helper carrying a username and a
+// raw token (a push opens the sealed one; a first-run clone holds the
+// one from the environment) through the environment of one subprocess.
+func helperEnv(username, token string) (config, env []string) {
 	if username == "" {
 		// GitHub, Gitea, and GitLab accept a token with any username.
 		username = "yana"
@@ -274,8 +281,7 @@ func (l *Layer) credentialEnv(r index.GitRemote) (config, env []string, err erro
 		"credential.helper=",
 		`credential.helper=!f() { printf 'username=%s\npassword=%s\n' "$YANA_GIT_USERNAME" "$YANA_GIT_PASSWORD"; }; f`,
 	)
-	env = append(env, "YANA_GIT_USERNAME="+username, "YANA_GIT_PASSWORD="+token)
-	return config, env, nil
+	return config, append(env, "YANA_GIT_USERNAME="+username, "YANA_GIT_PASSWORD="+token)
 }
 
 // Push pushes HEAD to one remote now and records the outcome on its row.
