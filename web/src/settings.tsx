@@ -10,7 +10,7 @@ import type { ComponentChildren } from 'preact'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 
 import { api, ApiError, saveBlob } from './api'
-import type { Account, AgentKey, GitRemote, GitRemoteInput, OrphanAsset, PublicLinkRow, RestorePreview, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
+import type { Account, AgentKey, DeletedNote, GitRemote, GitRemoteInput, OrphanAsset, PublicLinkRow, RestorePreview, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
 import * as auth from './auth'
 import type { ConfirmSpec } from './confirm'
 import { fmtBytes, fmtDate, isSet } from './dom'
@@ -1915,6 +1915,100 @@ function OrphanAssetsBlock({ ctx }: { ctx: Ctx }) {
   )
 }
 
+/** Deleted notes, under Data: every note whose file is gone, with what
+ * a restore would bring it back from — the trash copy, the retained
+ * edits, or the history. The one-note-gone-by-accident path: no commit
+ * log to read. */
+function DeletedNotesBlock({ ctx }: { ctx: Ctx }) {
+  const { say, confirm, onChanged, onOpen } = ctx
+  const [entries, setEntries] = useState<DeletedNote[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    api
+      .deletedNotes()
+      .then((r) => setEntries(r.entries))
+      .catch((err: unknown) => {
+        setEntries([])
+        say(msgOf(err, 'Could not list the deleted notes.'))
+      })
+  }, [say])
+  useEffect(load, [load])
+
+  const source = (e: DeletedNote): string => {
+    if (e.has_file) return 'trash copy'
+    if (e.has_sidecar) return 'recent edits'
+    return 'the history'
+  }
+
+  const restore = (e: DeletedNote) => {
+    if (busy || !e.id) return
+    confirm({
+      title: `Restore ${e.title || e.path}?`,
+      body: e.has_file
+        ? 'The note returns to its original path, or to a free name beside whatever now lives there.'
+        : 'The note returns as it was last committed, to its original path or a free name beside whatever now lives there.',
+      confirmLabel: 'Restore',
+      onConfirm: () => {
+        setBusy(e.id)
+        api
+          .restoreDeleted(e.id)
+          .then((r) => {
+            setBusy(null)
+            load()
+            onChanged()
+            if (r.conflict) say(`A note now lives at ${e.path}; restored beside it as ${r.path}.`)
+            else say(`Restored ${r.path} from ${r.from === 'history' ? 'the history' : 'the trash'}.`)
+            if (r.note?.id && !r.deferred) onOpen(r.note.id)
+          })
+          .catch((err: unknown) => {
+            setBusy(null)
+            say(msgOf(err, 'Could not restore the note.'))
+          })
+      },
+    })
+  }
+
+  if (entries === null) {
+    return (
+      <Block title="Deleted notes" lead="Notes whose files are gone, each restorable to where it lived.">
+        <p class="muted">Loading…</p>
+      </Block>
+    )
+  }
+  if (entries.length === 0) {
+    return (
+      <Block title="Deleted notes" lead="Notes whose files are gone, each restorable to where it lived.">
+        <p class="muted">Nothing deleted to bring back.</p>
+      </Block>
+    )
+  }
+
+  return (
+    <Block title="Deleted notes" lead="Notes whose files are gone, each restorable to where it lived — from the trash while it holds them, and from the history after that.">
+      <ul class="settings-list">
+        {entries.map((e) => (
+          <li key={e.id + e.deleted_at} class="settings-row">
+            <Icon name="file-text" class="settings-row-icon" />
+            <div class="settings-row-main">
+              <span class="settings-row-title">{e.title || e.path}</span>
+              <span class="settings-row-sub mono">
+                {e.path} · deleted {fmtDate(e.deleted_at)} · from {source(e)}
+              </span>
+            </div>
+            <div class="settings-row-actions">
+              <button type="button" class="btn small" disabled={busy !== null || !e.id} onClick={() => restore(e)}>
+                <Icon name="restore" />
+                Restore
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Block>
+  )
+}
+
 function DataSection({ ctx }: { ctx: Ctx }) {
   const { user, status, spaces, notes, say, confirm, onChanged, onOpenTrash, onStatus } = ctx
   const recent = useMemo(() => {
@@ -2005,6 +2099,7 @@ function DataSection({ ctx }: { ctx: Ctx }) {
           </button>
         </div>
       </Block>
+      <DeletedNotesBlock ctx={ctx} />
       <Block title="History" lead="The notes root is a git repository. The server commits after the tree has been quiet; a snapshot commits now.">
         {git ? (
           git.available ? (

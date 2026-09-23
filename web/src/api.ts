@@ -244,6 +244,58 @@ export interface RestoreSummary {
   added: number
   changed: number
   deleted: number
+  moved: number
+}
+
+/** One path a point-in-time restore would touch. id and title are
+ * present when the note exists now. */
+export interface PITChange {
+  action: 'added' | 'changed' | 'deleted' | 'moved'
+  path: string
+  from?: string
+  id?: string
+  title?: string
+}
+
+/** What restoring to a commit would do, reported before anything moves. */
+export interface PITPreview {
+  commit: string
+  subject: string
+  author: string
+  date: string
+  space: string
+  added: number
+  changed: number
+  deleted: number
+  moved: number
+  changes: PITChange[]
+}
+
+/** One row of the Data page's deleted-notes list. */
+export interface DeletedNote {
+  id: string
+  space: string
+  path: string
+  title: string
+  kind: 'md' | 'html'
+  created: string
+  deleted_at: string
+  trash_path?: string
+  has_file: boolean
+  has_sidecar: boolean
+  in_history: boolean
+  untracked?: boolean
+}
+
+/** What bringing one deleted note back did. from says where the
+ * content came from: the trash, or the history. */
+export interface DeletedRestoreResult {
+  ok: boolean
+  path: string
+  conflict: boolean
+  note?: Note
+  deferred: boolean
+  from: 'trash' | 'history'
 }
 
 export interface TrashEntry {
@@ -321,12 +373,14 @@ export interface ActivityChange {
 }
 
 /** One feed entry: one commit, or one run of commits by the same agent
- * inside a quiet stretch. */
+ * inside a quiet stretch. commit is the newest of them — where a
+ * "restore to here" lands. */
 export interface ActivityEntry {
   author: string
   kind: ActivityKind
   from: string
   to: string
+  commit: string
   commits: number
   changes: ActivityChange[]
 }
@@ -335,6 +389,8 @@ export interface ActivityResult {
   entries: ActivityEntry[]
   next_cursor: string
   more: boolean
+  /** Whether this account may restore the space to a feed entry. */
+  restore_allowed?: boolean
 }
 
 export interface ActivityQuery {
@@ -456,6 +512,13 @@ export const api = {
   restorePreview: (id: string) => post<{ preview: RestorePreview }>(`/api/git/remotes/${encodeURIComponent(id)}/restore/preview`, {}),
   restoreGitRemote: (id: string, confirm: string) =>
     post<RestoreSummary>(`/api/git/remotes/${encodeURIComponent(id)}/restore`, { confirm }),
+  pitPreview: (commit: string, space: string) =>
+    post<{ preview: PITPreview }>('/api/git/restore/preview', { commit, space }),
+  pitRestore: (commit: string, space: string) =>
+    post<RestoreSummary>('/api/git/restore', { commit, space }),
+  deletedNotes: () => get<{ entries: DeletedNote[] }>('/api/deleted-notes'),
+  restoreDeleted: (id: string) =>
+    post<DeletedRestoreResult>(`/api/deleted-notes/${encodeURIComponent(id)}/restore`, {}),
   spaces: () => get<{ spaces: SpaceInfo[] }>('/api/spaces'),
   space: (name: string) => get<SpaceDetail>(`/api/spaces/${encodeURIComponent(name)}`),
   createSpace: (name: string) => post<{ name: string }>('/api/spaces', { name }),

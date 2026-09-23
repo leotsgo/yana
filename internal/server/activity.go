@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/git"
+	"github.com/madeofpendletonwool/yana/internal/spaces"
 )
 
 // agentRunGap is how far apart two commits by the same agent can fall
@@ -41,10 +42,13 @@ type activityChangeJSON struct {
 }
 
 type activityEntryJSON struct {
-	Author  string               `json:"author"`
-	Kind    string               `json:"kind"` // person, agent, filesystem
-	From    time.Time            `json:"from"` // oldest commit in the entry
-	To      time.Time            `json:"to"`   // newest commit in the entry
+	Author string    `json:"author"`
+	Kind   string    `json:"kind"` // person, agent, filesystem
+	From   time.Time `json:"from"` // oldest commit in the entry
+	To     time.Time `json:"to"`   // newest commit in the entry
+	// Commit is the newest commit of the entry — the point a "restore
+	// to here" would land on.
+	Commit  string               `json:"commit"`
 	Commits int                  `json:"commits"`
 	Changes []activityChangeJSON `json:"changes"`
 }
@@ -58,7 +62,8 @@ func (s *Server) handleSpaceActivity(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, ok := s.spaceAuthz(w, r, space); !ok {
+	role, ok := s.spaceAuthz(w, r, space)
+	if !ok {
 		return
 	}
 	q := r.URL.Query()
@@ -122,6 +127,9 @@ func (s *Server) handleSpaceActivity(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entries": entries, "next_cursor": next, "more": more,
+		// A restore of this space to a feed entry needs write access
+		// here; the feed says whether the controls belong on the page.
+		"restore_allowed": s.open() || spaces.RoleAtLeast(role, spaces.RoleEditor),
 	})
 }
 
@@ -158,6 +166,7 @@ func (s *Server) activityFeed(r *http.Request, space, scope string, since, until
 			Kind:    run[0].Kind,
 			To:      run[0].Date,
 			From:    run[len(run)-1].Date,
+			Commit:  run[0].Hash,
 			Commits: len(run),
 		}
 		// Fold the run's commits oldest first, so a later action on a

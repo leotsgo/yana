@@ -966,6 +966,29 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .confirm-row-detail { flex: 1; min-width: 0; font: 11px var(--mono); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
 
+/* --- restore to a commit ------------------------------------------------ */
+
+.activity-restore { flex: none; color: var(--ink-3); }
+.activity-restore:hover { color: var(--ink); }
+.restore-dialog {
+  display: flex; flex-direction: column; max-height: calc(100dvh - 48px); min-height: 0;
+}
+.restore-counts { margin: 12px 0 0; font-size: 13px; color: var(--ink-2); }
+.restore-list {
+  list-style: none; margin: 8px 0 0; padding: 8px 10px; display: grid; gap: 4px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+}
+.restore-row { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; min-width: 0; }
+.restore-path { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.restore-dialog .confirm-body { flex: none; }
+.restore-dialog .confirm-actions { flex: none; margin-top: 14px; }
+.activity-action.moved { color: var(--code-fn); }
+@media (max-width: 480px) {
+  .restore-dialog { max-height: calc(100dvh - 24px); }
+  .restore-list { max-height: 40dvh; }
+}
+
 /* --- share a link ------------------------------------------------------ */
 
 .share-dialog { width: min(520px, 100%); }

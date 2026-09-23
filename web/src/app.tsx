@@ -1748,6 +1748,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
             spaces={spaceList}
             onOpen={navigate}
             onNavigate={openActivity}
+            onToast={say}
+            onChanged={() => { void loadTree(); void loadSpaces() }}
           />
         )}
         {r.kind === 'share' && (
