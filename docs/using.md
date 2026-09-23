@@ -15,9 +15,13 @@ and works offline.
 
 ## Write a note
 
-**New note** on the home screen, at the top of the window, or in the
-sidebar beside a space name. Type a title, press Enter, and write. The
-file is named after the title and lands in the space you were looking at.
+**New note** on the home screen, at the top of the window, or `Alt+T`.
+It asks where and what first: the box starts in the folder you were
+looking at, so type a name and press Enter to write. `Tab` goes into the
+highlighted folder, `Shift+Tab` back out; on a phone tap a folder to go
+into it. Enter with no name makes an untitled note there and asks for
+its title. The `+` beside a space or folder in the sidebar skips the
+question and makes an untitled note right there.
 
 A note is markdown. Text is a paragraph; a line starting with `#` is a
 heading; `- ` starts a list; `**bold**`, `_italic_`, and `` `code` ``. On

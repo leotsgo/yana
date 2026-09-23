@@ -153,13 +153,51 @@ delete action; the toolbar shows a Viewer badge instead.
 
 ## New note
 
-New — the button, `Alt+T`, the `+` on a space, "New note here" on a
-folder — never asks for a path. It creates `Untitled.md` (then
-`Untitled 2.md`, and so on) beside the open note, or at the top of the
-default space, opens it in the editor with the title selected, and
-waits. Type the title and press Enter: the heading is written, the file
-is renamed to match, and the caret lands in the body. A note left
-untitled stays `Untitled.md`, which is what it is.
+New — the button in the top bar, `Alt+T`, New on the phone's bottom bar,
+New note on the home screen and in the palette — opens the new-note
+picker: the place and the name are chosen before the note is made. The
+input starts as the folder the note would land in (beside the open note,
+else the top of the default space) with a trailing slash. Type a name
+after it and press Enter: `<folder>/<name>.md` is made with the name as
+its heading and opens in a new tab in the editor, caret in the body. A
+name ending in `.html` makes an HTML note. Folders in the path that are
+not there yet are made; the line under the input says what Enter does,
+"Creates personal/Daily/newnote.md", with a "new folder" tag for each
+folder it will make. A first segment that is not a space resolves inside
+the current space, as the Move picker does, and a folder that is there
+keeps its spelling whatever the case typed.
+
+Enter straight away, with the input still ending in a slash, is the old
+New: `Untitled.md` (then `Untitled 2.md`, and so on) in that folder,
+opened with the title selected. Type the title and press Enter: the
+heading is written, the file is renamed to match, and the caret lands in
+the body. A note left untitled stays `Untitled.md`, which is what it is.
+The `+` on a space or folder in the tree and "New note here" skip the
+picker and do exactly that, since the place is already chosen.
+
+The picker completes like a shell. The arrow keys move over the folders
+under what is typed; `Tab` writes the highlighted one into the input
+with a trailing slash (`personal/`, then `personal/Daily/`) and the list
+shows its children. `Shift+Tab`, or `Backspace` right after a slash,
+goes up a level. Matching is fuzzy per segment, so `pe/da` then `Tab`
+lands on `personal/Daily/`; folders elsewhere in the tree that fit the
+name typed are listed below the ones in the folder. Space names complete
+like folders.
+
+When the path is a note that already exists (with or without the
+extension, in any case) the first row is "Open <title>", and Enter opens
+it in a tab; nothing is made. `Mod+Enter` makes a new one anyway, with
+the next free name (`Plan 2`). Notes in the folder with names close to
+the one typed are listed under it; Enter on one opens it.
+
+Where the note opens: `Enter` in a new tab in the focused pane;
+`Alt+Enter` in the other pane on a desktop (making the split when there
+is one pane), in a new tab elsewhere; `Shift+Enter` in a tab behind the
+current one, leaving the picker open at the same folder for the next
+note. The keys are on a line at the bottom of the picker. On a phone the
+picker has no Tab key to lean on: tapping a folder goes into it, an "Up
+to" row goes back, and Enter on the keyboard or the Create button makes
+the note.
 
 The title is also where the note goes. A slash in it places the note:
 `projects/kiln` moves it into `projects/` beside where it was (the folder
@@ -182,9 +220,8 @@ in the Details panel is a button too, for "Rename or move by path", the
 same move with the file name included. On a desktop a note also drags to
 a folder in the tree.
 
-The path prompt survives for people who want it: "New note at a path" in
-the palette takes a name or a path like `projects/kiln`, and the quick
-switcher still creates the note you typed when nothing matches.
+The quick switcher still creates the note you typed when nothing
+matches.
 
 ## Capture
 
@@ -496,12 +533,12 @@ receives; each has an `Alt` twin that works everywhere.
 
 | Key | Does |
 |---|---|
-| `Alt+T` | New note, in a tab of its own: an untitled note with the title selected; Enter in the title moves to the body |
+| `Alt+T` | New note: the picker, to choose the folder and the name; Enter straight away makes an untitled note beside the open one with the title selected |
 | `Alt+C` | Capture: one line onto the end of today's note, without opening it |
 | `Alt+D` | Today's daily note (created on first use) |
 | `Alt+K` | The tasks page |
 | `Mod+P` | Quick switcher: fuzzy match on title, path and `#tag`; Enter on no match creates that note |
-| `Mod+K` | Command palette: everything above plus new note at a path, new folder, pin, move, rename, delete, tags, unresolved links, trash, settings, theme, sign out |
+| `Mod+K` | Command palette: everything above plus new folder, pin, move, rename, delete, tags, unresolved links, trash, settings, theme, sign out |
 | `Mod+Shift+F` or `/` | Focus search |
 | `E` | Edit the open note |
 | `Esc` | Back to reading |

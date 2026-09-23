@@ -56,8 +56,9 @@ presence and cursors. Edit the file with vim, `echo >>` a line, or
 Kill the server mid-sentence or write offline for a day; it converges on
 reconnect, with no conflict dialog.
 
-**Capture.** New note never asks for a path: name it by its title and it
-lands where you are looking. **Today** opens the daily note, made from a
+**Capture.** New note starts in the folder you are looking at: type a
+name and press Enter, or Tab into another folder first, the way a shell
+completes a path. **Today** opens the daily note, made from a
 template if you keep one. **Capture** appends one line to today's note
 without opening it — from the home screen, the phone's bottom bar, or the
 share sheet.

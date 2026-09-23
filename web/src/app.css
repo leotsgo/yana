@@ -927,6 +927,24 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .palette-here { margin-left: auto; font: 11px var(--mono); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 3px; padding: 0 5px; }
 .palette-list + .palette-hint { padding-top: 6px; border-top: 1px solid var(--line); }
 
+/* The new-note picker: a line saying what Enter does, then the folders. */
+.newnote-what {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 18px;
+  font: 12.5px var(--mono); color: var(--ink-2); border-bottom: 1px solid var(--line);
+}
+.newnote-says { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
+.newnote-what.newnote-error { color: var(--danger); font-family: var(--sans); }
+.newnote-tag {
+  font: 11px var(--mono); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 3px; padding: 0 5px;
+  white-space: nowrap;
+}
+.newnote-tag em { font-style: normal; color: var(--ink-3); }
+.newnote-go { flex: none; height: 32px; }
+.newnote-open .palette-label { color: var(--accent-ink); font-weight: 600; }
+.newnote-into { margin-left: auto; display: grid; place-items: center; width: 36px; height: 36px; margin-right: -8px; color: var(--ink-3); }
+.newnote-keys kbd { margin-right: 3px; }
+.newnote-touch .palette-row { min-height: 44px; }
+
 /* --- menu -------------------------------------------------------------- */
 
 .menu-layer { position: fixed; inset: 0; z-index: 25; pointer-events: none; }

@@ -66,6 +66,8 @@ export interface NotePageProps {
   /** True when the note was just created: focus the title, then the
    * editor once the title is committed. */
   fresh: boolean
+  /** The new note was named before it was made: the caret goes to the body. */
+  freshNamed?: boolean
   /** Goes up each time the title is asked for again on the same note. */
   freshSeq: number
   onDelete: () => void
@@ -92,7 +94,7 @@ export interface NotePageProps {
 }
 
 export function NotePage(props: NotePageProps) {
-  const { id, layout, focused, mode, onMode, live, onEditing, onOpen, onLinkMenu, onNote, onToast, onMenu, fresh, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, taskLine, lookup, scroll, onScroll } = props
+  const { id, layout, focused, mode, onMode, live, onEditing, onOpen, onLinkMenu, onNote, onToast, onMenu, fresh, freshNamed = false, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, taskLine, lookup, scroll, onScroll } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -108,10 +110,10 @@ export function NotePage(props: NotePageProps) {
   const [view, setView] = useState<EditorView | null>(null)
   // A fresh note starts in the title; Enter there hands focus to the editor.
   // A double-click in the tree asks for the title again on an open note.
-  const [titleDone, setTitleDone] = useState(!fresh)
+  const [titleDone, setTitleDone] = useState(!fresh || freshNamed)
   useEffect(() => {
-    if (fresh) setTitleDone(false)
-  }, [fresh, freshSeq])
+    if (fresh) setTitleDone(freshNamed)
+  }, [fresh, freshNamed, freshSeq])
   // A search hit stays marked while reading; editing clears it.
   const [hitShown, setHitShown] = useState(highlight)
   const phone = layout === 'phone'
