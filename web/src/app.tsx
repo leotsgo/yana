@@ -34,6 +34,8 @@ import type { MenuItem, MenuSpec } from './menu'
 import type { Completions, LinkTarget } from './editor'
 import { NotePage } from './note'
 import * as outbox from './outbox'
+import { NewNotePicker, freeName, noteFile } from './newnote'
+import type { CreateHow, NewNoteSpec } from './newnote'
 import { Palette } from './palette'
 import type { PaletteItem, PaletteSpec } from './palette'
 import { resolveDir } from './paths'
@@ -184,7 +186,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // The note whose title should be focused: a new one, or one a person
   // double-clicked in the tree. The count makes a repeat on the open note count.
   // Keyed by the tab, so the same note in the other pane is left alone.
-  const [fresh, setFresh] = useState<{ key: string; seq: number } | null>(null)
+  // A note made with its name already chosen skips the title: named.
+  const [fresh, setFresh] = useState<{ key: string; seq: number; named?: boolean } | null>(null)
+  const [picker, setPicker] = useState<NewNoteSpec | null>(null) // the new-note picker
   const [treeEdit, setTreeEdit] = useState<TreeEdit | null>(null) // a folder input open in the tree
   const [themePref, setThemePref] = useState(prefs.theme)
   const [pinList, setPinList] = useState(prefs.pins)
@@ -597,16 +601,25 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     return defaultSpace()
   }
 
+  // A new note opens in the editor: with its title selected, or, named
+  // already, with the caret in the body. In the other pane it takes the
+  // focus; behind the current tab it is only made.
   const createNote = useCallback(
-    async (path: string, retryOnTaken = false) => {
+    async (path: string, retryOnTaken = false, how: CreateHow = 'tab', named = false) => {
       let p = path.trim().replace(/^\/+/, '')
       if (!/\.(md|markdown|html?)$/i.test(p)) p += '.md'
       const title = baseOf(p).replace(/\.(md|markdown|html?)$/i, '')
-      const seed = `# ${title}\n\n`
+      const seed = /\.html?$/i.test(p) ? `<h1>${escapeHTML(title)}</h1>\n` : `# ${title}\n\n`
       try {
         const res = await api.createNote(p, seed)
-        const tab = navigate(res.id, 'tab', { mode: 'edit' })
-        if (tab) setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1 }))
+        prefs.touchFolder(dirOf(p))
+        prefs.setLastFolder(dirOf(p))
+        const tab = navigate(res.id, how, { mode: 'edit' })
+        if (tab && how === 'right') {
+          const at = workspace.find(tab.key)
+          if (at) focusPane(at.pane)
+        }
+        if (tab && how !== 'background') setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1, named }))
         void loadTree()
       } catch (err) {
         if (cache.networkDown(err)) {
@@ -618,7 +631,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           // Something on disk the tree has not seen yet holds the name.
           const m = /^(.*?)(?: (\d+))?\.md$/.exec(p)
           const n = m && m[2] ? Number(m[2]) + 1 : 2
-          if (n < 100 && m) void createNote(`${m[1]} ${n}.md`, true)
+          if (n < 100 && m) void createNote(`${m[1]} ${n}.md`, true, how, named)
           else say(err.message)
         } else {
           say(err instanceof ApiError ? err.message : 'Could not create the note.')
@@ -629,24 +642,47 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   )
 
   /** New note, no questions asked: an untitled note in the folder, the
-   * title focused. The file is named for the title once there is one. */
-  function newNote(dir?: string): void {
+   * title focused. The file is named for the title once there is one.
+   * The tree's + and "New note here" come here: the place is chosen. */
+  function newNote(dir?: string, how: CreateHow = 'tab'): void {
     const d = dir ?? defaultDir()
     const taken = new Set(notes.filter((n) => dirOf(n.path) === d).map((n) => baseOf(n.path).toLowerCase()))
     let name = 'Untitled'
     for (let i = 2; taken.has(name.toLowerCase() + '.md'); i++) name = `Untitled ${i}`
-    void createNote(d ? `${d}/${name}` : name, true)
+    void createNote(d ? `${d}/${name}` : name, true, how)
   }
 
-  function newNotePrompt(dir?: string): void {
-    const initial = dir !== undefined ? (dir ? dir + '/' : '') : defaultDir() ? defaultDir() + '/' : ''
-    setPalette({
-      mode: 'prompt',
-      placeholder: 'Path for the new note',
-      initial,
-      hint: 'A name, or a path inside the tree like projects/kiln. Folders that do not exist yet are created.',
-      onSubmit: (v) => void createNote(v),
-    })
+  /** Where the new-note picker starts: beside the open note, else the
+   * folder a note was last made in on this device, else the top of the
+   * default space. The setting can put the last folder first. */
+  function pickerStart(): string {
+    // A last folder since deleted gives way to the newest recent one.
+    const known = (p: string) => p !== '' && dirs.some((d) => d.path === p)
+    const last = [prefs.lastFolder(), ...prefs.recentFolders()].find(known) ?? ''
+    const lastOk = last !== ''
+    if (lastOk && prefs.newNoteStart() === 'last') return last
+    if (current.current) return dirOf(current.current.path)
+    return lastOk ? last : defaultSpace()
+  }
+
+  /** New, from a key, a button or the palette: the picker, starting in
+   * the folder the note would land in. */
+  function openNewNote(): void {
+    const dir = pickerStart()
+    setPalette(null)
+    setDrawer(false)
+    setPicker({ initial: dir ? dir + '/' : '', space: dir.split('/')[0] ?? '' })
+  }
+
+  /** What the picker chose: an untitled note in a folder, or a named one
+   * (the next free name when forced past a note that is there). */
+  function pickerCreate(dir: string, name: string | null, how: CreateHow, force: boolean): void {
+    if (name === null) {
+      newNote(dir, how)
+      return
+    }
+    const file = force ? freeName(notes, dir, name) : noteFile(name)
+    void createNote(`${dir}/${file}`, force, how, true)
   }
 
   const openDaily = useCallback(async () => {
@@ -779,6 +815,16 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         here: d.path === here,
         run: () => pick(d.path),
       }))
+    // The folders used lately on this device lead, under their own heading.
+    const known = new Set(items.map((it) => it.path))
+    const recent: PaletteItem[] = prefs
+      .recentFolders()
+      .filter((p) => known.has(p) && p !== here && !exclude(p))
+      .map((p) => ({ id: 'recent:' + p, label: p + '/', path: p, section: 'Recent', run: () => pick(p) }))
+    if (recent.length) {
+      for (const it of items) it.section = 'Folders'
+      items.unshift(...recent)
+    }
     const spaceNames = new Set((spaces ?? []).map((sp) => sp.name))
     const space = here.split('/')[0] ?? ''
     // Typed from the root, unless the first part is not a space: then it
@@ -1361,7 +1407,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ['Let an agent read and write notes', 'files, or MCP with a key', 'Agents'],
     ]
     const rows: Array<[string, string]> = [
-      ['New note', label(keys.newNote)],
+      ['New note: choose the folder and the name', label(keys.newNote)],
+      ['New note picker: into the highlighted folder, and back up', 'Tab / ⇧Tab'],
+      ['New note picker: open in the other pane, or behind this tab', `${isMac ? '⌥' : 'Alt+'}Enter / ${isMac ? '⇧' : 'Shift+'}Enter`],
+      ['New note picker: make it even though that note exists', `${isMac ? '⌘' : 'Ctrl+'}Enter`],
       ['Capture a line into today\'s note', label(keys.capture)],
       ["Today's note", label(keys.daily)],
       ['Open the tasks page', label(keys.tasks)],
@@ -1399,14 +1448,13 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   function openPalette(): void {
     const items: PaletteItem[] = [
-      { id: 'new', label: 'New note', hint: label(keys.newNote), run: () => newNote() },
+      { id: 'new', label: 'New note', detail: 'choose the folder and the name', hint: label(keys.newNote), run: openNewNote },
       { id: 'capture', label: 'Capture a line', detail: "into today's note, without opening it", hint: label(keys.capture), run: capturePrompt },
       { id: 'daily', label: "Today's note", hint: label(keys.daily), run: () => void openDaily() },
       { id: 'tasks', label: 'Tasks', detail: 'every open box across your spaces', hint: label(keys.tasks), run: () => openTasksPage() },
       { id: 'open', label: 'Open a note', hint: label(keys.switcher), run: openSwitcher },
       { id: 'search', label: 'Search notes', hint: label(keys.search), run: focusSearch },
       { id: 'activity', label: 'What changed', detail: 'who changed which notes, when', run: () => openActivity() },
-      { id: 'new-path', label: 'New note at a path', detail: 'name the file and folder yourself', run: () => newNotePrompt() },
       { id: 'new-folder', label: 'New folder', detail: `in ${defaultDir() || 'the root'}`, run: () => newFolderPrompt(defaultDir()) },
     ]
     if (!narrow) {
@@ -1525,8 +1573,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // --- hotkeys -----------------------------------------------------------
 
   const focusSide = focusPaneKeys
-  const actions = useRef({ openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage, closeActiveTab, stepTab, jumpTab, reopenTab, toggleSplitPane, focusSide })
-  actions.current = { openPalette, openSwitcher, newNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage, closeActiveTab, stepTab, jumpTab, reopenTab, toggleSplitPane, focusSide }
+  const actions = useRef({ openPalette, openSwitcher, openNewNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage, closeActiveTab, stepTab, jumpTab, reopenTab, toggleSplitPane, focusSide })
+  actions.current = { openPalette, openSwitcher, openNewNote, openDaily, focusSearch, toggleSplit, capturePrompt, openTasksPage, closeActiveTab, stepTab, jumpTab, reopenTab, toggleSplitPane, focusSide }
   const tabKeys = layout !== 'phone'
   const paneKeys = layout === 'desktop'
 
@@ -1541,7 +1589,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       const digit = tabKeys ? tabDigit(ev) : 0
       if (matches(ev, keys.palette)) a.openPalette()
       else if (matches(ev, keys.switcher)) a.openSwitcher()
-      else if (matches(ev, keys.newNote)) a.newNote()
+      else if (matches(ev, keys.newNote)) a.openNewNote()
       else if (matches(ev, keys.daily)) void a.openDaily()
       else if (matches(ev, keys.capture)) a.capturePrompt()
       else if (matches(ev, keys.tasks)) a.openTasksPage()
@@ -1697,6 +1745,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         onToast={say}
         onMenu={setMenu}
         fresh={fresh?.key === tab.key}
+        freshNamed={fresh?.key === tab.key && fresh.named === true}
         freshSeq={fresh?.seq ?? 0}
         onDelete={() => deleteNotePrompt(mine())}
         onRename={() => renamePrompt(mine())}
@@ -1728,7 +1777,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         openTasks={openTasks}
         conflicts={status?.conflicts ?? 0}
         onOpen={navigate}
-        onNew={() => newNote()}
+        onNew={openNewNote}
         onCapture={capturePrompt}
         onDaily={() => void openDaily()}
         onTasks={() => openTasksPage()}
@@ -1867,7 +1916,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         <span class="spacer" />
         {layout !== 'phone' && (
           <>
-            <button type="button" class="btn" title={`New note (${label(keys.newNote)})`} onClick={() => newNote()}>
+            <button type="button" class="btn" title={`New note (${label(keys.newNote)})`} onClick={openNewNote}>
               <Icon name="plus" />
               New
             </button>
@@ -2075,13 +2124,32 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
             Tasks
             {openTasks !== null && openTasks > 0 && <span class="bottombar-badge">{openTasks > 99 ? '99+' : openTasks}</span>}
           </button>
-          <button type="button" class="bottombar-btn" onClick={() => newNote()}>
+          <button type="button" class="bottombar-btn" onClick={openNewNote}>
             <Icon name="plus" size={20} />
             New
           </button>
         </nav>
       )}
       {palette && <Palette spec={palette} onClose={() => setPalette(null)} />}
+      {picker && (
+        <NewNotePicker
+          spec={picker}
+          dirs={dirs}
+          spaces={(spaces ?? []).map((sp) => sp.name)}
+          notes={notes}
+          recent={prefs.recentFolders()}
+          suggest={prefs.suggestNames()}
+          panes={layout === 'desktop'}
+          touch={coarsePointer || layout === 'phone'}
+          onCreate={pickerCreate}
+          onOpen={(id, how) => {
+            const n = notes.find((x) => x.id === id)
+            if (n) prefs.touchFolder(dirOf(n.path))
+            navigate(id, how)
+          }}
+          onClose={() => setPicker(null)}
+        />
+      )}
       {menu && <Menu spec={menu} onClose={() => setMenu(null)} />}
       {confirmSpec && <Confirm spec={confirmSpec} onClose={() => setConfirmSpec(null)} />}
       {toast && <ToastView toast={toast} onClose={() => setToast(null)} />}
@@ -2296,4 +2364,8 @@ function LinksReport({ onOpen }: { onOpen: (id: string) => void }) {
     reload()
   }, [onOpen])
   return <div class="page-scroll" ref={host} />
+}
+
+function escapeHTML(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }

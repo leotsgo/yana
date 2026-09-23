@@ -20,6 +20,7 @@ export type Density = 'comfortable' | 'compact'
 
 const PREFIX = 'yana.'
 const RECENTS_MAX = 12
+const FOLDERS_MAX = 8
 const QUERIES_MAX = 8
 
 const listeners = new Set<() => void>()
@@ -324,12 +325,19 @@ export function setSpaceOpen(name: string, open: boolean): void {
   write('tree.closed', JSON.stringify([...set]))
 }
 
-/** A renamed or moved folder keeps its open state, and its children theirs. */
+/** A renamed or moved folder keeps its open state, and its children
+ * theirs; the recent folders and the last folder follow it too. */
 export function moveFolderState(from: string, to: string): void {
+  const move = (p: string) => (p === from || p.startsWith(from + '/') ? to + p.slice(from.length) : p)
   const set = new Set<string>()
-  for (const p of openFolders()) set.add(p === from || p.startsWith(from + '/') ? to + p.slice(from.length) : p)
+  for (const p of openFolders()) set.add(move(p))
   openDirs = set
   write('tree.open', JSON.stringify([...set]))
+  const recent = recentFolders()
+  const moved = [...new Set(recent.map(move))]
+  if (moved.some((p, i) => p !== recent[i]) || moved.length !== recent.length) write('folders.recent', JSON.stringify(moved))
+  const last = lastFolder()
+  if (last && move(last) !== last) write('folders.last', move(last))
 }
 
 /** Drops keys the live tree no longer has. Only writes when something went. */
@@ -337,6 +345,11 @@ export function pruneTreeState(folders: Iterable<string>, spaces: Iterable<strin
   const f = new Set(folders)
   const s = new Set(spaces)
   s.add(PINNED_SECTION)
+  const recent = recentFolders()
+  const kept = recent.filter((p) => f.has(p))
+  if (kept.length !== recent.length) write('folders.recent', JSON.stringify(kept))
+  const last = lastFolder()
+  if (last && !f.has(last)) write('folders.last', null)
   const open = [...openFolders()].filter((p) => f.has(p))
   const closed = [...closedSpaces()].filter((n) => s.has(n))
   if (open.length === openFolders().size && closed.length === closedSpaces().size) return
@@ -344,6 +357,58 @@ export function pruneTreeState(folders: Iterable<string>, spaces: Iterable<strin
   closedSet = new Set(closed)
   write('tree.open', JSON.stringify(open))
   write('tree.closed', JSON.stringify(closed))
+}
+
+// --- new notes -------------------------------------------------------------
+
+/** Where the new-note picker starts: beside the open note, else the last
+ * folder a note was made in; or always in the last folder. */
+export type NewNoteStart = 'beside' | 'last'
+
+export function newNoteStart(): NewNoteStart {
+  return read('newnote.start') === 'last' ? 'last' : 'beside'
+}
+
+export function setNewNoteStart(v: NewNoteStart): void {
+  write('newnote.start', v === 'beside' ? null : v)
+}
+
+/** Whether the picker suggests the next name in a folder whose notes
+ * follow a pattern (dated, or numbered). On unless turned off. */
+export function suggestNames(): boolean {
+  return read('newnote.suggest') !== '0'
+}
+
+export function setSuggestNames(on: boolean): void {
+  write('newnote.suggest', on ? null : '0')
+}
+
+/** The last folders a note was made in or opened from on this device,
+ * newest first, each once. The pickers show them at the top. */
+export function recentFolders(): string[] {
+  const raw = read('folders.recent')
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw) as unknown
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function touchFolder(path: string): void {
+  if (!path) return
+  const list = [path, ...recentFolders().filter((x) => x !== path)].slice(0, FOLDERS_MAX)
+  write('folders.recent', JSON.stringify(list))
+}
+
+/** The folder a note was last made in on this device; empty when none. */
+export function lastFolder(): string {
+  return read('folders.last') ?? ''
+}
+
+export function setLastFolder(path: string): void {
+  if (path && path !== lastFolder()) write('folders.last', path)
 }
 
 // --- activity ---------------------------------------------------------------

@@ -925,7 +925,36 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .palette-folder { flex: none; color: var(--ink-3); }
 .palette-row.here .palette-folder, .palette-row.here .palette-label { color: var(--accent-ink); }
 .palette-here { margin-left: auto; font: 11px var(--mono); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 3px; padding: 0 5px; }
+.palette-head { padding: 8px 12px 4px; font: 600 10.5px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
 .palette-list + .palette-hint { padding-top: 6px; border-top: 1px solid var(--line); }
+
+/* The new-note picker: a line saying what Enter does, then the folders. */
+.newnote-what {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 18px;
+  font: 12.5px var(--mono); color: var(--ink-2); border-bottom: 1px solid var(--line);
+}
+.newnote-says { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
+.newnote-what.newnote-error { color: var(--danger); font-family: var(--sans); }
+.newnote-tag {
+  font: 11px var(--mono); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 3px; padding: 0 5px;
+  white-space: nowrap;
+}
+.newnote-tag em { font-style: normal; color: var(--ink-3); }
+.newnote-go { flex: none; height: 32px; }
+.newnote-open .palette-label { color: var(--accent-ink); font-weight: 600; }
+.newnote-into { margin-left: auto; display: grid; place-items: center; width: 36px; height: 36px; margin-right: -8px; color: var(--ink-3); }
+.newnote-keys { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.newnote-key { white-space: nowrap; }
+.newnote-key kbd { margin-right: 2px; }
+/* A suggested name: grey text after the caret, drawn over the input. */
+.newnote-field { position: relative; display: flex; flex-direction: column; }
+.newnote-ghost {
+  position: absolute; inset: 0 0 1px; padding: 0 18px; display: flex; align-items: center; overflow: hidden;
+  font: 16px var(--sans); white-space: pre; pointer-events: none;
+}
+.newnote-ghost-typed { visibility: hidden; }
+.newnote-ghost-name { color: var(--ink-3); pointer-events: auto; cursor: pointer; }
+.newnote-touch .palette-row { min-height: 44px; }
 
 /* --- menu -------------------------------------------------------------- */
 

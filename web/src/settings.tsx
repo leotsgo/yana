@@ -662,6 +662,7 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
   const [busy, setBusy] = useState(false)
   const [defSpace, setDefSpace] = useState(prefs.defaultSpace)
   const [dailySpace, setDailySpace] = useState(prefs.dailySpace)
+  const [start, setStart] = useState(prefs.newNoteStart)
 
   const reload = useCallback(async () => {
     try {
@@ -761,10 +762,28 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
         </form>
         {msg && <p class="form-msg">{msg}</p>}
       </Block>
-      <Block title="Defaults" lead="Where new notes and the daily note go when no note is open. Kept in this browser.">
+      <Block title="Defaults" lead="Where new notes and the daily note go. Kept in this browser.">
+        <div class="pref-row">
+          <label class="pref-label" for="pref-start">
+            New notes start
+          </label>
+          <select
+            id="pref-start"
+            class="select"
+            value={start}
+            onChange={(ev) => {
+              const v = (ev.target as HTMLSelectElement).value === 'last' ? 'last' : 'beside'
+              prefs.setNewNoteStart(v)
+              setStart(v)
+            }}
+          >
+            <option value="beside">beside the open note, else the last folder</option>
+            <option value="last">always in the last folder</option>
+          </select>
+        </div>
         <div class="pref-row">
           <label class="pref-label" for="pref-space">
-            New notes
+            Space for new notes
           </label>
           <SpaceSelect
             id="pref-space"
@@ -1657,6 +1676,7 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
   const [open, setOpen] = useState(prefs.openMode)
   const [live, setLive] = useState(prefs.livePreview)
   const [density, setDensity] = useState(prefs.density)
+  const [suggest, setSuggest] = useState(prefs.suggestNames)
 
   return (
     <>
@@ -1724,6 +1744,15 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
           onChange={(v) => {
             prefs.setLivePreview(v)
             setLive(v)
+          }}
+        />
+        <Toggle
+          label="Suggest names for new notes"
+          hint="In a folder of dated or numbered notes, the next name shows in grey. Right takes it."
+          on={suggest}
+          onChange={(v) => {
+            prefs.setSuggestNames(v)
+            setSuggest(v)
           }}
         />
       </Block>
