@@ -10,7 +10,7 @@ import type { ComponentChildren } from 'preact'
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks'
 
 import { api, ApiError, saveBlob } from './api'
-import type { Account, AgentKey, GitRemote, GitRemoteInput, OrphanAsset, PublicLinkRow, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
+import type { Account, AgentKey, GitRemote, GitRemoteInput, OrphanAsset, PublicLinkRow, RestorePreview, RemoteSchedule, Role, Session, SpaceDetail, SpaceInfo, Status } from './api'
 import * as auth from './auth'
 import type { ConfirmSpec } from './confirm'
 import { fmtBytes, fmtDate, isSet } from './dom'
@@ -1491,6 +1491,162 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
   )
 }
 
+// --- restore from a backup ---------------------------------------------------
+
+const RELATIONS: Record<string, string> = {
+  identical: 'the same history as this server',
+  ahead: 'ahead of this server’s history',
+  behind: 'behind this server’s history',
+  diverged: 'diverged from this server’s history',
+}
+
+/** Restore from a backup, under Data › History. The server fetches the
+ * backup, shows what it holds, and moves the tree to it once the owner
+ * types the remote's name. Owner-only. */
+function RestoreBlock({ user, say, onChanged, onStatus }: { user: auth.User | null; say: Ctx['say']; onChanged: () => void; onStatus: () => void }) {
+  const owner = !user || user.is_owner
+  const [remotes, setRemotes] = useState<GitRemote[] | null>(null)
+  const [pick, setPick] = useState('')
+  const [preview, setPreview] = useState<RestorePreview | null>(null)
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const enabled = useMemo(() => (remotes ?? []).filter((r) => r.enabled), [remotes])
+  const reload = useCallback(async () => {
+    try {
+      const r = await api.gitRemotes()
+      setRemotes(r.remotes)
+    } catch {
+      setRemotes([])
+    }
+  }, [])
+  useEffect(() => {
+    if (owner) void reload()
+  }, [owner, reload])
+  useEffect(() => {
+    const first = enabled[0]
+    if (first && !enabled.some((r) => r.id === pick)) setPick(first.id)
+  }, [enabled, pick])
+
+  if (!owner) return null
+  if (remotes === null) return null
+  const remote = enabled.find((r) => r.id === pick) ?? enabled[0]
+  if (!remote) return null
+
+  const fetchPreview = () => {
+    setBusy(true)
+    setMsg('')
+    api
+      .restorePreview(remote.id)
+      .then((r) => {
+        setPreview(r.preview)
+        setTyped('')
+      })
+      .catch((err: unknown) => setMsg(msgOf(err, `Could not read ${remote.name}.`)))
+      .finally(() => setBusy(false))
+  }
+
+  const restore = (ev: Event) => {
+    ev.preventDefault()
+    if (typed.trim() !== remote.name) return
+    setBusy(true)
+    setMsg('')
+    api
+      .restoreGitRemote(remote.id, typed.trim())
+      .then((r) => {
+        const parts: string[] = []
+        if (r.added > 0) parts.push(`${r.added} added`)
+        if (r.changed > 0) parts.push(`${r.changed} changed`)
+        if (r.deleted > 0) parts.push(`${r.deleted} deleted`)
+        say(parts.length > 0 ? `Restored from ${remote.name}: ${parts.join(', ')}.` : `Restored from ${remote.name}; the tree already matched.`)
+        setPreview(null)
+        setTyped('')
+        onChanged()
+        onStatus()
+      })
+      .catch((err: unknown) => setMsg(msgOf(err, 'Could not restore.')))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <Block
+      title="Restore from a backup"
+      lead="Bring the tree back from a backup remote: the disaster-recovery path for the notes. A fresh install with YANA_GIT_REMOTE set restores itself on first start."
+    >
+      <div class="pref-row">
+        <label class="pref-label" for="restore-remote">
+          Backup
+          <span class="pref-hint">An enabled remote the server pushes to. Nothing is touched until the restore is confirmed.</span>
+        </label>
+        <div class="pref-controls">
+          <select id="restore-remote" class="select grow" value={remote.id} disabled={busy} onChange={(ev) => {
+            setPick((ev.target as HTMLSelectElement).value)
+            setPreview(null)
+            setTyped('')
+            setMsg('')
+          }}>
+            {enabled.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+          <button type="button" class="btn" disabled={busy} onClick={fetchPreview}>
+            <Icon name="refresh" />
+            {preview && preview.commit ? 'Refresh' : 'Preview'}
+          </button>
+        </div>
+      </div>
+      {preview && (
+        <form class="settings-form" onSubmit={restore}>
+          <dl class="meta facts">
+            <dt>Holds</dt>
+            <dd>
+              {preview.commits} {preview.commits === 1 ? 'commit' : 'commits'}, {preview.notes} {preview.notes === 1 ? 'note' : 'notes'}
+            </dd>
+            <dt>Newest</dt>
+            <dd>
+              {preview.newest.subject} — {preview.newest.name}, {fmtDate(preview.newest.date)}
+            </dd>
+            <dt>Stands as</dt>
+            <dd>{RELATIONS[preview.relation] ?? preview.relation}</dd>
+          </dl>
+          <p class="muted">
+            Restoring moves every note and file to what the backup holds. The current state is committed and tagged first, so it stays reachable in the
+            history. Accounts, sessions, agent tokens, public links and the trash belong to this server and are not replaced; nobody is signed out.
+          </p>
+          <label class="field">
+            <span class="field-label">
+              Type <strong>{remote.name}</strong> to confirm
+            </span>
+            <input
+              class="input"
+              type="text"
+              autocomplete="off"
+              spellcheck={false}
+              value={typed}
+              onInput={(ev) => setTyped((ev.target as HTMLInputElement).value)}
+            />
+          </label>
+          <p class="form-msg" role="status">
+            {msg}
+          </p>
+          <div class="form-actions">
+            <button type="submit" class="btn danger" disabled={busy || typed.trim() !== remote.name}>
+              <Icon name="restore" />
+              Restore from {remote.name}
+            </button>
+            <button type="button" class="btn" disabled={busy} onClick={() => { setPreview(null); setTyped(''); setMsg('') }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </Block>
+  )
+}
+
 // --- appearance --------------------------------------------------------------
 
 function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
@@ -1760,7 +1916,7 @@ function OrphanAssetsBlock({ ctx }: { ctx: Ctx }) {
 }
 
 function DataSection({ ctx }: { ctx: Ctx }) {
-  const { user, status, spaces, notes, say, confirm, onOpenTrash, onStatus } = ctx
+  const { user, status, spaces, notes, say, confirm, onChanged, onOpenTrash, onStatus } = ctx
   const recent = useMemo(() => {
     const byId = new Map(notes.map((n) => [n.id, n]))
     return prefs.recents().map((id) => byId.get(id)).find((n) => n !== undefined)
@@ -1892,6 +2048,7 @@ function DataSection({ ctx }: { ctx: Ctx }) {
           </div>
         )}
       </Block>
+      {git?.available && <RestoreBlock user={user} say={say} onChanged={onChanged} onStatus={onStatus} />}
       {git?.available && <BackupsBlock user={user} say={say} confirm={confirm} onStatus={onStatus} />}
       <Block title="Index" lead="What the server knows about the tree. The files are the truth; the index can be deleted and rebuilt at any time.">
         {status ? (

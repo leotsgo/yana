@@ -194,6 +194,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/git/remotes/{id}", s.authed(s.handleGitRemoteDelete))
 	s.mux.HandleFunc("POST /api/git/remotes/{id}/push", s.authed(s.handleGitRemotePush))
 	s.mux.HandleFunc("POST /api/git/remotes/{id}/test", s.authed(s.handleGitRemoteTest))
+	s.mux.HandleFunc("POST /api/git/remotes/{id}/restore/preview", s.authed(s.handleGitRestorePreview))
+	s.mux.HandleFunc("POST /api/git/remotes/{id}/restore", s.authed(s.handleGitRestore))
 	s.mux.HandleFunc("GET /api/status", s.authed(s.handleStatus))
 	s.mux.HandleFunc("GET /api/notes/{id}/export.html", s.authed(s.handleExportNote))
 	s.mux.HandleFunc("GET /api/notes/{id}/public-link", s.authed(s.handlePublicLinkGet))

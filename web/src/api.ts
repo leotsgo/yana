@@ -227,6 +227,25 @@ export interface GitRemoteInput {
   enabled?: boolean
 }
 
+/** What a backup holds, reported before anything is touched. */
+export interface RestorePreview {
+  commit: string
+  commits: number
+  notes: number
+  relation: 'identical' | 'ahead' | 'behind' | 'diverged'
+  newest: { hash: string; name: string; email: string; date: string; subject: string; kind: string }
+}
+
+/** What a restore did: where it landed and what moved. */
+export interface RestoreSummary {
+  ok: boolean
+  commit: string
+  tag: string
+  added: number
+  changed: number
+  deleted: number
+}
+
 export interface TrashEntry {
   id: string
   space: string
@@ -434,6 +453,9 @@ export const api = {
   deleteGitRemote: (id: string) => post<{ ok: boolean }>(`/api/git/remotes/${encodeURIComponent(id)}`, {}, 'DELETE'),
   pushGitRemote: (id: string) => post<{ ok: boolean; remote: GitRemote }>(`/api/git/remotes/${encodeURIComponent(id)}/push`, {}),
   testGitRemote: (id: string) => post<{ ok: boolean; branches: number }>(`/api/git/remotes/${encodeURIComponent(id)}/test`, {}),
+  restorePreview: (id: string) => post<{ preview: RestorePreview }>(`/api/git/remotes/${encodeURIComponent(id)}/restore/preview`, {}),
+  restoreGitRemote: (id: string, confirm: string) =>
+    post<RestoreSummary>(`/api/git/remotes/${encodeURIComponent(id)}/restore`, { confirm }),
   spaces: () => get<{ spaces: SpaceInfo[] }>('/api/spaces'),
   space: (name: string) => get<SpaceDetail>(`/api/spaces/${encodeURIComponent(name)}`),
   createSpace: (name: string) => post<{ name: string }>('/api/spaces', { name }),

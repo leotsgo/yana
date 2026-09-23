@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -423,4 +424,110 @@ func writeRemoteError(w http.ResponseWriter, r *http.Request, s *Server, err err
 	default:
 		s.fail(w, r, err)
 	}
+}
+
+// --- restore from a backup ---------------------------------------------------
+
+// restoreRemote loads the remote a restore was asked for, refusing the
+// ones a restore cannot run against.
+func (s *Server) restoreRemote(w http.ResponseWriter, r *http.Request) (index.GitRemote, bool) {
+	remote, err := s.DB.GetGitRemote(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeRemoteError(w, r, s, err)
+		return index.GitRemote{}, false
+	}
+	if !remote.Enabled {
+		writeError(w, http.StatusBadRequest, "that remote is disabled; enable it to restore from it")
+		return index.GitRemote{}, false
+	}
+	return remote, true
+}
+
+// handleGitRestorePreview fetches a backup into the hidden ref and
+// describes it: how much it holds, and how it stands against the local
+// history. Nothing in the working tree is touched, so an unreachable
+// remote fails harmlessly here.
+func (s *Server) handleGitRestorePreview(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	remote, ok := s.restoreRemote(w, r)
+	if !ok {
+		return
+	}
+	commit, err := s.Git.FetchRestore(r.Context(), remote)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	preview, err := s.Git.PreviewRestore(r.Context(), commit)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"preview": preview})
+}
+
+// handleGitRestore moves the tree to a backup: fetch and reset, never a
+// merge. The owner confirms by typing the remote's name; the pre-restore
+// state is committed and tagged, restored files reach open editors as
+// edits through the reconciliation loop, and a full scan rebuilds the
+// index, search, tasks and links. .sync/ and .trash/ are gitignored and
+// stay put — accounts, sessions and public links belong to this server
+// and survive the restore.
+func (s *Server) handleGitRestore(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	var body struct {
+		Confirm string `json:"confirm"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "body must be JSON with a confirm field")
+		return
+	}
+	remote, ok := s.restoreRemote(w, r)
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(body.Confirm) != remote.Name {
+		writeError(w, http.StatusBadRequest, "type the remote's name ("+remote.Name+") to confirm the restore")
+		return
+	}
+	// The restore runs to completion even if the caller walks away
+	// halfway through; a reset abandoned mid-flight is a half-restored
+	// tree.
+	ctx := context.WithoutCancel(r.Context())
+	commit, err := s.Git.FetchRestore(ctx, remote)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	res, err := s.Git.Restore(ctx, commit, func(ctx context.Context, paths []git.RestorePath) {
+		if s.Sync == nil {
+			return
+		}
+		for _, p := range paths {
+			if _, err := s.Root.Clean(p.Path); err != nil {
+				continue // the scan applies the same path rules
+			}
+			s.Sync.Sync(ctx, p.Path)
+		}
+	})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if s.Scanner != nil {
+		if _, err := s.Scanner.Scan(ctx); err != nil {
+			s.Log.Error("rescan after a restore failed", "err", err)
+		}
+	}
+	if s.Sync != nil {
+		s.Sync.SweepOrphans(ctx)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "commit": res.Commit, "tag": res.Tag,
+		"added": res.Added, "changed": res.Changed, "deleted": res.Deleted,
+	})
 }

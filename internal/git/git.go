@@ -213,9 +213,11 @@ func (l *Layer) Attach(rec *reconcile.Reconciler) {
 }
 
 // Ensure initialises the repository: git init when the notes root has no
-// .git, and a .gitignore covering .sync/ and the loop's transient temp
-// files. It reports whether the git binary is usable; a layer over a
-// missing binary is unavailable and every operation degrades.
+// .git — or, when the root has never held notes and YANA_GIT_REMOTE is
+// set, a clone of that backup (see restore.go) — and a .gitignore
+// covering .sync/ and the loop's transient temp files. It reports
+// whether the git binary is usable; a layer over a missing binary is
+// unavailable and every operation degrades.
 func (l *Layer) Ensure(ctx context.Context) error {
 	if _, err := exec.LookPath("git"); err != nil {
 		return errors.New("git binary not found on PATH")
@@ -225,33 +227,19 @@ func (l *Layer) Ensure(ctx context.Context) error {
 		if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if _, err := l.git(ctx, "-c", "init.defaultBranch=main", "init"); err != nil {
-			return fmt.Errorf("git init: %w", err)
-		}
-		l.log.Info("initialised repository", "root", l.root)
-	}
-	ignore := filepath.Join(l.root, ".gitignore")
-	want := []string{".sync/", ".trash/", "*.yana-tmp-*"}
-	cur, err := os.ReadFile(ignore)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	lines := strings.Split(string(cur), "\n")
-	have := map[string]bool{}
-	for _, ln := range lines {
-		have[strings.TrimSpace(ln)] = true
-	}
-	var add []string
-	for _, w := range want {
-		if !have[w] {
-			add = append(add, w)
-		}
-	}
-	if len(add) > 0 {
-		out := append(bytes.Clone(cur), []byte(strings.Join(add, "\n")+"\n")...)
-		if err := fsutil.WriteFileAtomic(ignore, out, 0o644); err != nil {
+		cloned, err := l.cloneIfEmpty(ctx)
+		if err != nil {
 			return err
 		}
+		if !cloned {
+			if _, err := l.git(ctx, "-c", "init.defaultBranch=main", "init"); err != nil {
+				return fmt.Errorf("git init: %w", err)
+			}
+			l.log.Info("initialised repository", "root", l.root)
+		}
+	}
+	if err := l.ensureIgnore(); err != nil {
+		return err
 	}
 	// The window opens at the last commit so attribution survives a
 	// restart mid-window: the exact time lives in .sync/git-state.json,
@@ -284,6 +272,34 @@ func (l *Layer) Ensure(ctx context.Context) error {
 // by contract; losing it only blurs attribution for one window.
 func (l *Layer) statePath() string {
 	return filepath.Join(l.root, ".sync", "git-state.json")
+}
+
+// ensureIgnore keeps .gitignore covering .sync/, .trash/ and the loop's
+// transient temp files — the file is what keeps this server's state out
+// of the history, so it is asserted on start and after every restore.
+func (l *Layer) ensureIgnore() error {
+	ignore := filepath.Join(l.root, ".gitignore")
+	want := []string{".sync/", ".trash/", "*.yana-tmp-*"}
+	cur, err := os.ReadFile(ignore)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	lines := strings.Split(string(cur), "\n")
+	have := map[string]bool{}
+	for _, ln := range lines {
+		have[strings.TrimSpace(ln)] = true
+	}
+	var add []string
+	for _, w := range want {
+		if !have[w] {
+			add = append(add, w)
+		}
+	}
+	if len(add) == 0 {
+		return nil
+	}
+	out := append(bytes.Clone(cur), []byte(strings.Join(add, "\n")+"\n")...)
+	return fsutil.WriteFileAtomic(ignore, out, 0o644)
 }
 
 func (l *Layer) saveWindowState(ts time.Time) {
