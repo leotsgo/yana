@@ -299,6 +299,9 @@ func (s *Scanner) Scan(ctx context.Context) (Result, error) {
 		if err := index.RecomputeAllLinks(tx); err != nil {
 			return err
 		}
+		if err := index.RecomputeConflicts(tx); err != nil {
+			return err
+		}
 		return index.SetScanState(tx, "last_scan", s.opts.Now().UTC().Format(time.RFC3339Nano))
 	})
 	if err != nil {
@@ -331,7 +334,11 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 			}
 			// A removed note can free a basename (uniqueness flips) and
 			// breaks inbound links; recompute the space it lived in.
-			return index.RecomputeSpaceLinks(tx, spaceOf(cleanRel))
+			if err := index.RecomputeSpaceLinks(tx, spaceOf(cleanRel)); err != nil {
+				return err
+			}
+			// It can also be the survivor its conflict copies point at.
+			return index.RecomputeConflictsIn(tx, dirScope(cleanRel))
 		})
 	}
 	if err != nil {
@@ -359,6 +366,12 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 		moved := err == nil && old.RelPath != it.note.RelPath
 		fresh := errors.Is(err, index.ErrNotFound)
 		if err := index.UpsertNote(tx, it.note, it.body, it.raw, it.tags); err != nil {
+			return err
+		}
+		// The upsert clears conflict_of; a new file or a new neighbour
+		// can change who points where, so this note's corner of the
+		// tree is recomputed with it.
+		if err := index.RecomputeConflictsIn(tx, dirScope(it.note.RelPath)); err != nil {
 			return err
 		}
 		// A new note can resolve targets that were unresolved; a moved one
@@ -653,6 +666,15 @@ func NewID(now time.Time) string {
 // directory, or "" for files loose in the root.
 func spaceOf(rel string) string {
 	if i := strings.IndexByte(rel, '/'); i >= 0 {
+		return rel[:i]
+	}
+	return ""
+}
+
+// dirScope is the directory a single-path recompute needs: the folder
+// holding rel, or "" (the whole tree) for files loose in the root.
+func dirScope(rel string) string {
+	if i := strings.LastIndexByte(rel, '/'); i > 0 {
 		return rel[:i]
 	}
 	return ""

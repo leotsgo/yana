@@ -248,8 +248,9 @@ func scanNoteInto(row interface{ Scan(...any) error }, n *Note, extra ...any) er
 	var mtime, created, updated int64
 	var order sql.NullInt64
 	var trusted int
+	var conflict sql.NullString
 	dst := []any{&n.ID, &n.Space, &n.RelPath, &n.Title, &n.Preview, &n.Kind, &n.ContentHash,
-		&n.Size, &mtime, &created, &updated, &order, &trusted}
+		&n.Size, &mtime, &created, &updated, &order, &trusted, &conflict}
 	dst = append(dst, extra...)
 	if err := row.Scan(dst...); err != nil {
 		return err
@@ -262,6 +263,7 @@ func scanNoteInto(row interface{ Scan(...any) error }, n *Note, extra ...any) er
 		n.Order = &o
 	}
 	n.Trusted = trusted != 0
+	n.ConflictOf = conflict.String
 	return nil
 }
 

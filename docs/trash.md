@@ -55,6 +55,9 @@ Restore returns the note to its original path and re-resolves inbound
 links across the space. If a new note has taken the original path, the
 restored note lands beside it as `name.conflict-<timestamp>.md`, the
 same convention as colliding HTML saves, and nothing is overwritten.
+The copy then shows as a conflict on the note that took the path, with
+a diff and three ways to resolve it — see
+[the editor's conflicts section](editor.md#conflicts).
 
 Empty trash destroys every entry you have write access to; each entry's
 Delete forever destroys just that one. These are the only operations

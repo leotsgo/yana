@@ -58,8 +58,10 @@ last-write-wins: the incoming text always lands. When a save does not
 build on the file that is currently on disk — someone else, or an agent,
 rewrote it since you loaded it — the server first parks the overwritten
 version beside the note as `name.conflict-<ts>.html`. The conflict copy
-is a real note: it is indexed, searchable, and keeps its own id. Delete
-it when you have taken what you need from it.
+is a real note: it is indexed, searchable, and keeps its own id. It also
+shows as a conflict on the note it belongs to — a chip on the title bar,
+a nested row in the tree, a diff and three ways to resolve it — as
+[the editor's conflicts section](editor.md#conflicts) describes.
 
 ## Wikilinks
 

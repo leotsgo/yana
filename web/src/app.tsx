@@ -22,6 +22,7 @@ import * as auth from './auth'
 import * as cache from './cache'
 import { Confirm } from './confirm'
 import type { ConfirmSpec } from './confirm'
+import { isLocalConflict } from './conflict'
 import { isEditable, isMac, keys, label, matches, tabDigit } from './hotkeys'
 import { Icon } from './icons'
 import type { IconName } from './icons'
@@ -481,6 +482,35 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // Only a tree fresh from the server says so.
   const treeReady = spaces !== null && !staleTree && treeError === null
   const gone = useCallback((id: string) => !isPage(id) && treeReady && !byId.has(id), [treeReady, byId])
+
+  // A conflict copy that appears while its note is open says so. The
+  // tree poll brings the news; ones this client parked itself stay
+  // quiet, and the first load only primes the set.
+  const conflictSeen = useRef<Set<string>>(new Set())
+  const conflictsPrimed = useRef(false)
+  useEffect(() => {
+    const open = new Set<string>()
+    for (const p of ws.panes) for (const t of p.tabs) if (!isPage(t.id)) open.add(t.id)
+    const next = new Set<string>()
+    const news: string[] = []
+    for (const n of notes) {
+      if (!n.conflict) continue
+      next.add(n.id)
+      if (
+        conflictsPrimed.current &&
+        !conflictSeen.current.has(n.id) &&
+        n.conflictOf &&
+        open.has(n.conflictOf) &&
+        !isLocalConflict(n.path)
+      ) {
+        const owner = byId.get(n.conflictOf)
+        news.push(`A conflict copy of ${owner?.title || 'a note you have open'} appeared.`)
+      }
+    }
+    conflictSeen.current = next
+    conflictsPrimed.current = true
+    for (const m of news) say(m)
+  }, [notes, byId, ws, say])
 
   // Tabs follow renames through the tree.
   useEffect(() => {
@@ -1696,6 +1726,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         spaces={spaces ?? []}
         loading={spaces === null}
         openTasks={openTasks}
+        conflicts={status?.conflicts ?? 0}
         onOpen={navigate}
         onNew={() => newNote()}
         onCapture={capturePrompt}
@@ -1703,6 +1734,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         onTasks={() => openTasksPage()}
         onGuide={() => openGuide()}
         onActivity={() => openActivity()}
+        onConflicts={() => openSettings('data')}
         onInstall={net.canInstall ? () => void pwa.promptInstall() : null}
       />
     )
@@ -2102,6 +2134,8 @@ interface HomeProps {
   loading: boolean
   /** Open tasks across the account's spaces, when the count is in. */
   openTasks: number | null
+  /** Conflict copies waiting in the caller's spaces. */
+  conflicts: number
   onOpen: (id: string, how?: OpenHow) => void
   onNew: () => void
   onCapture: () => void
@@ -2112,6 +2146,8 @@ interface HomeProps {
   onGuide: () => void
   /** The activity feed. */
   onActivity: () => void
+  /** The Data page, where the conflicts are listed. */
+  onConflicts: () => void
   /** Offered when the browser made an install prompt available. */
   onInstall: (() => void) | null
 }
@@ -2119,7 +2155,7 @@ interface HomeProps {
 // The home page: the three things people come here to do, each with a
 // line saying what it is, then what they pinned and what they opened
 // last. Shortcuts are in the account menu and the palette.
-function Home({ notes, pins, spaces, loading, openTasks, onOpen, onNew, onCapture, onDaily, onTasks, onGuide, onActivity, onInstall }: HomeProps) {
+function Home({ notes, pins, spaces, loading, openTasks, conflicts, onOpen, onNew, onCapture, onDaily, onTasks, onGuide, onActivity, onConflicts, onInstall }: HomeProps) {
   const byId = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
   const recent = prefs.recents().map((id) => byId.get(id)).filter((n): n is FlatNote => Boolean(n))
   const pinned = pins
@@ -2188,6 +2224,15 @@ function Home({ notes, pins, spaces, loading, openTasks, onOpen, onNew, onCaptur
           {guide ? 'Start here: how links, pictures, tasks and tags work' : 'New here? Open the guide'}
         </a>
       </p>
+      {conflicts > 0 && (
+        <p class="home-conflicts">
+          <a href="/settings/data" onClick={(ev) => { ev.preventDefault(); onConflicts() }}>
+            <Icon name="alert" size={14} />
+            {conflicts} {conflicts === 1 ? 'conflict copy waits' : 'conflict copies wait'} — two writes met the same
+            path
+          </a>
+        </p>
+      )}
       <WhatsChanged spaceNames={spaces.map((s) => s.name)} ready={!loading} onOpen={onActivity} />
       {loading ? (
         <p class="muted">Loading the tree…</p>

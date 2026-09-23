@@ -15,6 +15,10 @@ export interface TreeNode {
   tags?: string[]
   /** A public link to the note is live. */
   public?: boolean
+  /** This row is a conflict copy nested under the note it belongs to. */
+  conflict?: boolean
+  /** For a conflict copy: the note it belongs to. */
+  conflict_of?: string
   children?: TreeNode[]
 }
 
@@ -63,6 +67,10 @@ export interface Note {
   html?: string
   markdown?: string
   source?: string
+  /** The note this copy is a conflict of; empty when the original is gone. */
+  conflict_of?: string
+  /** How many conflict copies point at this note, for the title-bar chip. */
+  conflict_count?: number
 }
 
 export type Role = 'owner' | 'editor' | 'viewer'
@@ -144,6 +152,8 @@ export interface Status {
   regex_version?: string
   accounts: boolean
   daily: { pattern: string; template: string }
+  /** Conflict copies waiting in the caller's spaces; absent when there are none. */
+  conflicts?: number
   git?: { available: boolean; commits: number; last_commit: string; errors: number; last_error: string; last_error_at: string; pushes: number; last_push: string; remotes: number }
   sync?: { loaded: number; dirty: number; writebacks: number; readins: number; watching: boolean }
   trash?: { retention_days: number }
@@ -458,6 +468,22 @@ async function post<T>(path: string, payload: unknown, method = 'POST'): Promise
   return body as T
 }
 
+/** One conflict copy as the Data page lists it: the copy itself, and
+ * the note it belongs to while that note still exists. */
+export interface ConflictEntry {
+  note: Note
+  of?: Note | null
+}
+
+/** The two sides of a conflict diff. */
+export interface ConflictSide {
+  id: string
+  path: string
+  title: string
+}
+
+export type ConflictAction = 'mine' | 'theirs' | 'both'
+
 export const api = {
   tree: (space?: string) =>
     get<{ spaces: SpaceTree[] }>('/api/tree' + (space ? `?space=${encodeURIComponent(space)}` : '')),
@@ -490,6 +516,13 @@ export const api = {
   deleteDir: (path: string) =>
     post<{ ok: boolean; deleted: number; removed: boolean }>(`/api/dirs?path=${encodeURIComponent(path)}`, {}, 'DELETE'),
   trash: () => get<{ entries: TrashEntry[] }>('/api/trash'),
+  conflicts: () => get<{ conflicts: ConflictEntry[] }>('/api/conflicts'),
+  noteConflicts: (id: string) =>
+    get<{ conflicts: Note[] }>(`/api/notes/${encodeURIComponent(id)}/conflicts`),
+  conflictDiff: (id: string) =>
+    get<{ diff: string; mine: ConflictSide; theirs: ConflictSide }>(`/api/conflicts/${encodeURIComponent(id)}/diff`),
+  resolveConflict: (id: string, action: ConflictAction) =>
+    post<{ ok: boolean; action: ConflictAction; path?: string }>(`/api/conflicts/${encodeURIComponent(id)}/resolve`, { action }),
   restoreTrash: (id: string) =>
     post<RestoreResult>(`/api/trash/${encodeURIComponent(id)}/restore`, {}),
   destroyTrash: (id: string) => post<{ ok: boolean }>(`/api/trash/${encodeURIComponent(id)}`, {}, 'DELETE'),

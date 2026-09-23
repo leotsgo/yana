@@ -746,21 +746,20 @@ func TestMembershipEditSeversSubscription(t *testing.T) {
 	}})
 
 	// Within one watcher cycle (debounce + process) the open
-	// subscription is severed with a forbidden error.
-	deadline := time.Now().Add(10 * time.Second)
-	var severed bool
-	for time.Now().Before(deadline) {
+	// subscription is severed with a forbidden error. One read context
+	// spans the whole wait: coder/websocket closes the connection when a
+	// read's context expires, so short per-read timeouts would kill the
+	// socket before a slow watcher cycle delivers the error.
+	readCtx, cancel2 := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel2()
+	for {
 		var reply wsReply
-		readCtx, cancel2 := context.WithTimeout(ctx, 200*time.Millisecond)
-		if err := wsRead(readCtx, ws, &reply); err == nil && reply.Type == "err" && reply.Code == "forbidden" {
-			severed = true
-			cancel2()
+		if err := wsRead(readCtx, ws, &reply); err != nil {
+			t.Fatalf("open subscription was not severed after the membership edit: %v", err)
+		}
+		if reply.Type == "err" && reply.Code == "forbidden" {
 			break
 		}
-		cancel2()
-	}
-	if !severed {
-		t.Fatal("open subscription was not severed after the membership edit")
 	}
 
 	// And re-subscribing is refused.

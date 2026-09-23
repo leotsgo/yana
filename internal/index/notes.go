@@ -26,6 +26,9 @@ type Note struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 	Order       *int      `json:"order,omitempty"`
 	Trusted     bool      `json:"trusted"`
+	// ConflictOf names the note this copy is a conflict of, when the
+	// name says conflict and the survivor still exists. Derived.
+	ConflictOf string `json:"conflict_of,omitempty"`
 }
 
 // Asset is one file under an _assets directory.
@@ -39,7 +42,7 @@ type Asset struct {
 // ErrNotFound is returned when a note id has no row.
 var ErrNotFound = errors.New("note not found")
 
-const noteColumns = "id, space, rel_path, title, preview, kind, content_hash, size, mtime, created, updated_at, sort_order, trusted"
+const noteColumns = "id, space, rel_path, title, preview, kind, content_hash, size, mtime, created, updated_at, sort_order, trusted, conflict_of"
 
 func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 	var n Note
@@ -68,14 +71,15 @@ func UpsertNote(tx *sql.Tx, n Note, body, raw string, tags []string) error {
 		return err
 	}
 	_, err := tx.Exec(`INSERT INTO notes (`+noteColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			space = excluded.space, rel_path = excluded.rel_path, title = excluded.title,
 			preview = excluded.preview, kind = excluded.kind, content_hash = excluded.content_hash,
 			size = excluded.size, mtime = excluded.mtime, created = excluded.created,
-			updated_at = excluded.updated_at, sort_order = excluded.sort_order, trusted = excluded.trusted`,
+			updated_at = excluded.updated_at, sort_order = excluded.sort_order, trusted = excluded.trusted,
+			conflict_of = excluded.conflict_of`,
 		n.ID, n.Space, n.RelPath, n.Title, n.Preview, n.Kind, n.ContentHash, n.Size,
-		n.MTime.UnixNano(), n.Created.UnixNano(), n.UpdatedAt.UnixNano(), order, trusted)
+		n.MTime.UnixNano(), n.Created.UnixNano(), n.UpdatedAt.UnixNano(), order, trusted, nil)
 	if err != nil {
 		return fmt.Errorf("upsert note %s: %w", n.RelPath, err)
 	}
@@ -374,8 +378,9 @@ func (db *DB) Search(ctx context.Context, query, space string, allowed []string,
 		var mtime, created, updated int64
 		var order sql.NullInt64
 		var trusted int
+		var conflict sql.NullString
 		dst := []any{&h.Note.ID, &h.Note.Space, &h.Note.RelPath, &h.Note.Title, &h.Note.Preview, &h.Note.Kind,
-			&h.Note.ContentHash, &h.Note.Size, &mtime, &created, &updated, &order, &trusted, &h.Snippet}
+			&h.Note.ContentHash, &h.Note.Size, &mtime, &created, &updated, &order, &trusted, &conflict, &h.Snippet}
 		if !short {
 			dst = append(dst, &h.Rank)
 		}
@@ -390,6 +395,7 @@ func (db *DB) Search(ctx context.Context, query, space string, allowed []string,
 			h.Note.Order = &o
 		}
 		h.Note.Trusted = trusted != 0
+		h.Note.ConflictOf = conflict.String
 		if h.Snippet == "" {
 			h.Snippet = h.Note.Preview
 		}

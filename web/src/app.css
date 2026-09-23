@@ -320,6 +320,9 @@ kbd {
 .tree-note.selected { background: var(--accent-soft); color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
 .tree-title { overflow: hidden; text-overflow: ellipsis; }
 .tree-kind { font: 10px var(--mono); color: var(--ink-3); border: 1px solid var(--line-2); padding: 0 4px; border-radius: 3px; }
+.tree-conflicts .tree-note { padding-left: calc(var(--indent, 10px) + 52px); color: var(--ink-2); }
+.tree-note.conflict .tree-title { font-style: italic; }
+.tree-conflict-mark { flex: none; color: var(--danger); }
 .tree-public { flex: none; color: var(--accent-ink); }
 .space.drop > .space-name, .tree-dir.drop, .tree-note.drop { box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
 .tree-note[draggable="true"] { cursor: grab; }
@@ -416,6 +419,9 @@ kbd {
 .home-guide { margin: 0 0 36px; font-size: 13px; }
 .home-guide a { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-ink); }
 .home-guide .icon { color: var(--ink-3); }
+.home-conflicts { margin: -28px 0 36px; font-size: 13px; }
+.home-conflicts a { display: inline-flex; align-items: center; gap: 6px; color: var(--danger); }
+.home-conflicts .icon { color: var(--danger); }
 .section-title { font: 600 11px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 8px; }
 .recents + .recents { margin-top: 28px; }
 .recents-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
@@ -495,6 +501,13 @@ kbd {
   border: 0; border-radius: 999px; cursor: pointer; white-space: nowrap;
 }
 .public-mark:hover { background: var(--accent); color: var(--accent-text); }
+.conflict-chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 22px; margin-left: 8px; padding: 0 7px;
+  font: 500 11px var(--sans); color: var(--danger); background: var(--danger-soft);
+  border: 0; border-radius: 999px; cursor: pointer; white-space: nowrap;
+}
+.conflict-chip:hover { background: var(--danger); color: var(--accent-text); }
+.conflict-hint .icon { color: var(--danger); }
 .title-hint {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 0; padding: 0;
   font: 12.5px var(--mono); color: var(--ink-2);
@@ -1008,6 +1021,22 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
   .share-url .copy-value { flex-basis: 100%; }
   .share-body { flex-direction: column; align-items: center; }
   .share-facts { width: 100%; }
+}
+
+/* --- conflicts --------------------------------------------------------- */
+
+.conflict-dialog { width: min(680px, 100%); }
+.conflict-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.conflict-tabs button {
+  padding: 4px 9px; font-size: 12px; color: var(--ink-2); background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: 999px; cursor: pointer;
+}
+.conflict-tabs button.on { color: var(--accent-text); background: var(--accent); border-color: var(--accent); }
+.conflict-diff { max-height: 46vh; }
+.conflict-row-icon { color: var(--danger); }
+@media (max-width: 640px) {
+  .conflict-dialog .confirm-actions { flex-direction: column-reverse; }
+  .conflict-dialog .confirm-actions .btn { width: 100%; justify-content: center; }
 }
 
 /* --- accounts ---------------------------------------------------------- */
