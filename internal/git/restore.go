@@ -248,6 +248,9 @@ type RestoreResult struct {
 	Added   int    `json:"added"`
 	Changed int    `json:"changed"`
 	Deleted int    `json:"deleted"`
+	// Moved counts renames; point-in-time restores report it, backup
+	// restores leave it at zero.
+	Moved int `json:"moved"`
 }
 
 // Restore moves the working tree to ref. Pending edits are flushed and

@@ -337,6 +337,20 @@ func (r *Reconciler) EmptyTrash(ctx context.Context, allow func(space string) bo
 // skipped, and .trash files the index knows nothing about (it was
 // rebuilt) are listed from the filesystem.
 func (r *Reconciler) ListTrash(ctx context.Context, allow func(space string) bool) ([]TrashEntry, error) {
+	return r.listDeleted(ctx, allow, true)
+}
+
+// ListDeletedEvery lists deleted_notes rows the way the Data page's
+// deleted-notes list wants them: every row the allow filter permits,
+// including the ones with neither a trash copy nor a sidecar — those
+// are the notes only the git history can bring back.
+func (r *Reconciler) ListDeletedEvery(ctx context.Context, allow func(space string) bool) ([]TrashEntry, error) {
+	return r.listDeleted(ctx, allow, false)
+}
+
+// listDeleted is the shared listing; onlyRecoverable skips rows with
+// nothing the trash itself can restore.
+func (r *Reconciler) listDeleted(ctx context.Context, allow func(space string) bool, onlyRecoverable bool) ([]TrashEntry, error) {
 	rows, err := r.db.ListDeleted(ctx)
 	if err != nil {
 		return nil, err
@@ -355,7 +369,7 @@ func (r *Reconciler) ListTrash(ctx context.Context, allow func(space string) boo
 			}
 		}
 		e.HasSidecar = r.hasSidecar(d.ID)
-		if !e.HasFile && !e.HasSidecar {
+		if onlyRecoverable && !e.HasFile && !e.HasSidecar {
 			continue
 		}
 		out = append(out, e)
@@ -371,6 +385,30 @@ func (r *Reconciler) ListTrash(ctx context.Context, allow func(space string) boo
 		out = append(out, TrashEntry{DeletedNote: d, HasFile: true, Untracked: true})
 	}
 	return out, nil
+}
+
+// DeletedRow resolves a deleted note id to its record, wherever the
+// listing found it (a rebuilt index leaves rows only under .trash).
+func (r *Reconciler) DeletedRow(ctx context.Context, id string) (index.DeletedNote, bool, error) {
+	return r.trashRow(ctx, id)
+}
+
+// TrashFile moves one working-tree file under .trash — the way out for
+// a restore that removes files the index knows nothing about (assets,
+// loose files). Missing files are not an error; the caller asked for
+// the path to be gone, and it is.
+func (r *Reconciler) TrashFile(ctx context.Context, rel string) error {
+	abs, clean, err := r.root.Resolve(rel)
+	if err != nil {
+		return err
+	}
+	if _, statErr := os.Lstat(abs); errors.Is(statErr, fs.ErrNotExist) {
+		return nil
+	} else if statErr != nil {
+		return statErr
+	}
+	_, err = r.moveToTrash(clean, abs, r.opts.Now())
+	return err
 }
 
 // trashRow resolves a deleted note id to its record, falling back to an

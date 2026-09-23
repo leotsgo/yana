@@ -9,9 +9,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import { api, ApiError } from './api'
 import type { ActivityEntry, ActivityKind, SpaceInfo } from './api'
+import { user as accountUser } from './auth'
 import { fmtDate } from './dom'
 import { Icon } from './icons'
 import * as prefs from './prefs'
+import { RestoreDialog } from './restore'
+import type { RestoreSpec } from './restore'
 import { openProps } from './workspace'
 import type { OpenHow } from './workspace'
 
@@ -45,9 +48,12 @@ export interface ActivityPageProps {
   onOpen: (id: string, how?: OpenHow) => void
   /** Change the space or folder filter; reroutes the page. */
   onNavigate: (space: string, path: string) => void
+  onToast: (msg: string) => void
+  /** Called after a restore changes the tree. */
+  onChanged: () => void
 }
 
-export function ActivityPage({ space, path, spaces, onOpen, onNavigate }: ActivityPageProps) {
+export function ActivityPage({ space, path, spaces, onOpen, onNavigate, onToast, onChanged }: ActivityPageProps) {
   const [win, setWin] = useState<FeedWindow>(prefs.activitySeen() !== null ? 'seen' : 'week')
   const [kind, setKind] = useState<'all' | ActivityKind>('all')
   const [author, setAuthor] = useState('')
@@ -57,6 +63,10 @@ export function ActivityPage({ space, path, spaces, onOpen, onNavigate }: Activi
   const [cursors, setCursors] = useState<Record<string, string>>({})
   const [more, setMore] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Whether the account may restore this space to a feed entry (the
+  // server says so with the feed), and the dialog, when one is open.
+  const [spaceRestore, setSpaceRestore] = useState(false)
+  const [restore, setRestore] = useState<RestoreSpec | null>(null)
   // The marker as it was when the page opened; the divider sits under
   // everything newer than it. Captured once, before this visit advances
   // it.
@@ -108,6 +118,7 @@ export function ActivityPage({ space, path, spaces, onOpen, onNavigate }: Activi
         for (const [sp, r] of results) {
           next[sp] = r.next_cursor
           if (r.more) any = true
+          if (sp === space) setSpaceRestore(r.restore_allowed === true)
         }
         setError(null)
         if (mode === 'first') {
@@ -157,6 +168,29 @@ export function ActivityPage({ space, path, spaces, onOpen, onNavigate }: Activi
     return rows.findIndex((r) => new Date(r.to).getTime() <= (seen.current as number))
   }, [rows])
   const groups = useMemo(() => groupByDay(rows), [rows])
+
+  // A restore from this page is scoped to the space when one is shown,
+  // and to the whole tree otherwise — the owner's move.
+  const user = accountUser()
+  const canRestore = space !== '' ? spaceRestore : !user || user.is_owner
+  const restoreLabel = space !== '' ? `Restore ${space} to here` : 'Restore the tree to here'
+  const pickRestore = (row: Row) => {
+    if (!row.commit) return
+    setRestore({
+      commit: row.commit,
+      space,
+      onDone: (s) => {
+        const parts: string[] = []
+        if (s.added > 0) parts.push(`${s.added} added`)
+        if (s.changed > 0) parts.push(`${s.changed} changed`)
+        if (s.deleted > 0) parts.push(`${s.deleted} deleted`)
+        if (s.moved > 0) parts.push(`${s.moved} moved`)
+        onToast(parts.length > 0 ? `Restored: ${parts.join(', ')}.` : 'It already stood here; nothing changed.')
+        void fetchPage('first')
+        onChanged()
+      },
+    })
+  }
 
   return (
     <div class="page-scroll report activity">
@@ -245,7 +279,7 @@ export function ActivityPage({ space, path, spaces, onOpen, onNavigate }: Activi
                           <span>You've seen everything below this line</span>
                         </li>
                       )}
-                      <Entry key={at} row={e} showSpace={!space} onOpen={onOpen} />
+                      <Entry key={at} row={e} showSpace={!space} onOpen={onOpen} onRestore={canRestore ? pickRestore : null} restoreLabel={restoreLabel} />
                     </>
                   )
                 })}
@@ -262,11 +296,29 @@ export function ActivityPage({ space, path, spaces, onOpen, onNavigate }: Activi
           )}
         </>
       )}
+      {restore && (
+        <RestoreDialog
+          spec={restore}
+          onClose={() => setRestore(null)}
+        />
+      )}
     </div>
   )
 }
 
-function Entry({ row, showSpace, onOpen }: { row: Row; showSpace: boolean; onOpen: (id: string, how?: OpenHow) => void }) {
+function Entry({
+  row,
+  showSpace,
+  onOpen,
+  onRestore,
+  restoreLabel,
+}: {
+  row: Row
+  showSpace: boolean
+  onOpen: (id: string, how?: OpenHow) => void
+  onRestore: ((row: Row) => void) | null
+  restoreLabel: string
+}) {
   return (
     <li class="activity-entry">
       <div class="activity-head">
@@ -283,6 +335,17 @@ function Entry({ row, showSpace, onOpen }: { row: Row; showSpace: boolean; onOpe
           {fmtAgo(row.to)}
         </span>
         {showSpace && <span class="activity-space">{row.space}</span>}
+        {onRestore && row.commit && (
+          <button
+            type="button"
+            class="icon-btn activity-restore"
+            title={restoreLabel}
+            aria-label={restoreLabel}
+            onClick={() => onRestore(row)}
+          >
+            <Icon name="restore" size={15} />
+          </button>
+        )}
       </div>
       <ul class="activity-changes">
         {row.changes.map((c) => (

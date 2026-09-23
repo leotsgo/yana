@@ -89,7 +89,11 @@ clones itself back onto an empty volume on first start.
 who changed which notes, when, grouped by day. An agent's overnight run
 shows as one entry, the home screen carries a count of changes since
 you last looked, and a folder's menu opens the feed narrowed to that
-folder.
+folder. Every entry carries a restore: the whole tree, or just that
+space, back to how it stood — previewed exactly, one file at a time,
+before anything moves. The restore lands as its own commit, the state
+it replaced is tagged, and what it removes goes to the trash, so it is
+itself undoable.
 
 **Sharing.** Accounts gate every route; the first visit creates the
 owner and there are no default credentials. Each top-level folder is a
@@ -101,7 +105,9 @@ accounts, spaces, sessions and agent keys without touching a file.
 **Deletion is soft.** A deleted note moves to `.trash/` with its edit
 history for thirty days and comes back from the Trash page, original path
 and all. A note `rm`'d from a shell comes back too. Emptying the trash
-is the only permanent destruction.
+is the only permanent destruction. Settings → Data lists deleted notes
+with what a restore would use — the trash copy while it lasts, the
+history after that.
 
 **Everything exports.** One note as a self-contained HTML file. A space or
 subtree as a static site with navigation, working links, backlinks and

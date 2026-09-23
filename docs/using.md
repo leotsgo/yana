@@ -116,6 +116,20 @@ reads as one entry. The line under the home screen's summary counts
 what changed since you last looked; opening the feed is what marks it
 seen.
 
+Every entry carries a restore. **Restore this space to here** (or, on
+the every-space feed, **Restore the tree to here**) opens a preview
+first: every note that would come back, change, move, or go, listed
+one by one, before anything is touched. The restore itself is work
+like any other — the current state is committed and tagged, what it
+removes lands in the trash, and the history reads who restored what
+and to when. A whole-tree restore is the owner's; a space restore
+needs write access on that space.
+
+A single note deleted by accident does not need the feed. Settings →
+Data lists deleted notes, each one restorable to where it lived — from
+the trash while it holds the copy, and from the history after that,
+under a free name if something new has taken the path.
+
 ## Share a space
 
 The top-level folders are spaces. The owner adds a person under Settings
