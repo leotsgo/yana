@@ -212,6 +212,18 @@ pane — the picker starts in the folder a note was last made in
 the last folder" (the default) and "always in the last folder". The Move
 picker shows the same recent folders at the top.
 
+In a folder whose notes follow a pattern, the picker suggests the next
+name as grey text after the caret, while nothing is typed after the
+folder. When at least half the notes in the folder are named by date
+(`2026-09-22`), the suggestion is today's date; when the notes end in a
+number that counts up under one name (`Standup 11`, `Standup 12`), it is
+the next number (`Standup 13`), zero padding kept. Anything else
+suggests nothing. `Right` at the end of the input, or `End`, takes the
+suggestion (a tap on it does the same); `Tab` still completes folders,
+typing anything else replaces it, and `Enter` with the suggestion
+showing still makes an untitled note. Settings → Appearance → "Suggest
+names for new notes" turns it off (`yana.newnote.suggest`).
+
 The title is also where the note goes. A slash in it places the note:
 `projects/kiln` moves it into `projects/` beside where it was (the folder
 is made if it is not there) and calls it kiln; `/work/plan` starts from

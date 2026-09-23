@@ -15,6 +15,8 @@ import { fuzzy } from './fuzzy'
 import { isMac } from './hotkeys'
 import { Icon } from './icons'
 import { fileName, resolveDir } from './paths'
+import { today } from './sharelib'
+import { suggestName } from './suggest'
 
 export interface NewNoteSpec {
   /** The folder to start in, with a trailing slash; empty for the root. */
@@ -40,6 +42,8 @@ interface Props {
   notes: PickerNote[]
   /** Folders used lately on this device, newest first. */
   recent: string[]
+  /** Offer the next name in a folder whose notes follow a pattern. */
+  suggest: boolean
   /** A desktop: Alt+Enter has another pane to open in. */
   panes: boolean
   /** A touch screen: rows carry a button that completes into the folder. */
@@ -190,7 +194,7 @@ export function freeName(notes: Array<{ path: string }>, dir: string, name: stri
   return `${stem} ${i}${ext}`
 }
 
-export function NewNotePicker({ spec, dirs, spaces, notes, recent, panes, touch, onCreate, onOpen, onClose }: Props) {
+export function NewNotePicker({ spec, dirs, spaces, notes, recent, suggest, panes, touch, onCreate, onOpen, onClose }: Props) {
   const [text, setText] = useState(spec.initial)
   const [cursor, setCursor] = useState(0)
   // A message for the path it was said about; typing moves past it.
@@ -209,6 +213,13 @@ export function NewNotePicker({ spec, dirs, spaces, notes, recent, panes, touch,
 
   const parsed = useMemo(() => parsePath(text, spec.space, spaces, dirs), [text, spec.space, spaces, dirs])
   const exists = useMemo(() => (parsed.error ? null : existingNote(notes, parsed.dir, parsed.name)), [notes, parsed])
+  // A suggested name shows as grey text after a folder with nothing typed
+  // after it; Right at the end, or End, takes it.
+  const ghost = useMemo(() => {
+    if (!suggest || parsed.error || parsed.name || !text.endsWith('/')) return null
+    const names = notes.filter((n) => dirOf(n.path) === parsed.dir).map((n) => baseOf(n.path).replace(NOTE_EXT, ''))
+    return suggestName(names, today())
+  }, [suggest, parsed, text, notes])
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = []
@@ -347,6 +358,15 @@ export function NewNotePicker({ spec, dirs, spaces, notes, recent, panes, touch,
         complete(row && (row.kind === 'folder' || row.kind === 'up') ? row : rows.find((r) => r.kind === 'folder'))
         break
       }
+      case 'ArrowRight':
+      case 'End': {
+        const el = ev.currentTarget as HTMLInputElement
+        const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length
+        if (!ghost || ev.shiftKey || (ev.key === 'ArrowRight' && !atEnd)) break
+        ev.preventDefault()
+        put(text + ghost)
+        break
+      }
       case 'Backspace': {
         // Right after a slash, Backspace takes the whole folder off.
         const el = ev.currentTarget as HTMLInputElement
@@ -368,25 +388,47 @@ export function NewNotePicker({ spec, dirs, spaces, notes, recent, panes, touch,
   const active = rows[cursor]
   const flash = said && said.at === text ? said.msg : null
   const opening = active && (active.kind === 'open' || active.kind === 'note')
-  const k = (s: string) => <kbd>{s}</kbd>
+  // Each key stays on a line with what it does.
+  const k = (key: string, does: string) => (
+    <span class="newnote-key">
+      <kbd>{key}</kbd> {does}
+    </span>
+  )
 
   return (
     <div class="overlay" onMouseDown={(ev) => { if (ev.target === ev.currentTarget) onClose() }}>
       <div class={'palette newnote' + (touch ? ' newnote-touch' : '')} role="dialog" aria-label="New note">
-        <input
-          ref={input}
-          class="palette-input"
-          type="text"
-          value={text}
-          placeholder="space/folder/name"
-          autocomplete="off"
-          autocapitalize="off"
-          spellcheck={false}
-          enterkeyhint="go"
-          aria-label="Path for the new note"
-          onInput={(ev) => setText((ev.target as HTMLInputElement).value)}
-          onKeyDown={onKey}
-        />
+        <div class="newnote-field">
+          <input
+            ref={input}
+            class="palette-input"
+            type="text"
+            value={text}
+            placeholder="space/folder/name"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck={false}
+            enterkeyhint="go"
+            aria-label="Path for the new note"
+            onInput={(ev) => setText((ev.target as HTMLInputElement).value)}
+            onKeyDown={onKey}
+          />
+          {ghost && (
+            <div class="newnote-ghost" aria-hidden="true">
+              <span class="newnote-ghost-typed">{text}</span>
+              <span
+                class="newnote-ghost-name"
+                title="Take the suggested name"
+                onMouseDown={(ev) => {
+                  ev.preventDefault()
+                  put(text + ghost)
+                }}
+              >
+                {ghost}
+              </span>
+            </div>
+          )}
+        </div>
         <div class={'newnote-what' + (flash || parsed.error ? ' newnote-error' : '')} aria-live="polite">
           <span class="newnote-says">
             {flash ??
@@ -452,8 +494,13 @@ export function NewNotePicker({ spec, dirs, spaces, notes, recent, panes, touch,
         )}
         {!touch && (
           <p class="palette-hint newnote-keys">
-            {k('Enter')} create {k('Tab')} into folder {k('⇧Tab')} up {panes && <>{k(isMac ? '⌥Enter' : 'Alt+Enter')} other pane </>}
-            {k('⇧Enter')} in the background {exists && <>{k(isMac ? '⌘Enter' : 'Ctrl+Enter')} create anyway</>}
+            {k('Enter', 'create')}
+            {k('Tab', 'into folder')}
+            {k('⇧Tab', 'up')}
+            {panes && k(isMac ? '⌥Enter' : 'Alt+Enter', 'other pane')}
+            {k('⇧Enter', 'in the background')}
+            {ghost && k('→', 'take the name')}
+            {exists && k(isMac ? '⌘Enter' : 'Ctrl+Enter', 'create anyway')}
           </p>
         )}
       </div>

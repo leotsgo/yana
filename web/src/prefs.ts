@@ -373,6 +373,16 @@ export function setNewNoteStart(v: NewNoteStart): void {
   write('newnote.start', v === 'beside' ? null : v)
 }
 
+/** Whether the picker suggests the next name in a folder whose notes
+ * follow a pattern (dated, or numbered). On unless turned off. */
+export function suggestNames(): boolean {
+  return read('newnote.suggest') !== '0'
+}
+
+export function setSuggestNames(on: boolean): void {
+  write('newnote.suggest', on ? null : '0')
+}
+
 /** The last folders a note was made in or opened from on this device,
  * newest first, each once. The pickers show them at the top. */
 export function recentFolders(): string[] {

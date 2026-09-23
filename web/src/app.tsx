@@ -2138,6 +2138,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           spaces={(spaces ?? []).map((sp) => sp.name)}
           notes={notes}
           recent={prefs.recentFolders()}
+          suggest={prefs.suggestNames()}
           panes={layout === 'desktop'}
           touch={coarsePointer || layout === 'phone'}
           onCreate={pickerCreate}

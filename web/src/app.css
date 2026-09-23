@@ -943,7 +943,17 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .newnote-go { flex: none; height: 32px; }
 .newnote-open .palette-label { color: var(--accent-ink); font-weight: 600; }
 .newnote-into { margin-left: auto; display: grid; place-items: center; width: 36px; height: 36px; margin-right: -8px; color: var(--ink-3); }
-.newnote-keys kbd { margin-right: 3px; }
+.newnote-keys { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.newnote-key { white-space: nowrap; }
+.newnote-key kbd { margin-right: 2px; }
+/* A suggested name: grey text after the caret, drawn over the input. */
+.newnote-field { position: relative; display: flex; flex-direction: column; }
+.newnote-ghost {
+  position: absolute; inset: 0 0 1px; padding: 0 18px; display: flex; align-items: center; overflow: hidden;
+  font: 16px var(--sans); white-space: pre; pointer-events: none;
+}
+.newnote-ghost-typed { visibility: hidden; }
+.newnote-ghost-name { color: var(--ink-3); pointer-events: auto; cursor: pointer; }
 .newnote-touch .palette-row { min-height: 44px; }
 
 /* --- menu -------------------------------------------------------------- */

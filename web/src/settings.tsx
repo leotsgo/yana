@@ -1676,6 +1676,7 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
   const [open, setOpen] = useState(prefs.openMode)
   const [live, setLive] = useState(prefs.livePreview)
   const [density, setDensity] = useState(prefs.density)
+  const [suggest, setSuggest] = useState(prefs.suggestNames)
 
   return (
     <>
@@ -1743,6 +1744,15 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
           onChange={(v) => {
             prefs.setLivePreview(v)
             setLive(v)
+          }}
+        />
+        <Toggle
+          label="Suggest names for new notes"
+          hint="In a folder of dated or numbered notes, the next name shows in grey. Right takes it."
+          on={suggest}
+          onChange={(v) => {
+            prefs.setSuggestNames(v)
+            setSuggest(v)
           }}
         />
       </Block>
