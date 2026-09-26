@@ -85,6 +85,8 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.webkit)
+    // The home-screen widget (Phase 12f).
+    implementation(libs.glance.appwidget)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

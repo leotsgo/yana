@@ -47,6 +47,14 @@ data class TagCountRow(
     val count: Int,
 )
 
+/** One note of a recent list: enough to show it and to open it. */
+data class RecentNoteRow(
+    val id: String,
+    val title: String,
+    @ColumnInfo(name = "rel_path") val path: String,
+    val kind: String,
+)
+
 @Dao
 interface ReplicaDao {
     @Query("SELECT * FROM spaces ORDER BY name")
@@ -65,6 +73,41 @@ interface ReplicaDao {
         """,
     )
     suspend fun noteWithTags(id: String): NoteWithTags?
+
+    @Query(
+        """
+        SELECT n.*, (SELECT group_concat(t.tag, ',') FROM tags t WHERE t.note_id = n.id ORDER BY t.tag) AS tags
+        FROM notes n WHERE n.rel_path = :path
+        """,
+    )
+    suspend fun noteByPath(path: String): NoteWithTags?
+
+    /** The notes opened lately (the CRDT table's opened_at), freshest first. */
+    @Query(
+        """
+        SELECT n.id AS id, n.title AS title, n.rel_path AS rel_path, n.kind AS kind
+        FROM notes n INNER JOIN note_crdt c ON c.note_id = n.id
+        ORDER BY c.opened_at DESC LIMIT :limit
+        """,
+    )
+    suspend fun recentlyOpenedNotes(limit: Int): List<RecentNoteRow>
+
+    /** The notes the replica heard from last, newest first. */
+    @Query(
+        """
+        SELECT id AS id, title AS title, rel_path AS rel_path, kind AS kind
+        FROM notes ORDER BY updated_at DESC LIMIT :limit
+        """,
+    )
+    suspend fun newestNotes(limit: Int): List<RecentNoteRow>
+
+    /** The paths of one folder's notes in a space. */
+    @Query(
+        """
+        SELECT rel_path FROM notes WHERE space = :space AND rel_path LIKE :folder || '/%'
+        """,
+    )
+    suspend fun pathsIn(space: String, folder: String): List<String>
 
     @Query("SELECT * FROM note_bodies WHERE note_rowid = (SELECT rowid FROM notes WHERE id = :id)")
     suspend fun bodyOf(id: String): NoteBodyEntity?
@@ -98,6 +141,10 @@ interface ReplicaDao {
 
     @Query("SELECT COUNT(*) FROM pending_ops")
     fun pendingCount(): kotlinx.coroutines.flow.Flow<Int>
+
+    /** The JSON payloads of the queued creates, for the ids they carry. */
+    @Query("SELECT payload FROM pending_ops WHERE type = 'create'")
+    suspend fun createOpPayloads(): List<String>
 
     // --- CRDT state and outbox ---------------------------------------------
 
@@ -179,15 +226,19 @@ interface ReplicaDao {
 
     /**
      * One whole sync: notes and tags replaced, spaces replaced, bodies
-     * kept for surviving notes and seeded (title only) for new ones, the
-     * tree replaced. The triggers declared beside the database keep the
-     * FTS index in step with note_bodies.
+     * kept for surviving notes and seeded (title only) for new ones,
+     * the tree replaced. Notes whose offline create is still queued
+     * ([keep]) survive the replace: the server has not answered for
+     * them, so the replica is the only place they exist. The triggers
+     * declared beside the database keep the FTS index in step with
+     * note_bodies.
      */
     @Transaction
     suspend fun applySync(
         spaces: List<SpaceEntity>,
         notes: List<Pair<NoteEntity, List<String>>>,
         tree: List<TreeNodeEntity>,
+        keep: List<String> = emptyList(),
     ) {
         for ((n, tags) in notes) {
             upsertNote(n)
@@ -196,11 +247,22 @@ interface ReplicaDao {
         }
         for (s in spaces) upsertSpace(s)
         dropMissingSpaces(spaces.map { it.name })
-        notes.map { it.first.id }.chunked(500).forEach { dropMissingNotes(it) }
+        // Gone is computed in Kotlin and deleted in positive batches:
+        // a NOT IN batch per chunk would delete every note outside that
+        // one chunk, which is every note once the list passes one.
+        val staying = notes.map { it.first.id }.toSet() + keep.toSet()
+        val gone = allNoteIds().filter { it !in staying }
+        for (batch in gone.chunked(500)) deleteNotes(batch)
         seedBodies()
         syncBodyTitles()
         replaceTree(tree)
     }
+
+    @Query("SELECT id FROM notes")
+    suspend fun allNoteIds(): List<String>
+
+    @Query("DELETE FROM notes WHERE id IN (:ids)")
+    suspend fun deleteNotes(ids: List<String>)
 
     /**
      * Insert-or-update that keeps a surviving note's rowid, so the body
@@ -220,9 +282,6 @@ interface ReplicaDao {
 
     @Query("DELETE FROM spaces WHERE name NOT IN (:names)")
     suspend fun dropMissingSpaces(names: List<String>)
-
-    @Query("DELETE FROM notes WHERE id NOT IN (:ids)")
-    suspend fun dropMissingNotes(ids: List<String>)
 
     /** A body row for every note, so every title is in the FTS index. */
     @Query(

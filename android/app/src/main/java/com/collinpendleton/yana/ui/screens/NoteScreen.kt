@@ -32,6 +32,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +53,7 @@ import com.collinpendleton.yana.data.Note
 import com.collinpendleton.yana.data.NoteRepository
 import com.collinpendleton.yana.data.markdownBody
 import com.collinpendleton.yana.data.rt.SyncEngine
+import com.collinpendleton.yana.capture.CapturePerf
 import com.collinpendleton.yana.ui.ConnectionDot
 import com.collinpendleton.yana.ui.Loader
 import com.collinpendleton.yana.ui.Placeholder
@@ -84,6 +86,8 @@ fun NoteScreen(
     id: String,
     title: String,
     atLine: Int = -1,
+    startEditing: Boolean = false,
+    perfLabel: String? = null,
     onBack: () -> Unit,
     onOpenNote: (String) -> Unit = {},
     onTag: (String) -> Unit = {},
@@ -120,7 +124,15 @@ fun NoteScreen(
     val liveText = live?.text?.collectAsStateWithLifecycle()?.value
     val liveReady = live?.ready?.collectAsStateWithLifecycle()?.value == true
     val status by sync.status.collectAsStateWithLifecycle()
-    var editing by rememberSaveable(id) { mutableStateOf(false) }
+    var editing by rememberSaveable(id) { mutableStateOf(startEditing) }
+
+    // The capture timing log: this screen is the "first editable frame"
+    // an entry point was measured against, once its editor is up on a
+    // document this device holds.
+    LaunchedEffect(editing, liveReady, perfLabel) {
+        if (editing && liveReady && perfLabel != null) CapturePerf.done(perfLabel)
+    }
+
     val canEdit = !isHtml && note?.role != "viewer"
     val mode by app.prefs.themeMode.collectAsStateWithLifecycle()
     val dark = when (mode) {

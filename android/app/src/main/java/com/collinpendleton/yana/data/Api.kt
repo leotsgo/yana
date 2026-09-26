@@ -58,6 +58,14 @@ interface YanaApi {
     @POST("api/notes")
     suspend fun createNote(@Body body: CreateNoteRequest): CreateNoteResponse
 
+    /** Opens today's daily note, making it from the template when missing. */
+    @POST("api/notes/daily")
+    suspend fun daily(@Body body: DailyNoteRequest): DailyNoteResponse
+
+    /** The server's status; capture reads the daily-note pattern. */
+    @GET("api/status")
+    suspend fun status(): ServerStatus
+
     /** Ticks one task box through the server's CRDT write. */
     @PATCH("api/tasks")
     suspend fun tickTask(@Body body: TaskTickRequest)

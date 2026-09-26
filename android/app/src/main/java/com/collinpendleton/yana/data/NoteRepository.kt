@@ -88,6 +88,16 @@ interface NoteRepository {
     suspend fun createNoteAt(path: String): String?
 
     /**
+     * Today's daily note, opened or made on the server. Offline this
+     * throws; capture's local path (the replica plus a queued create)
+     * is the caller's fallback.
+     */
+    suspend fun openDaily(space: String, date: String): DailyNoteResponse
+
+    /** The server's daily-note pattern, or null when the server will not say. */
+    suspend fun dailyPattern(): String?
+
+    /**
      * The note's wikilinks resolved against the body the reader is
      * rendering: the payload's rows when the server sent them, the
      * replica's own resolution otherwise, so links work in airplane
@@ -392,6 +402,24 @@ class YanaNoteRepository(
         }
     }
 
+    override suspend fun openDaily(space: String, date: String): DailyNoteResponse {
+        bind()
+        return client.api().daily(DailyNoteRequest(space, date))
+    }
+
+    override suspend fun dailyPattern(): String? {
+        bind()
+        return try {
+            client.api().status().daily.pattern.ifEmpty { null }
+        } catch (e: YanaClient.NotSignedIn) {
+            throw e
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     override suspend fun resolveLinks(note: Note, body: String): List<ResolvedLink> {
         // The server's rows are authoritative when the payload carried
         // them; a note read from the replica resolves against the
@@ -508,7 +536,13 @@ class YanaNoteRepository(
         for (p in store.pendingOps()) {
             val settled = when (val op = p.op) {
                 is OpPayload.Create -> try {
-                    client.api().createNote(CreateNoteRequest(path = op.op.path, content = op.op.content))
+                    // An offline-composed note carries its own id in the
+                    // frontmatter, so the server's create keeps it and
+                    // the note arrives everywhere with the ULID this
+                    // device minted.
+                    val content =
+                        if (op.op.id.isNotEmpty()) "---\nid: ${op.op.id}\n---\n" + op.op.content else op.op.content
+                    client.api().createNote(CreateNoteRequest(path = op.op.path, content = content))
                     true
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e

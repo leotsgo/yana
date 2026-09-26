@@ -22,7 +22,18 @@ import kotlinx.serialization.Serializable
 
 /** The JSON payloads of the offline operations. */
 @Serializable
-data class CreateOp(val space: String, val path: String, val content: String)
+data class CreateOp(
+    val space: String,
+    val path: String,
+    val content: String,
+    /**
+     * The note's id when the create was composed offline: a ULID this
+     * device minted, carried in the content's frontmatter so the
+     * server's create keeps it. Empty for the queued creates of
+     * versions before capture, which wait for the server's id.
+     */
+    val id: String = "",
+)
 
 @Serializable
 data class AppendOp(val noteId: String, val text: String)
@@ -122,6 +133,7 @@ class ReplicaStore(private val db: ReplicaDatabase) : com.collinpendleton.yana.d
                 ) to n.tags
             },
             flattenTree(tree),
+            pendingCreateIds(),
         )
     }
 
@@ -144,6 +156,46 @@ class ReplicaStore(private val db: ReplicaDatabase) : com.collinpendleton.yana.d
 
     /** One cached note, with its tags, or null. */
     suspend fun note(id: String): NoteWithTags? = dao.noteWithTags(id)
+
+    /** The cached note at a path, with its tags, or null; Today's offline lookup. */
+    suspend fun noteByPath(path: String): NoteWithTags? = dao.noteByPath(path)
+
+    /**
+     * The notes this device opened lately, freshest first — the recent
+     * list the share target picks from, with titles.
+     */
+    suspend fun recentlyOpenedNotes(limit: Int): List<RecentNoteRow> = dao.recentlyOpenedNotes(limit)
+
+    /** The notes the replica heard from last, newest first — the same list's fallback. */
+    suspend fun newestNotes(limit: Int): List<RecentNoteRow> = dao.newestNotes(limit)
+
+    /**
+     * The note file names already sitting in one folder of a space, for
+     * the inbox's next free name.
+     */
+    suspend fun namesIn(space: String, folder: String): List<String> =
+        dao.pathsIn(space, folder).map { it.substringAfterLast('/') }
+
+    /**
+     * A note composed offline: its row and its first body land in the
+     * replica now, under the id this device minted, and stay until a
+     * sync replaces them with the server's own row for the same id.
+     */
+    suspend fun putLocalNote(id: String, space: String, path: String, title: String, kind: String, body: String, nowMs: Long) {
+        dao.upsertNote(
+            NoteEntity(
+                id = id,
+                space = space,
+                relPath = path,
+                title = title,
+                preview = body.take(200),
+                kind = kind,
+                created = nowMs * 1_000_000L,
+                updatedAt = nowMs * 1_000_000L,
+            ),
+        )
+        storeBody(id, kind, body)
+    }
 
     /** One cached note's raw text (markdown body or HTML source), or null. */
     suspend fun rawBody(id: String): String? = dao.bodyOf(id)?.rawBody
@@ -275,6 +327,16 @@ class ReplicaStore(private val db: ReplicaDatabase) : com.collinpendleton.yana.d
 
     /** Removes one op after a successful replay (or a permanent refusal). */
     suspend fun dropOp(seq: Long) = dao.dropPendingOp(seq)
+
+    /**
+     * The ids of notes composed offline whose create is still queued:
+     * a sync keeps their rows, because the server has not answered for
+     * them yet and the replica is the only place they exist.
+     */
+    suspend fun pendingCreateIds(): List<String> =
+        dao.createOpPayloads().mapNotNull { payload ->
+            runCatching { YanaJson.decodeFromString(CreateOp.serializer(), payload).id }.getOrNull()
+        }.filter { it.isNotEmpty() }
 
     // --- CRDT state and outbox (the sync engine's RtStore) --------------------
 

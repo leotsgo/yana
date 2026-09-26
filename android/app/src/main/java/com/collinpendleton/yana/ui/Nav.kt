@@ -36,8 +36,8 @@ import kotlinx.serialization.Serializable
 @Serializable data class SignInRoute(val server: String, val setup: Boolean)
 @Serializable data object SpacesRoute
 @Serializable data class SpaceRoute(val name: String, val label: String)
-/** [line] is the body line a tasks row opens the note at; -1 opens at the top. */
-@Serializable data class NoteRoute(val id: String, val title: String, val line: Int = -1)
+/** [line] is the body line a tasks row opens the note at; -1 opens at the top. [edit] opens straight into the editor. */
+@Serializable data class NoteRoute(val id: String, val title: String, val line: Int = -1, val edit: Boolean = false)
 @Serializable data class SearchRoute(val query: String = "")
 @Serializable data class TasksRoute(val space: String = "")
 @Serializable data class NoteHistoryRoute(val id: String, val title: String = "")
@@ -98,6 +98,7 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                 onSettings = { nav.navigate(SettingsRoute) },
                 onTasks = { nav.navigate(TasksRoute()) },
                 onActivity = { nav.navigate(ActivityRoute()) },
+                onNote = { id, title -> nav.navigate(NoteRoute(id, title)) },
             )
         }
         composable<SpaceRoute> { entry ->
@@ -119,6 +120,7 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                 id = r.id,
                 title = r.title,
                 atLine = r.line,
+                startEditing = r.edit,
                 onBack = { nav.popBackStack() },
                 onOpenNote = { id -> nav.navigate(NoteRoute(id, "")) },
                 // Until the tag page lands (12k), a tag opens its search.

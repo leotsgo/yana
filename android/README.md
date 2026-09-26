@@ -16,7 +16,11 @@ the network is gone. History reads the same way it does on the web: a
 note's revisions with their diffs and restores, the activity feed of
 what changed by whom grouped by day, and a point-in-time restore
 previewed before it runs — online only, because the history lives on
-the server.
+the server. Capture is the phone's whole point: the share target, two
+quick-settings tiles, a home-screen widget, and Today and Capture on
+the home screen all make their note in the replica first — a
+client-minted ULID, an inbox path, an empty document ready to type in —
+and sync carries it to the server later.
 
 ## Build
 
@@ -166,6 +170,62 @@ original is gone is a plain note; the list opens it instead of
 resolving it. The tree keeps copies out of its rows entirely (they
 nest under their survivor server-side), and search treats them as the
 real notes they are, the same as the web.
+
+## Capture
+
+Getting a thought in is the point of the app on a phone, so every fast
+entry point makes its note in the replica first and lets sync carry it
+to the server later. A note composed offline is born with a ULID this
+device mints, lands in the replica with an empty document that is ready
+to type into immediately, and a create op joins `pending_ops` carrying
+the id in the content's frontmatter — the server's `EnsureID` keeps an
+id that is already there, so the note arrives everywhere with the ULID
+it was born with. The create replays empty on purpose: the server seeds
+a note's document from its file on first sight, so a create that
+arrived with text would meet the same text authored again by the
+editor's document, doubled. Everything the person wrote rides the
+document's own outbox instead, and converges.
+
+The entry points:
+
+- **Home: Today and Capture.** Today opens or makes the daily note —
+  online over `POST /api/notes/daily` (so the server's template seeds
+  it), offline at the path the cached daily pattern names
+  (`GET /api/status` carries the pattern; the server's default stands
+  in until it has answered). Capture takes one line onto the end of
+  today's note without opening it, as `- text`, the web's capture.
+- **The share target** (`ACTION_SEND`, text and URLs): a light activity
+  shows what arrived with two ways in — a new note in the inbox folder,
+  or the block appended to a note picked from the recent list with
+  search over the replica. A new note opens the editor inside the share
+  activity, so backing out returns to the app that shared; an append
+  confirms and returns on its own.
+- **The APPEND intent** (`com.collinpendleton.yana.APPEND`, exported):
+  appends a timestamped line (`- HH:mm text`) to a note by id — the
+  share target's append, exposed for automation apps. Extras:
+  `com.collinpendleton.yana.extra.NOTE_ID` and `.TEXT`.
+- **Two quick-settings tiles**: one makes an inbox note and opens the
+  editor on it; the other opens the one-line capture. Both show over
+  the lock screen — the note and its edits live in the replica, and the
+  network parts wait for the unlock.
+- **The home-screen widget** (Glance): a New note tap target and the
+  last three notes, each a tap from open.
+- **Long-press shortcuts** on the launcher icon: new note, capture,
+  today.
+
+Appends go through the note's CRDT document — the same path the web's
+share target uses — so they merge with open editors and land on every
+device. Offline, an append needs the note as a local document (opened
+once before), exactly the web client's rule; Today and Capture make
+their note locally when it is missing, so they never fail for that.
+
+Settings holds the two knobs: the space Today, Capture, and the tiles
+work in (the first space by default), and the inbox folder under each
+space (`inbox` by default). The daily-note pattern is read from the
+server and cached, never edited here — it is the server's setting.
+
+Debug builds log each entry point's cost: intent receipt to the first
+editable frame (`adb logcat -s CapturePerf`).
 
 ## Settings
 
@@ -385,6 +445,8 @@ returns.
 app/src/main/java/com/collinpendleton/yana/
   YanaApp.kt, MainActivity.kt   the app's single client, replica, sync engine, and preferences
   data/                          API models, Retrofit interfaces, token refresh, session store
+  data/CaptureNotes.kt           the capture engine room: offline compose, Today, appends
+  data/CaptureKit.kt             the pure half: ULIDs, share blocks, the daily pattern
   data/replica/                  the Room replica: entities, DAO, tree cache, pending ops, CRDT state
   data/rt/                       the realtime layer: wire codec, socket, engine, workers
   data/search/                   the query grammar and offline search SQL (ports of the server's)
@@ -399,6 +461,7 @@ app/src/main/java/com/collinpendleton/yana/
   ui/htmlnote/                   the sandboxed WebView, the source editor, view-token minting
   ui/reader/                     the reading view's WebView and asset fetcher
   ui/theme/                      the Identity palette and type
+  capture/                       the fast entry points: share target, capture prompt, APPEND, tiles, widget
   crdt/                          the CRDT engine slot (below)
   fonts/                         licenses for the bundled fonts
 ```
