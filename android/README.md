@@ -34,11 +34,13 @@ cd android
 ./gradlew connectedDebugAndroidTest  # the WebView sandbox tests, on a device
 ```
 
-The debug APK lands at `app/build/outputs/apk/debug/app-debug.apk` and
-installs beside a release build (`com.collinpendleton.yana.debug`). CI
+The build makes one APK per ABI (`arm64-v8a` for phones, `x86_64` for
+an Intel emulator, `armeabi-v7a` for old 32-bit phones); `installDebug`
+picks the right one. The debug APKs land at
+`app/build/outputs/apk/debug/app-<abi>-debug.apk` and install beside a release build (`com.collinpendleton.yana.debug`). CI
 runs `make android-crdt` and `make android-reader` and then
 `./gradlew build` on every pull request that touches `android/` and
-attaches the debug APK to the run as `yana-debug-apk`.
+attaches the debug APKs to the run as `yana-debug-apk`.
 
 The CRDT AAR needs a JDK (17+), the Android SDK with the pinned NDK,
 and Go; see [mobile/crdt/README.md](../mobile/crdt/README.md). Without
