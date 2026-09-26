@@ -290,9 +290,10 @@ publish the image.
 
 Planned next, roughly in order: importers for markdown vaults and Notion
 exports; templates with variables; vim keys; and the rest of the
-Android app — realtime sync, the editor, and capture from the share
-sheet, a tile and a widget. It signs in, browses, renders HTML notes,
-and searches offline today.
+Android app. It signs in, browses, renders HTML notes, edits through
+the realtime document, and captures from the share sheet, two tiles,
+a widget, and Today and Capture on the home screen — offline first,
+syncing when it can.
 
 ## License
 

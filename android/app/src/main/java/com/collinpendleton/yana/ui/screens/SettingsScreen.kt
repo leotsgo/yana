@@ -3,6 +3,8 @@ package com.collinpendleton.yana.ui.screens
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,18 +15,22 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -160,6 +166,10 @@ fun SettingsScreen(
                 }
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                Section("Capture")
+                CaptureSettings(app)
+
+                HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 Section("Data")
                 SettingsRow(
                     title = "Data",
@@ -218,6 +228,65 @@ fun findStartHere(trees: Iterable<List<TreeNode>>): TreeNode? {
         return null
     }
     return trees.asSequence().mapNotNull { walk(it) }.firstOrNull()
+}
+
+/**
+ * Where fast capture lands: the space Today, Capture, and the inbox
+ * work in, and the inbox folder under each space. Kept on this device,
+ * the way the web keeps its defaults in the browser.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CaptureSettings(app: YanaApp) {
+    var spaces by remember { mutableStateOf<List<String>>(emptyList()) }
+    var daily by remember { mutableStateOf("") }
+    var folders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    LaunchedEffect(Unit) {
+        spaces = runCatching { app.repo.spaces().map { it.name }.filter { it.isNotEmpty() } }.getOrDefault(emptyList())
+        daily = app.prefs.dailySpace()
+        folders = spaces.associateWith { app.prefs.inboxFolder(it) }
+    }
+
+    Text(
+        "Today, Capture, and the quick tiles work in one space; a new note from them lands in the space's inbox folder.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Text("Capture space", style = MaterialTheme.typography.labelLarge)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = daily.isEmpty(),
+            onClick = {
+                daily = ""
+                app.prefs.setDailySpace("")
+            },
+            label = { Text("First space") },
+        )
+        for (s in spaces) {
+            FilterChip(
+                selected = daily == s,
+                onClick = {
+                    daily = s
+                    app.prefs.setDailySpace(s)
+                },
+                label = { Text(s) },
+            )
+        }
+    }
+    Text("Inbox folder", style = MaterialTheme.typography.labelLarge)
+    for (s in spaces) {
+        OutlinedTextField(
+            value = folders[s] ?: "",
+            onValueChange = { v ->
+                folders = folders + (s to v)
+                app.prefs.setInboxFolder(s, v)
+            },
+            label = { Text(s) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 @Composable

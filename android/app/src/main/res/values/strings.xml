@@ -3,4 +3,43 @@
     <string name="app_name">YANA/</string>
     <string name="sync_channel_name">Note syncing</string>
     <string name="sync_notification_title">Syncing notes</string>
+
+    <!-- The share target -->
+    <string name="share_target_label">Add to YANA</string>
+    <string name="share_title">Share</string>
+    <string name="share_signed_out">Sign in first; the share waits in the sending app until then.</string>
+    <string name="share_open_app">Open YANA</string>
+    <string name="share_empty">Nothing came with this share.</string>
+    <string name="share_new_note">New note</string>
+    <string name="share_pick_note">Add to a note</string>
+    <string name="share_search">Search notes</string>
+    <string name="share_adding">Adding…</string>
+    <string name="share_added">Added</string>
+    <string name="share_added_local">Added on this device. It merges when the server is back.</string>
+    <string name="share_not_on_device">That note has not been opened on this device yet; open it once first.</string>
+    <string name="share_not_found">That note is not on this device.</string>
+
+    <!-- Capture -->
+    <string name="capture_title">Capture</string>
+    <string name="capture_hint">Capture a line</string>
+    <string name="capture_support">Goes to the end of today\'s note.</string>
+    <string name="capture_add">Add</string>
+    <string name="capture_added">Added to today\'s note.</string>
+    <string name="capture_added_local">Added on this device. It merges when the server is back.</string>
+    <string name="capture_not_on_device">Today\'s note is not on this device as a document yet; open it once first.</string>
+    <string name="capture_no_space">No space to capture into yet.</string>
+    <string name="today_failed">Could not open today\'s note.</string>
+
+    <!-- The APPEND intent -->
+    <string name="append_label">Add a line to a note</string>
+    <string name="append_working">Adding the line…</string>
+    <string name="append_done">Added.</string>
+    <string name="append_done_local">Added on this device. It merges when the server is back.</string>
+    <string name="append_needs_both">The append needs a note id and a text.</string>
+
+    <!-- The tiles and the widget -->
+    <string name="tile_new_note">New note</string>
+    <string name="tile_capture">Capture a line</string>
+    <string name="tile_today">Today</string>
+    <string name="widget_new_note">New note</string>
 </resources>

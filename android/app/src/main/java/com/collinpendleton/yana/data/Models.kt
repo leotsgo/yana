@@ -243,6 +243,20 @@ data class CreateNoteRequest(val path: String, val content: String)
 @Serializable
 data class CreateNoteResponse(val id: String = "", val path: String = "")
 
+/** Today's note, made or found: POST /api/notes/daily. */
+@Serializable
+data class DailyNoteRequest(val space: String = "", val date: String)
+
+@Serializable
+data class DailyNoteResponse(val id: String = "", val path: String = "", val created: Boolean = false)
+
+/** The server's face: only the daily-note pattern capture reads. */
+@Serializable
+data class ServerStatus(val daily: DailyStatus = DailyStatus())
+
+@Serializable
+data class DailyStatus(val pattern: String = "", val template: String = "")
+
 @Serializable
 data class MoveRequest(val path: String)
 

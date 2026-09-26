@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher's long-press shortcuts: the three fastest ways in.
+     Each carries the entry point's extra; MainActivity does the rest. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new-note"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_monochrome"
+        android:shortcutShortLabel="@string/tile_new_note">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="com.collinpendleton.yana.debug"
+            android:targetClass="com.collinpendleton.yana.MainActivity">
+            <extra android:name="com.collinpendleton.yana.extra.NEW_NOTE" android:value="true" />
+            <extra android:name="com.collinpendleton.yana.extra.PERF_LABEL" android:value="shortcut" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="capture"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_monochrome"
+        android:shortcutShortLabel="@string/tile_capture">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="com.collinpendleton.yana.debug"
+            android:targetClass="com.collinpendleton.yana.MainActivity">
+            <extra android:name="com.collinpendleton.yana.extra.CAPTURE" android:value="true" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="today"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_monochrome"
+        android:shortcutShortLabel="@string/tile_today">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="com.collinpendleton.yana.debug"
+            android:targetClass="com.collinpendleton.yana.MainActivity">
+            <extra android:name="com.collinpendleton.yana.extra.TODAY" android:value="true" />
+        </intent>
+    </shortcut>
+</shortcuts>

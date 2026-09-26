@@ -6,6 +6,8 @@ import androidx.core.content.edit
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.collinpendleton.yana.data.CaptureKit
+import com.collinpendleton.yana.data.CaptureNotes
 import com.collinpendleton.yana.data.EncryptedSessionStore
 import com.collinpendleton.yana.data.SyncScheduler
 import com.collinpendleton.yana.data.YanaClient
@@ -40,11 +42,16 @@ class YanaApp : Application() {
         private set
     lateinit var syncEngine: SyncEngine
         private set
+    lateinit var capture: CaptureNotes
+        private set
     lateinit var prefs: Prefs
         private set
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+
+    /** The app-wide scope entry points launch capture work on. */
+    val appScope: CoroutineScope get() = scope
 
     override fun onCreate() {
         super.onCreate()
@@ -59,6 +66,14 @@ class YanaApp : Application() {
             scope = syncScope,
         )
         prefs = Prefs(this)
+        capture = CaptureNotes(
+            repo = repo,
+            store = store,
+            engine = syncEngine,
+            docs = GoDocFactory(),
+            prefs = prefs,
+            onOutboxGrew = { CrdtSyncScheduler.flushIfPending(this, true) },
+        )
         scope.launch {
             client.session.collect { s ->
                 if (s == null) {
@@ -69,7 +84,10 @@ class YanaApp : Application() {
         }
         // A connection coming back replays whatever the offline queue
         // holds — a tick from airplane mode, a create, a move — the
-        // catch-up the web's outbox does on reconnect.
+        // catch-up the web's outbox does on reconnect. The engine's
+        // own outbox (capture lines, offline edits) follows the same
+        // beat, so a note captured offline lands without waiting for a
+        // worker window.
         scope.launch {
             var prev: RtStatus? = null
             syncEngine.status.collect { s ->
@@ -77,6 +95,7 @@ class YanaApp : Application() {
                 prev = s
                 if (wasOffline && s != RtStatus.Offline && client.session.value != null) {
                     runCatching { repo.sync() }
+                    runCatching { syncEngine.runBackgroundSync() }
                 }
             }
         }
@@ -98,6 +117,9 @@ class YanaApp : Application() {
         )
         SyncScheduler.schedule(this)
         CrdtSyncScheduler.schedule(this)
+        // The daily-note pattern drifts rarely; whenever the server is
+        // reachable at all, today's offline path knows where to look.
+        scope.launch { capture.refreshPattern() }
     }
 }
 
@@ -125,6 +147,39 @@ class Prefs(context: Context) {
     /** Opening the feed is the marker: everything before now is old news next time. */
     fun touchActivitySeen() {
         sp.edit { putLong("activity.seen", System.currentTimeMillis()) }
+    }
+
+    // --- capture -----------------------------------------------------------------
+
+    /**
+     * The space Today, Capture, and fast new notes work in; empty
+     * follows the first space, the web's defaultSpace fallback.
+     */
+    fun dailySpace(): String = sp.getString("daily.space", null) ?: ""
+
+    fun setDailySpace(space: String) {
+        sp.edit { putString("daily.space", space) }
+    }
+
+    /**
+     * The folder a fast new note lands in under one space; empty means
+     * the space's top level. The default is `inbox`.
+     */
+    fun inboxFolder(space: String): String =
+        sp.getString("inbox.$space", null) ?: CaptureKit.DEFAULT_INBOX
+
+    fun setInboxFolder(space: String, folder: String) {
+        sp.edit { putString("inbox.$space", folder.trim().trim('/')) }
+    }
+
+    /**
+     * The server's daily-note pattern, cached so an offline Today knows
+     * the path; the server's own default until it has answered.
+     */
+    fun dailyPattern(): String = sp.getString("daily.pattern", null) ?: CaptureKit.DEFAULT_DAILY_PATTERN
+
+    fun setDailyPattern(pattern: String) {
+        if (pattern.isNotEmpty()) sp.edit { putString("daily.pattern", pattern) }
     }
 }
 

@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- Android capture speed (Phase 12f). Every fast entry point — the share
+  target, two quick-settings tiles, a Glance home-screen widget,
+  launcher shortcuts, and Today and Capture on the home screen — makes
+  its note in the offline replica first and lets sync carry it to the
+  server later, so nothing waits on the network. A note composed
+  offline is born with a client-minted ULID (kept on create by sending
+  it in the frontmatter, which the server's EnsureID preserves), a
+  default path in a per-space inbox folder (`inbox/`, configurable in
+  settings beside the daily-note space), and an empty CRDT document
+  seeded locally so the editor opens instantly; the create replays
+  empty and the typed text rides the document's outbox, which avoids
+  the doubled seed text a content-carrying create would converge into.
+  Today opens or makes the daily note (`POST /api/notes/daily` online,
+  the cached pattern's path offline); Capture appends one line to
+  today's note without opening it. The share target
+  (`ACTION_SEND`, text and URLs) offers a new note in the inbox or an
+  append to a note picked from recents plus replica search, and the
+  append path is exported as a reusable intent
+  (`com.collinpendleton.yana.APPEND`, note id plus text, a timestamped
+  line) for automation apps. The tiles show over the lock screen, so
+  tile → typing needs no unlock; the note stays in the replica until
+  the network parts can run. A sync keeps notes whose offline create is
+  still queued (their server row has not arrived yet), and the replica
+  drop-missing computation no longer walks NOT IN batches, which
+  deleted every note past the first 500 of a large account. Debug
+  builds log each entry point's intent-to-editable-frame time under
+  `CapturePerf`.
+
 - The Android app's offline replica. A Room database under `android/`
   mirrors the server's cache tables — spaces, notes, tags, note bodies,
   the flattened folder tree, and a `pending_ops` queue for offline

@@ -80,9 +80,11 @@ fun MarkdownEditor(
     val liveText by handle.text.collectAsStateWithLifecycle()
     val ready by handle.ready.collectAsStateWithLifecycle()
 
-    // Seed the field once the text is this device's document.
+    // Seed the field once the text is this device's document — an
+    // empty document included, which is what a note composed offline
+    // opens as.
     LaunchedEffect(ready, liveText) {
-        if (field == null && ready && liveText.isNotEmpty()) {
+        if (field == null && ready) {
             field = TextFieldValue(liveText)
         }
     }
