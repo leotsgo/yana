@@ -37,6 +37,18 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Native code is most of the app (the Go CRDT and render library,
+    // bundled SQLite), so one APK per ABI instead of a universal APK
+    // carrying every copy. The ABIs match make android-crdt.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"

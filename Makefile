@@ -42,12 +42,15 @@ docker:
 
 ## android-crdt: build the CRDT AAR into android/crdt/libs, where the
 ## Android project's crdt module picks it up. Needs a JDK (17+), the
-## Android SDK, and ANDROID_NDK_HOME pointing at the pinned NDK.
+## Android SDK, and ANDROID_NDK_HOME pointing at the pinned NDK. The
+## ABIs match the app's APK splits (no 32-bit x86: emulator-only, and
+## gone from current system images).
 android-crdt:
 	go install golang.org/x/mobile/cmd/gobind@$(GOMOBILE_VERSION)
 	go install golang.org/x/mobile/cmd/gomobile@$(GOMOBILE_VERSION)
 	mkdir -p $(dir $(CRDT_AAR))
-	$(GOPATH_BIN)/gomobile bind -target=android -androidapi=$(ANDROIDAPI) \
+	$(GOPATH_BIN)/gomobile bind -target=android/arm,android/arm64,android/amd64 \
+		-androidapi=$(ANDROIDAPI) \
 		-javapkg com.collinpendleton.yana.crdt -o $(CRDT_AAR) ./mobile/crdt
 
 ## android-reader: build the reader WebView's assets (the rich.ts bundle,
