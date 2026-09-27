@@ -95,7 +95,10 @@ fun NoteScreen(
     onConflicts: (id: String, title: String) -> Unit = { _, _ -> },
 ) {
     val app = LocalContext.current.yana
-    val vm: Loader<Note> = viewModel(key = "note:$id") { Loader(fetch = { repo.note(id) }) }
+    val vm: Loader<Note> = viewModel(key = "note:$id") {
+        // The cached body paints the note at once; the fetch replaces it.
+        Loader(fetch = { repo.note(id) }, cached = { repo.cachedNote(id) })
+    }
     val state by vm.loaded.collectAsStateWithLifecycle()
     val note = state.data
 
