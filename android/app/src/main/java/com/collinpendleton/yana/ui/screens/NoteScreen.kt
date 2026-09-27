@@ -7,22 +7,30 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,6 +57,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.collinpendleton.yana.ui.ShellInsets
+import com.collinpendleton.yana.data.Backlink
 import com.collinpendleton.yana.data.Note
 import com.collinpendleton.yana.data.NoteRepository
 import com.collinpendleton.yana.data.markdownBody
@@ -57,6 +67,7 @@ import com.collinpendleton.yana.capture.CapturePerf
 import com.collinpendleton.yana.ui.ConnectionDot
 import com.collinpendleton.yana.ui.Loader
 import com.collinpendleton.yana.ui.Placeholder
+import com.collinpendleton.yana.ui.ShellState
 import com.collinpendleton.yana.ui.YanaIcons
 import com.collinpendleton.yana.ui.formatTime
 import com.collinpendleton.yana.ui.editor.MarkdownEditor
@@ -133,6 +144,13 @@ fun NoteScreen(
     val status by sync.status.collectAsStateWithLifecycle()
     var editing by rememberSaveable(id) { mutableStateOf(startEditing) }
 
+    // The editor holds the whole screen: the bottom bar steps out of
+    // the way while it is up, the way the web's phone bar does.
+    LaunchedEffect(editing) { ShellState.editing.value = editing }
+    DisposableEffect(id) {
+        onDispose { ShellState.editing.value = false }
+    }
+
     // The capture timing log: this screen is the "first editable frame"
     // an entry point was measured against, once its editor is up on a
     // document this device holds.
@@ -150,7 +168,14 @@ fun NoteScreen(
     val context = LocalContext.current
     val toast: (String) -> Unit = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() }
 
+    // The note's menu: pinning and the details sheet.
+    val pins by app.prefs.pins.collectAsStateWithLifecycle()
+    val pinned = pins.any { it.id == id }
+    var menuOpen by remember { mutableStateOf(false) }
+    var detailsOpen by remember { mutableStateOf(false) }
+
     Scaffold(
+        contentWindowInsets = ShellInsets,
         topBar = {
             TopAppBar(
                 title = { Text(note?.title?.ifEmpty { null } ?: title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -160,6 +185,23 @@ fun NoteScreen(
                 actions = {
                     IconButton(onClick = { onHistory(id, note?.title?.ifEmpty { null } ?: title) }) {
                         Icon(YanaIcons.History, contentDescription = "History")
+                    }
+                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, contentDescription = "Note menu") }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(if (pinned) "Unpin" else "Pin to the top") },
+                            onClick = {
+                                menuOpen = false
+                                app.prefs.togglePin(id, note?.title?.ifEmpty { null } ?: title)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Details") },
+                            onClick = {
+                                menuOpen = false
+                                detailsOpen = true
+                            },
+                        )
                     }
                     if (canEdit && editing) {
                         IconButton(onClick = { editing = false }) {
@@ -253,7 +295,160 @@ fun NoteScreen(
                 }
             }
         }
+        if (detailsOpen && note != null) {
+            DetailsSheet(
+                repo = repo,
+                note = note,
+                onOpenNote = onOpenNote,
+                onTag = onTag,
+                onHistory = { onHistory(id, note.title.ifEmpty { title }) },
+                onDismiss = { detailsOpen = false },
+            )
+        }
     }
+}
+
+/**
+ * The details sheet: where the note lives, when it was made and
+ * changed, its tags, the notes linking in, and the way to its history —
+ * the web's details panel from the bottom.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun DetailsSheet(
+    repo: NoteRepository,
+    note: Note,
+    onOpenNote: (String) -> Unit,
+    onTag: (String) -> Unit,
+    onHistory: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Backlinks live in the server's index: they load when the sheet
+    // opens and say so when the server will not answer.
+    var backlinks by remember { mutableStateOf<List<Backlink>?>(null) }
+    var backlinksFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(note.id) {
+        backlinks = null
+        backlinksFailed = false
+        runCatching { repo.backlinks(note.id) }
+            .onSuccess { backlinks = it }
+            .onFailure { backlinksFailed = true }
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Details", style = MaterialTheme.typography.titleMedium)
+            DetailLine("Path", if (note.space.isEmpty()) note.path else "${note.space}/${note.path}")
+            DetailLine("Created", formatTime(note.created))
+            DetailLine("Modified", formatTime(note.updatedAt))
+            if (note.size > 0) DetailLine("Size", formatBytes(note.size))
+            if (note.tags.isNotEmpty()) {
+                Text("Tags", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    note.tags.forEach { tag ->
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.clickable { onTag(tag) },
+                        ) {
+                            Text(
+                                "#$tag",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text("Linked from", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            when {
+                backlinksFailed -> Text(
+                    "Could not load the backlinks.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                backlinks == null -> Text(
+                    "Loading the backlinks…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                backlinks!!.isEmpty() -> Text(
+                    "Nothing links here yet. Write [[${note.title.ifEmpty { note.path.substringAfterLast('/') }}]] in another note and it shows up.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                else -> backlinks!!.forEach { link ->
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { link.note.id.takeIf { it.isNotEmpty() }?.let(onOpenNote) }
+                            .padding(vertical = 4.dp),
+                    ) {
+                        Text(
+                            link.note.title.ifEmpty { link.note.path.substringAfterLast('/') },
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (link.context.isNotEmpty()) {
+                            Text(
+                                link.context,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(
+                Modifier.fillMaxWidth().clickable(onClick = onHistory).padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(YanaIcons.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(12.dp))
+                Text("History", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    if (value.isEmpty()) return
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(72.dp),
+        )
+        Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+    }
+}
+
+/** A size in the web's words: B, KB, MB, GB, rounded to one decimal. */
+internal fun formatBytes(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return String.format("%.1f KB", kb)
+    val mb = kb / 1024.0
+    if (mb < 1024) return String.format("%.1f MB", mb)
+    return String.format("%.1f GB", mb / 1024.0)
 }
 
 /** Where the note lives, when it changed, its tags: everything above the body. */

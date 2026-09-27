@@ -145,6 +145,25 @@ data class TagCount(val tag: String, val count: Int = 0)
 @Serializable
 data class TagsResponse(val tags: List<TagCount> = emptyList())
 
+/** The notes carrying one tag, in path order: GET /api/tags/{tag}. */
+@Serializable
+data class TagNotesResponse(val tag: String = "", val notes: List<NoteMeta> = emptyList())
+
+/**
+ * One note linking to another, as the backlinks endpoint answers it:
+ * the linking note, the [[target]] exactly as written, and the line the
+ * link sits on.
+ */
+@Serializable
+data class Backlink(
+    val note: NoteMeta = NoteMeta(id = "", path = ""),
+    @SerialName("raw_target") val rawTarget: String = "",
+    val context: String = "",
+)
+
+@Serializable
+data class BacklinksResponse(val backlinks: List<Backlink> = emptyList())
+
 @Serializable
 data class Note(
     val id: String,

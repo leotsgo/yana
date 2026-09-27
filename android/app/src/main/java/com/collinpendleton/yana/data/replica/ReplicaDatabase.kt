@@ -232,6 +232,25 @@ interface ReplicaDao {
     @Query("SELECT tag, COUNT(*) as count FROM tags GROUP BY tag ORDER BY tag")
     suspend fun tagCounts(): List<TagCountRow>
 
+    /** The notes carrying one tag, in path order — the tag page offline. */
+    @Query(
+        """
+        SELECT n.*, (SELECT group_concat(t2.tag, ',') FROM tags t2 WHERE t2.note_id = n.id ORDER BY t2.tag) AS tags
+        FROM notes n WHERE n.id IN (SELECT note_id FROM tags WHERE tag = :tag)
+        ORDER BY n.rel_path
+        """,
+    )
+    suspend fun notesForTag(tag: String): List<NoteWithTags>
+
+    /** Every note with its tags — the switcher's pool. */
+    @Query(
+        """
+        SELECT n.*, (SELECT group_concat(t2.tag, ',') FROM tags t2 WHERE t2.note_id = n.id ORDER BY t2.tag) AS tags
+        FROM notes n ORDER BY n.space, n.rel_path
+        """,
+    )
+    suspend fun allNotesWithTags(): List<NoteWithTags>
+
     /**
      * One whole sync: notes and tags replaced, spaces replaced, bodies
      * kept for surviving notes and seeded (title only) for new ones,

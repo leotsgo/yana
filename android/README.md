@@ -3,7 +3,12 @@
 The Android client: Kotlin, Jetpack Compose, Material 3. It signs in to a
 YANA/ server and browses its spaces, folders and notes, with an offline
 replica (Room) that keeps the tree, note reading, and search working in
-airplane mode. Markdown notes read rendered — headings, lists, code,
+airplane mode. Navigation follows the web's phone layout: a bottom bar
+(Notes, Search, Capture, Today, Tasks, New) over a home screen with
+Today, pinned and recent notes, and a "what changed" line; a tree of
+every space that reopens the way it was left; a quick switcher over
+the replica; tags with their pages; and a details sheet on every note
+with its backlinks. Markdown notes read rendered — headings, lists, code,
 tables, callouts, mermaid diagrams, math, images, tappable wikilinks and
 tags, and task boxes that tick — and edit live through the shared
 document: a plain text field whose changes become document operations,
@@ -63,6 +68,50 @@ for how that corpus is generated and what parity it pins. The reader's
 sandbox test (`ReaderSandboxTest`) proves a note's injected markup
 cannot run in the reading view.
 
+## Home and navigation
+
+Getting around on the phone follows the web's phone layout. A bottom
+bar carries the same six buttons the web's does: Notes (the tree; a
+second tap walks back home), Search, Capture, Today, Tasks with the
+open count as its badge, and New. Home is not one of them — the
+wordmark and the back gesture are home, exactly the web's arrangement,
+where the wordmark is home and the bar is not. The bar steps out of
+the way while a note is being edited and on the screens that are not
+its own (settings, history, the activity feed).
+
+Home holds the "What changed" line (a tap opens the activity feed),
+Today, Capture, Tasks, and Tags rows, then the pinned notes and the
+recent ones, then the spaces. Pins are a preference of this device, as
+on the web: pin and unpin from the note's menu, and the pinned section
+lists them newest-pin-first.
+
+The tree — the Notes tab, or a space from home — is every space the
+account holds, each collapsible, its folders closed until they are
+opened and its notes under them. The opened folders and the collapsed
+spaces are remembered per device the moment they change, so a kill and
+relaunch shows the same shape (the web's Phase 30 semantics: only
+opened folders and closed spaces are stored, so an empty store is the
+default state).
+
+The switcher — the command mark in home's and the tree's title bar —
+is a search-as-you-type list of every note over the replica, the web's
+quick palette: an empty box lists recents first, typing fuzzy-matches
+titles and paths (the web's `fuzzy.ts` ported line for line, tests
+included), a `#word` narrows to the notes carrying the tag, and the
+`tag:`/`path:`/`space:`/`is:` operators filter the rows the tree can
+judge. A name nothing carries offers a Create row, which makes the
+note in the capture space the way the web's switcher does.
+
+Tags have their pages, the web's: the list with counts, one page per
+tag with the notes carrying it in path order — from `GET /api/tags`
+and `GET /api/tags/{tag}` online, from the replica when the network is
+gone. A tag chip on a note opens its page.
+
+A note's menu also holds its details: a sheet with the path, created
+and modified times, size, tags, and Linked from — the backlinks over
+`GET /api/notes/{id}/backlinks`, each row the linking note and the
+line its link sits on — plus the way to the note's history.
+
 ## The reading view
 
 A markdown note reads the way it reads on the web: the same goldmark
@@ -116,8 +165,8 @@ gone. The open count feeds the home screen's Tasks row.
 
 The history layer is the git repository under the notes root, the same
 one the web reads: online only, because that is where it lives. A
-note's History (the clock in its title bar, a screen of its own until
-the details sheet lands) lists its revisions over
+note's History (the clock in its title bar, or the History row in its
+details sheet) lists its revisions over
 `GET /api/notes/{id}/history` with who made each — a person, an agent,
 or the files — and when. A revision opens its diff
 (`GET /api/notes/{id}/history/diff`) as a wrapped, tinted list at phone
@@ -486,16 +535,19 @@ returns.
 app/src/main/java/com/collinpendleton/yana/
   YanaApp.kt, MainActivity.kt   the app's single client, replica, sync engine, and preferences
   data/                          API models, Retrofit interfaces, token refresh, session store
-  data/CaptureNotes.kt           the capture engine room: offline compose, Today, appends
+  data/CaptureNotes.kt           the capture engine room: offline compose, Today, appends, named creates
   data/CaptureKit.kt             the pure half: ULIDs, share blocks, the daily pattern
+  data/Fuzzy.kt                  the switcher's matcher, a line-for-line port of web/src/fuzzy.ts
+  data/Switcher.kt               the switcher's row rules and the tree-side operator matching
   data/replica/                  the Room replica: entities, DAO, tree cache, pending ops, CRDT state
   data/rt/                       the realtime layer: wire codec, socket, engine, workers
   data/search/                   the query grammar and offline search SQL (ports of the server's)
   data/NoteRepository.kt         the one door the screens go through
-  ui/Nav.kt                      routes: server → sign-in → spaces → space tree → note; search; tasks; activity; history; settings
+  ui/Nav.kt                      routes and the shell: the bottom bar over the navigation stack
+  ui/Shell.kt                    the bottom bar, the shared capture prompt, the editor's hold on the bar
   ui/Icons.kt                    the glyphs the chrome shares with the web client (Lucide)
   ui/ConnectionDot.kt            the offline/syncing/live indicator
-  ui/screens/                    one file per screen
+  ui/screens/                    one file per screen (home, tree, note, switcher, tags, search, tasks, …)
   ui/activity/                   the feed model, formatting, and the point-in-time restore dialog
   ui/history/                    the unified-diff parser and renderer
   ui/editor/                     the markdown editor over the CRDT

@@ -119,6 +119,34 @@ class CaptureNotes(
     }
 
     /**
+     * A note with the name the switcher asked for, the web's
+     * createNote: the name is a path when it carries a slash, else it
+     * lands at the capture space's top level; the extension is made
+     * good, a taken name walks to the next free one, and `# title`
+     * seeds the document. The note is born in the replica like every
+     * capture, so it opens offline and syncs later.
+     */
+    suspend fun newNamedNote(rawName: String): CapturedNote? {
+        if (store.spaces().isNullOrEmpty()) return null
+        val space = captureSpace()
+        var name = rawName.trim().replace(Regex("^/+"), "")
+        if (name.isEmpty()) return null
+        if (!name.contains('/')) name = if (space.isEmpty()) name else "$space/$name"
+        if (!Regex("\\.(md|markdown|html?)$", RegexOption.IGNORE_CASE).containsMatchIn(name)) name += ".md"
+        val spaceOf = name.substringBefore('/', "")
+        val folder = if (name.contains('/')) name.substringBeforeLast('/') else ""
+        val base = name.substringAfterLast('/').substringBeforeLast('.')
+        if (base.isEmpty()) return null
+        val taken = store.namesIn(spaceOf, folder)
+        val free = CaptureKit.nextInboxName(taken, base)
+        val path = (if (name.contains('/')) name.substringBeforeLast('/') + "/" else "") + free + ".md"
+        val id = CaptureKit.newUlid(now())
+        createLocalNote(id, spaceOf, path, free, "# $free\n\n")
+        scope.launch { runCatching { repo.sync() } }
+        return CapturedNote(id, path, free, local = true)
+    }
+
+    /**
      * Today's note, opened or made. Online the server's daily endpoint
      * answers (and seeds the template); offline the path comes from the
      * cached pattern and the note is made in the replica with a queued

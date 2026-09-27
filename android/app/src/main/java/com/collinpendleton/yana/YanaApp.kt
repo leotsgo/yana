@@ -92,6 +92,8 @@ class YanaApp : Application() {
             client.session.collect { s ->
                 if (s == null) {
                     prefs.clearRecents()
+                    prefs.clearPins()
+                    prefs.clearTreeState()
                     store.wipe()
                     syncEngine.shutdown()
                 }
@@ -237,10 +239,59 @@ class Prefs(context: Context) {
         sp.edit { putStringSet("open.$space", paths) }
     }
 
+    /** The spaces left collapsed in the tree; spaces sit open by default. */
+    fun closedSpaces(): Set<String> = sp.getStringSet("tree.closed", null)?.toSet() ?: emptySet()
+
+    fun setClosedSpaces(closed: Set<String>) {
+        sp.edit { putStringSet("tree.closed", closed) }
+    }
+
+    /** Drops the tree state a sign-out would otherwise hand the next account. */
+    fun clearTreeState() {
+        val keys = sp.all.keys.filter { it == "tree.closed" || it.startsWith("open.") }
+        sp.edit {
+            for (k in keys) remove(k)
+        }
+    }
+
+    // --- pinned ---------------------------------------------------------------
+
+    private val pinList = MutableStateFlow(readPins())
+
+    /** The notes pinned to the top of home, freshest pin first; per device, like the web's. */
+    val pins: StateFlow<List<PinnedNote>> = pinList.asStateFlow()
+
+    fun isPinned(id: String): Boolean = pinList.value.any { it.id == id }
+
+    /** Puts a note at the top of the pins, or takes it off when it is already there. */
+    fun togglePin(id: String, title: String) {
+        val clean = title.replace('\t', ' ').replace('\n', ' ').trim()
+        val next =
+            if (isPinned(id)) pinList.value.filter { it.id != id }
+            else listOf(PinnedNote(id, clean)) + pinList.value
+        sp.edit { putString("pins", next.joinToString("\n") { it.id + "\t" + it.title }) }
+        pinList.value = next
+    }
+
+    /** Forgets the pins; a sign-out, since they name the account's notes. */
+    fun clearPins() {
+        sp.edit { remove("pins") }
+        pinList.value = emptyList()
+    }
+
+    private fun readPins(): List<PinnedNote> =
+        sp.getString("pins", null).orEmpty().lines().mapNotNull { line ->
+            val tab = line.indexOf('\t')
+            if (tab <= 0) null else PinnedNote(line.substring(0, tab), line.substring(tab + 1))
+        }
+
     companion object {
         const val MAX_RECENTS = 8
     }
 }
+
+/** A pinned note: enough to list it on home and open it again. */
+data class PinnedNote(val id: String, val title: String)
 
 /** A recently opened note: enough to list it and open it again. */
 data class RecentNote(val id: String, val title: String)

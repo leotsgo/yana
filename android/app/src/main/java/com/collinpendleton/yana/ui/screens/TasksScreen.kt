@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.collinpendleton.yana.ui.ShellInsets
 import com.collinpendleton.yana.data.NoteRepository
 import com.collinpendleton.yana.data.Space
 import com.collinpendleton.yana.data.TagCount
@@ -148,6 +149,7 @@ fun TasksScreen(
     }
 
     Scaffold(
+        contentWindowInsets = ShellInsets,
         topBar = {
             TopAppBar(
                 title = { Text("Tasks") },

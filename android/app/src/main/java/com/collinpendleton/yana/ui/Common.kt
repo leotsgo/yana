@@ -7,8 +7,14 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.union
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,6 +51,16 @@ fun Wordmark(modifier: Modifier = Modifier, size: TextUnit = 20.sp) {
         color = MaterialTheme.colorScheme.onBackground,
     )
 }
+
+/**
+ * What a screen that sits above the bottom bar pads: the status bar
+ * and the sides, and the keyboard when it is up — never the navigation
+ * bar, whose space the bar itself owns.
+ */
+val ShellInsets: WindowInsets
+    @Composable get() = WindowInsets.safeDrawing
+        .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+        .union(WindowInsets.ime)
 
 /** Loading, error-with-retry, or empty: the three states a list shows before it has rows. */
 @Composable
