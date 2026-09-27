@@ -558,6 +558,9 @@ class SyncEngine(
                 loaded = false
                 had
             } ?: return
+            // Read the text now: the persist job closes the document, and
+            // a closed one reads empty, which would blank the cached body.
+            val last = d.text()
             persistJob?.cancel()
             persistJob = scope.launch {
                 runCatching { store.storeCrdtState(noteId, d.state()) }
@@ -566,7 +569,7 @@ class SyncEngine(
             bodyJob?.cancel()
             bodyJob = scope.launch {
                 delay(timings.bodyDebounceMs)
-                refreshReplicaBody(noteId, d.text())
+                refreshReplicaBody(noteId, last)
             }
         }
 

@@ -38,7 +38,7 @@ interface NoteRepository {
 
     /**
      * The note as this device last cached it, without the network, or
-     * null if its body was never fetched. A screen shows it at once and
+     * null if its body was never fetched (or is empty). A screen shows it at once and
      * replaces it when [note] answers.
      */
     suspend fun cachedNote(id: String): Note?
@@ -610,7 +610,9 @@ class YanaNoteRepository(
     /** One note assembled from the replica for offline reading. */
     override suspend fun cachedNote(id: String): Note? {
         bind()
-        return storedNote(id)?.takeIf { (it.markdown ?: it.source) != null }
+        // A sync seeds every note with an empty body row; only one this
+        // device fetched holds text.
+        return storedNote(id)?.takeIf { !(it.markdown ?: it.source).isNullOrEmpty() }
     }
 
     private suspend fun storedNote(id: String): Note? {

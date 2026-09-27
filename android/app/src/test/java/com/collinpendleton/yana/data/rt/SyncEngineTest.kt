@@ -128,6 +128,18 @@ class SyncEngineTest {
     private fun <T> blocking(block: suspend () -> T): T = runBlocking { block() }
 
     @Test
+    fun closingKeepsTheCachedBody() {
+        serverTextRef = "kept after close"
+        val handle = engine.open(note)
+        waitUntil { handle.ready.value && handle.text.value.contains("kept after close") }
+        engine.close(note)
+        // Past the body debounce, the replica holds the text, not the
+        // closed document's empty read.
+        blocking { delay(200) }
+        assertEquals("kept after close", store.bodies[note])
+    }
+
+    @Test
     fun subscribesWithStateVectorAndAppliesTheDelta() {
         serverTextRef = "hello from the server"
         val handle = engine.open(note)
@@ -530,7 +542,10 @@ private class FakeDoc(override val noteId: String, state: ByteArray) : RtDoc {
         s.substringAfter("\"clock\":").substringBefore("}").toInt()
     }.getOrDefault(-1)
 
-    override fun close() {}
+    // The Go document frees its memory on close and reads empty after.
+    override fun close() {
+        text = ""
+    }
 
     private fun notify(before: String, local: Boolean) {
         val delta = hunksBetween(before, text)
