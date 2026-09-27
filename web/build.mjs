@@ -130,14 +130,18 @@ const exportRichCtx = await esbuild.context({
 // and its page template, at stable names under dist/android/. The Makefile
 // copies these into the app's assets (make android-reader); the reader
 // page loads them through WebViewAssetLoader with no network.
+// An ES module with splitting, so mermaid and KaTeX are chunks the page
+// imports only when a note has a diagram or math.
 const androidCtx = await esbuild.context({
   entryPoints: { reader: 'src/android-reader.ts' },
   assetNames: 'fonts/[name]',
+  chunkNames: 'chunks/[name]-[hash]',
   bundle: true,
   minify: true,
   sourcemap: false,
   target: ['es2020'],
-  format: 'iife',
+  format: 'esm',
+  splitting: true,
   loader: { '.woff2': 'file' },
   outdir: 'dist/android',
   logLevel: 'info',

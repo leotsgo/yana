@@ -158,6 +158,9 @@ fun ReaderPane(
         },
         update = { wv ->
             wv.setBackgroundColor(background)
+            // Wait for the first render rather than load an empty page
+            // and then load it again with the body.
+            if (first == null) return@AndroidView
             if (loadedPage != page) {
                 loadedPage = page
                 pageLoaded = false

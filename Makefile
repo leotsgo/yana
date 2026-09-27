@@ -62,6 +62,7 @@ android-reader: web
 	mkdir -p android/app/src/main/assets/reader
 	cp web/dist/android/reader.html web/dist/android/reader.js web/dist/android/reader.css \
 		web/dist/android/fonts/* android/app/src/main/assets/reader/
+	cp -R web/dist/android/chunks android/app/src/main/assets/reader/chunks
 
 clean:
 	rm -f yana
