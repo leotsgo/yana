@@ -25,6 +25,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.background
+import com.collinpendleton.yana.Prefs
 import androidx.compose.foundation.shape.CircleShape
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -54,6 +56,7 @@ import com.collinpendleton.yana.ui.YanaIcons
 @Composable
 fun SpaceScreen(
     repo: NoteRepository,
+    prefs: Prefs,
     space: String,
     label: String,
     onBack: () -> Unit,
@@ -68,7 +71,10 @@ fun SpaceScreen(
         )
     }
     val state by vm.loaded.collectAsStateWithLifecycle()
-    var expanded by rememberSaveable { mutableStateOf(setOf<String>()) }
+    // The tree opens the way it was left, so a deep folder is one tap
+    // away on the next visit instead of one per level.
+    var expanded by rememberSaveable { mutableStateOf(prefs.openFolders(space)) }
+    LaunchedEffect(expanded) { prefs.setOpenFolders(space, expanded) }
 
     Scaffold(
         topBar = {

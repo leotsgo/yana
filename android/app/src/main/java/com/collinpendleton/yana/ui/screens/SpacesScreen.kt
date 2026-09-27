@@ -141,6 +141,7 @@ fun SpacesScreen(
     // anything seen; opening the feed does that. With history off it
     // stays quiet.
     val spaces = state.data
+    val recents by app.prefs.recents.collectAsStateWithLifecycle()
     var whats by remember { mutableStateOf<List<ActivityRow>?>(null) }
     LaunchedEffect(spaces?.map { it.name }.orEmpty().joinToString("\u0000")) {
         val names = spaces.orEmpty().map { it.name }.filter { it.isNotEmpty() }.take(8)
@@ -204,6 +205,12 @@ fun SpacesScreen(
                         TasksRow(count = countState.data) { onTasks() }
                         HorizontalDivider(Modifier.padding(start = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     }
+                    if (recents.isNotEmpty()) {
+                        item { SectionLabel("Recent") }
+                        items(recents.take(RECENTS_ON_HOME), key = { "recent:" + it.id }) { r ->
+                            RecentRow(r.title) { onNote(r.id, r.title) }
+                        }
+                    }
                     item {
                         Text(
                             "Spaces",
@@ -221,6 +228,30 @@ fun SpacesScreen(
             }
         }
     }
+}
+
+private const val RECENTS_ON_HOME = 5
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp),
+    )
+}
+
+/** A note opened lately: one tap back into it, no tree to walk. */
+@Composable
+private fun RecentRow(title: String, onClick: () -> Unit) {
+    Text(
+        title,
+        style = MaterialTheme.typography.bodyLarge,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 11.dp),
+    )
 }
 
 /** The feed's entry from home: what changed since this device last looked. */

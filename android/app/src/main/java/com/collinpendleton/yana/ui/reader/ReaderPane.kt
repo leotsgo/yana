@@ -8,7 +8,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.collinpendleton.yana.data.GoRender
@@ -68,7 +70,8 @@ fun ReaderPane(
     var html by remember(note.id) { mutableStateOf("") }
     var links by remember(note.id) { mutableStateOf<List<ResolvedLink>>(emptyList()) }
     LaunchedEffect(note.id, text) {
-        delay(220)
+        // The first render goes straight out; only live changes wait.
+        if (html.isNotEmpty()) delay(220)
         html = withContext(Dispatchers.Default) { runCatching { GoRender.markdown(text) }.getOrDefault("") }
         links = runCatching { repo.resolveLinks(note, text) }.getOrDefault(emptyList())
     }
@@ -132,11 +135,16 @@ fun ReaderPane(
         }
     }
 
+    // A WebView paints white until its page loads; the theme's
+    // background instead, so opening a note never flashes.
+    val background = MaterialTheme.colorScheme.background.toArgb()
+
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
             WebView(ctx).apply {
                 web = this
+                setBackgroundColor(background)
                 applyReaderSettings(this)
                 webViewClient = ReaderWebViewClient(
                     assets = assetLoader(ctx),
@@ -149,6 +157,10 @@ fun ReaderPane(
             }
         },
         update = { wv ->
+            wv.setBackgroundColor(background)
+            // Wait for the first render rather than load an empty page
+            // and then load it again with the body.
+            if (first == null) return@AndroidView
             if (loadedPage != page) {
                 loadedPage = page
                 pageLoaded = false

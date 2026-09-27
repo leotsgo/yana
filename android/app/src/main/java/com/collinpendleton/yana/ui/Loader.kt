@@ -27,6 +27,8 @@ data class Loaded<T>(
 class Loader<T>(
     private val fetch: suspend () -> T,
     private val refetch: (suspend () -> T)? = null,
+    /** A local answer shown before the first fetch returns, when there is one. */
+    private val cached: (suspend () -> T?)? = null,
 ) : ViewModel() {
     private val state = MutableStateFlow(Loaded<T>())
     val loaded: StateFlow<Loaded<T>> = state.asStateFlow()
@@ -40,6 +42,10 @@ class Loader<T>(
         job?.cancel()
         state.value = state.value.copy(loading = state.value.data == null, refreshing = pull, error = null)
         job = viewModelScope.launch {
+            if (!pull && state.value.data == null) {
+                val local = runCatching { cached?.invoke() }.getOrNull()
+                if (local != null) state.value = Loaded(data = local, loading = false)
+            }
             state.value = try {
                 val data = if (pull) (refetch?.invoke() ?: fetch()) else fetch()
                 Loaded(data = data, loading = false)

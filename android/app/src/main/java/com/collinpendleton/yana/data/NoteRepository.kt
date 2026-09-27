@@ -37,6 +37,13 @@ interface NoteRepository {
     suspend fun note(id: String): Note
 
     /**
+     * The note as this device last cached it, without the network, or
+     * null if its body was never fetched (or is empty). A screen shows it at once and
+     * replaces it when [note] answers.
+     */
+    suspend fun cachedNote(id: String): Note?
+
+    /**
      * The signed content-origin URL an HTML note renders in. Tokens
      * live minutes, so every open mints a fresh one; offline there is
      * no rendered view and the caller shows the source as text.
@@ -269,7 +276,7 @@ class YanaNoteRepository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
-            cachedNote(id) ?: throw e
+            storedNote(id) ?: throw e
         }
     }
 
@@ -601,7 +608,14 @@ class YanaNoteRepository(
     }
 
     /** One note assembled from the replica for offline reading. */
-    private suspend fun cachedNote(id: String): Note? {
+    override suspend fun cachedNote(id: String): Note? {
+        bind()
+        // A sync seeds every note with an empty body row; only one this
+        // device fetched holds text.
+        return storedNote(id)?.takeIf { !(it.markdown ?: it.source).isNullOrEmpty() }
+    }
+
+    private suspend fun storedNote(id: String): Note? {
         val row = store.note(id) ?: return null
         val raw = store.rawBody(id)
         return Note(

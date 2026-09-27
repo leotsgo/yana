@@ -77,6 +77,7 @@ class YanaApp : Application() {
         scope.launch {
             client.session.collect { s ->
                 if (s == null) {
+                    prefs.clearRecents()
                     store.wipe()
                     syncEngine.shutdown()
                 }
@@ -181,6 +182,48 @@ class Prefs(context: Context) {
     fun setDailyPattern(pattern: String) {
         if (pattern.isNotEmpty()) sp.edit { putString("daily.pattern", pattern) }
     }
+
+    // --- getting back to notes ---------------------------------------------------
+
+    private val recentList = MutableStateFlow(readRecents())
+
+    /** The notes this device opened last, newest first; home lists them. */
+    val recents: StateFlow<List<RecentNote>> = recentList.asStateFlow()
+
+    /** Puts a note at the top of the recents, dropping the oldest past [MAX_RECENTS]. */
+    fun touchRecent(id: String, title: String) {
+        val clean = title.replace('\t', ' ').replace('\n', ' ').trim()
+        val next = (listOf(RecentNote(id, clean)) + recentList.value.filter { it.id != id }).take(MAX_RECENTS)
+        if (next == recentList.value) return
+        sp.edit { putString("recents", next.joinToString("\n") { it.id + "\t" + it.title }) }
+        recentList.value = next
+    }
+
+    /** Forgets the recents; a sign-out, since they name the account's notes. */
+    fun clearRecents() {
+        sp.edit { remove("recents") }
+        recentList.value = emptyList()
+    }
+
+    private fun readRecents(): List<RecentNote> =
+        sp.getString("recents", null).orEmpty().lines().mapNotNull { line ->
+            val tab = line.indexOf('\t')
+            if (tab <= 0) null else RecentNote(line.substring(0, tab), line.substring(tab + 1))
+        }
+
+    /** The folders left open in one space's tree, so it reopens as it was left. */
+    fun openFolders(space: String): Set<String> = sp.getStringSet("open.$space", null)?.toSet() ?: emptySet()
+
+    fun setOpenFolders(space: String, paths: Set<String>) {
+        sp.edit { putStringSet("open.$space", paths) }
+    }
+
+    companion object {
+        const val MAX_RECENTS = 8
+    }
 }
+
+/** A recently opened note: enough to list it and open it again. */
+data class RecentNote(val id: String, val title: String)
 
 val Context.yana: YanaApp get() = applicationContext as YanaApp

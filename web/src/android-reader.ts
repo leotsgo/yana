@@ -5,12 +5,12 @@
 // the page config and the first render arrive inside the document, every
 // later render arrives through window.yanaReader.setBody, and every tap
 // leaves as a yana:// navigation the app intercepts in
-// shouldOverrideUrlLoading. Mermaid and KaTeX are bundled here, drawn
-// with the same rich.ts the web client and the exports use.
+// shouldOverrideUrlLoading. Mermaid and KaTeX are drawn with the same
+// rich.ts the web client and the exports use, and each lives in its own
+// chunk loaded the first time a note needs it: mermaid alone is most of
+// the bundle, and every note open parses what the page loads up front.
 
-import katex from 'katex'
-import mermaid from 'mermaid'
-import { drawMermaid, typeset } from './rich'
+import { drawMermaid, hasMath, hasMermaid, typeset } from './rich'
 import type { KatexLike, MermaidLike } from './rich'
 // The stylesheet rides through the same entry: build.mjs emits it as
 // reader.css beside this script, KaTeX's stylesheet and fonts included.
@@ -156,6 +156,19 @@ function wireTasks(root: HTMLElement): void {
   }
 }
 
+let mermaidLoad: Promise<MermaidLike> | undefined
+let katexLoad: Promise<KatexLike> | undefined
+
+function loadMermaid(): Promise<MermaidLike> {
+  mermaidLoad ??= import('mermaid').then((m) => m.default as unknown as MermaidLike)
+  return mermaidLoad
+}
+
+function loadKatex(): Promise<KatexLike> {
+  katexLoad ??= import('katex').then((m) => m.default as unknown as KatexLike)
+  return katexLoad
+}
+
 /** A fresh render from the app: replace the note, rewire, redraw. */
 function apply(html: string, cfg: Config): void {
   const root = document.getElementById('yana-note')
@@ -163,9 +176,15 @@ function apply(html: string, cfg: Config): void {
   const y = scrollY
   root.innerHTML = html
   wire(root, cfg)
-  if (root.querySelector('pre.mermaid')) void drawMermaid(root, mermaid as unknown as MermaidLike, cfg.dark)
-  typeset(root, katex as unknown as KatexLike)
   scrollTo(0, y)
+  if (hasMermaid(root)) void loadMermaid().then((m) => drawMermaid(root, m, cfg.dark))
+  if (hasMath(root)) {
+    void loadKatex().then((k) => {
+      const at = scrollY
+      typeset(root, k)
+      scrollTo(0, at)
+    })
+  }
 }
 
 const cfg = readConfig()
