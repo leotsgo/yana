@@ -49,8 +49,22 @@ android {
         }
     }
 
+    // Debug builds sign with this checked-in key (the standard debug
+    // alias and passwords, nothing secret) instead of each machine's own
+    // ~/.android/debug.keystore, so an APK from CI or any laptop installs
+    // over one from another. A CI runner's key was new on every run.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
+            signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
