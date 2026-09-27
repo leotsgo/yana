@@ -101,6 +101,10 @@ fun NoteScreen(
     }
     val state by vm.loaded.collectAsStateWithLifecycle()
     val note = state.data
+    LaunchedEffect(note?.id, note?.title) {
+        val n = note ?: return@LaunchedEffect
+        app.prefs.touchRecent(n.id, n.title.ifEmpty { n.path.substringAfterLast('/').substringBeforeLast('.') })
+    }
 
     // Resolving a conflict settles the note behind this screen; coming
     // back from it refetches, so the banner keeps the list's count.

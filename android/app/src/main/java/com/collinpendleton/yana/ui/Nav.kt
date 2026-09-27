@@ -120,6 +120,7 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
             val r = entry.toRoute<SpaceRoute>()
             SpaceScreen(
                 repo = app.repo,
+                prefs = app.prefs,
                 space = r.name,
                 label = r.label,
                 onBack = { nav.popBackStack() },
