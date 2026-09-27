@@ -37,7 +37,9 @@ cd android
 The build makes one APK per ABI (`arm64-v8a` for phones, `x86_64` for
 an Intel emulator, `armeabi-v7a` for old 32-bit phones); `installDebug`
 picks the right one. The debug APKs land at
-`app/build/outputs/apk/debug/app-<abi>-debug.apk` and install beside a release build (`com.collinpendleton.yana.debug`). CI
+`app/build/outputs/apk/debug/app-<abi>-debug.apk` and install beside a release build (`com.collinpendleton.yana.debug`). Debug builds
+sign with the checked-in `app/debug.keystore`, so a CI build installs over
+a local one and the other way round. CI
 runs `make android-crdt` and `make android-reader` and then
 `./gradlew build` on every pull request that touches `android/` and
 attaches the debug APKs to the run as `yana-debug-apk`.
