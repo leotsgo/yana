@@ -1,5 +1,9 @@
 package com.collinpendleton.yana.ui
 
+import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +64,8 @@ import kotlinx.serialization.Serializable
 /** Deleted notes, conflicts, and a space as a zip; 12r. */
 @Serializable data object DataRoute
 
+private const val NAV_MS = 180
+
 @Composable
 fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) {
     val client = app.client
@@ -76,7 +82,16 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
         client.lastServer?.let(::normalizeServerUrl)?.let { nav.navigate(SignInRoute(it.toString(), setup = false)) }
     }
 
-    NavHost(nav, startDestination = start) {
+    // Navigation's default is a 700 ms crossfade on every push and pop,
+    // which reads as lag; a short slide keeps the direction readable.
+    NavHost(
+        nav,
+        startDestination = start,
+        enterTransition = { slideIntoContainer(SlideDirection.Start, tween(NAV_MS)) + fadeIn(tween(NAV_MS)) },
+        exitTransition = { fadeOut(tween(NAV_MS)) },
+        popEnterTransition = { fadeIn(tween(NAV_MS)) },
+        popExitTransition = { slideOutOfContainer(SlideDirection.End, tween(NAV_MS)) + fadeOut(tween(NAV_MS)) },
+    ) {
         composable<ServerRoute> {
             ServerScreen(client) { server, setup -> nav.navigate(SignInRoute(server, setup)) }
         }
