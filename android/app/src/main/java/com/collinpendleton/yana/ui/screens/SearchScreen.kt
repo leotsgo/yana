@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.collinpendleton.yana.ui.ShellInsets
 import com.collinpendleton.yana.data.NoteRepository
 import com.collinpendleton.yana.data.SearchResult
 import com.collinpendleton.yana.ui.Loader
@@ -67,6 +68,7 @@ fun SearchScreen(
     val state by vm.loaded.collectAsStateWithLifecycle()
 
     Scaffold(
+        contentWindowInsets = ShellInsets,
         topBar = {
             TopAppBar(
                 title = {

@@ -81,6 +81,24 @@ object YanaIcons {
         "m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21",
     ) }
 
+    /** The command mark: the switcher, the web's palette button. */
+    val Command: ImageVector by lazy { build("command",
+        "M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3",
+    ) }
+
+    /** A plus: the New tab's action. */
+    val Plus: ImageVector by lazy { build("plus",
+        "M5 12h14",
+        "M12 5v14",
+    ) }
+
+    /** A square with a check, the tasks tab. */
+    val CheckSquare: ImageVector by lazy { build("square-check",
+        "M21 10.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.5",
+        "m9 11 2 2 4-4.5",
+        "M17 3h4v4",
+    ) }
+
     private fun build(name: String, vararg paths: String): ImageVector =
         ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f).apply {
             for (d in paths) {

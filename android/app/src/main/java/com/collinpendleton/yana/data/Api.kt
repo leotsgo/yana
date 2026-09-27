@@ -90,6 +90,14 @@ interface YanaApi {
     @GET("api/tags")
     suspend fun tags(): TagsResponse
 
+    /** The notes carrying one tag, in path order. */
+    @GET("api/tags/{tag}")
+    suspend fun tagNotes(@Path("tag") tag: String): TagNotesResponse
+
+    /** The notes linking to one, with the line each link sits on. */
+    @GET("api/notes/{id}/backlinks")
+    suspend fun backlinks(@Path("id") id: String): BacklinksResponse
+
     @POST("api/notes/{id}/move")
     suspend fun moveNote(@Path("id") id: String, @Body body: MoveRequest): retrofit2.Response<Unit>
 

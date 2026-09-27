@@ -109,6 +109,23 @@ interface NoteRepository {
     /** The account's tags with note counts; the replica's when offline. */
     suspend fun tags(): List<TagCount>
 
+    /** The notes carrying one tag, in path order; the replica's when offline. */
+    suspend fun tagNotes(tag: String): List<NoteMeta>
+
+    /**
+     * The notes linking to one, each with the line its link sits on.
+     * Backlinks live in the server's index, so this is online-only; a
+     * failure is the caller's to word.
+     */
+    suspend fun backlinks(id: String): List<Backlink>
+
+    /**
+     * Every note with its tags, the switcher's pool. The replica answers
+     * first — the switcher is a local list — and a sync fills it when
+     * the replica is empty.
+     */
+    suspend fun allNotes(): List<NoteMeta>
+
     /** The open count across every space, with when it was read; null when never known. */
     suspend fun openTaskCount(): TaskCount?
 
@@ -412,6 +429,34 @@ class YanaNoteRepository(
         }
     }
 
+    override suspend fun tagNotes(tag: String): List<NoteMeta> {
+        bind()
+        return try {
+            client.api().tagNotes(tag).notes
+        } catch (e: YanaClient.NotSignedIn) {
+            throw e
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            store.notesForTag(tag.lowercase()).map { it.toMeta() }
+        } catch (e: HttpException) {
+            store.notesForTag(tag.lowercase()).map { it.toMeta() }
+        }
+    }
+
+    override suspend fun backlinks(id: String): List<Backlink> {
+        bind()
+        return client.api().backlinks(id).backlinks
+    }
+
+    override suspend fun allNotes(): List<NoteMeta> {
+        bind()
+        val cached = store.allNotes()
+        if (cached.isNotEmpty()) return cached.map { it.toMeta() }
+        runCatching { pull() }
+        return store.allNotes().map { it.toMeta() }
+    }
+
     override suspend fun openTaskCount(): TaskCount? {
         bind()
         return try {
@@ -690,6 +735,20 @@ class YanaNoteRepository(
             source = if (row.kind == "html") raw else null,
         )
     }
+
+    /** One replica row as the wire's note metadata. */
+    private fun com.collinpendleton.yana.data.replica.NoteWithTags.toMeta() = NoteMeta(
+        id = id,
+        space = space,
+        path = relPath,
+        title = title,
+        preview = preview,
+        kind = kind,
+        contentHash = contentHash,
+        created = formatEpoch(created),
+        updatedAt = formatEpoch(updatedAt),
+        tags = tags?.split(',')?.filter { it.isNotEmpty() } ?: emptyList(),
+    )
 
     private fun SearchHit.toResult() = SearchResult(
         id = note.id,

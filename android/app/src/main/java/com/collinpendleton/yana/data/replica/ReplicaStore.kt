@@ -301,6 +301,12 @@ class ReplicaStore(private val db: ReplicaDatabase) : com.collinpendleton.yana.d
     /** The replica's tag counts, the tag filter's offline answer. */
     suspend fun tagCounts(): List<TagCount> = dao.tagCounts().map { TagCount(it.tag, it.count) }
 
+    /** The notes carrying one tag, in path order — the tag page offline. */
+    suspend fun notesForTag(tag: String): List<NoteWithTags> = dao.notesForTag(tag)
+
+    /** Every note with its tags — the switcher's pool. */
+    suspend fun allNotes(): List<NoteWithTags> = dao.allNotesWithTags()
+
     /** Every note of one space, the refs wikilink resolution runs over. */
     suspend fun spaceNoteRefs(space: String): List<com.collinpendleton.yana.data.NoteRef> =
         dao.notesIn(space).map { com.collinpendleton.yana.data.NoteRef(it.id, it.relPath) }

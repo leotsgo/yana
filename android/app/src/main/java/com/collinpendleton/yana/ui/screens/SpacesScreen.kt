@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
@@ -23,11 +21,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -41,17 +37,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.collinpendleton.yana.ui.ShellInsets
 import com.collinpendleton.yana.R
 import com.collinpendleton.yana.YanaApp
-import com.collinpendleton.yana.data.AppendOutcome
 import com.collinpendleton.yana.data.Space
 import com.collinpendleton.yana.data.TaskCount
+import com.collinpendleton.yana.ui.CaptureLineDialog
 import com.collinpendleton.yana.ui.Loader
 import com.collinpendleton.yana.ui.Placeholder
 import com.collinpendleton.yana.ui.Wordmark
@@ -74,6 +69,8 @@ fun SpacesScreen(
     onTasks: () -> Unit = {},
     onActivity: () -> Unit = {},
     onNote: (id: String, title: String) -> Unit = { _, _ -> },
+    onSwitcher: () -> Unit = {},
+    onTags: () -> Unit = {},
 ) {
     val repo = app.repo
     val scope = rememberCoroutineScope()
@@ -89,7 +86,6 @@ fun SpacesScreen(
     // without opening anything.
     var openingToday by remember { mutableStateOf(false) }
     var captureOpen by remember { mutableStateOf(false) }
-    var captureBusy by remember { mutableStateOf(false) }
 
     fun openToday() {
         if (openingToday) return
@@ -102,30 +98,6 @@ fun SpacesScreen(
             } else {
                 onNote(today.id, today.path.substringAfterLast('/').removeSuffix(".md"))
             }
-        }
-    }
-
-    fun capture(line: String) {
-        val text = line.trim()
-        if (text.isEmpty() || captureBusy) return
-        captureBusy = true
-        scope.launch {
-            when (val outcome = app.capture.captureLine(text)) {
-                is AppendOutcome.Done -> {
-                    captureOpen = false
-                    Toast.makeText(
-                        context,
-                        if (outcome.local) app.getString(R.string.capture_added_local)
-                        else app.getString(R.string.capture_added),
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                }
-                AppendOutcome.NotOnDevice ->
-                    Toast.makeText(context, app.getString(R.string.capture_not_on_device), Toast.LENGTH_SHORT).show()
-                AppendOutcome.NotFound ->
-                    Toast.makeText(context, app.getString(R.string.capture_no_space), Toast.LENGTH_SHORT).show()
-            }
-            captureBusy = false
         }
     }
 
@@ -142,6 +114,7 @@ fun SpacesScreen(
     // stays quiet.
     val spaces = state.data
     val recents by app.prefs.recents.collectAsStateWithLifecycle()
+    val pins by app.prefs.pins.collectAsStateWithLifecycle()
     var whats by remember { mutableStateOf<List<ActivityRow>?>(null) }
     LaunchedEffect(spaces?.map { it.name }.orEmpty().joinToString("\u0000")) {
         val names = spaces.orEmpty().map { it.name }.filter { it.isNotEmpty() }.take(8)
@@ -156,13 +129,15 @@ fun SpacesScreen(
     }
 
     if (captureOpen) {
-        CaptureDialog(busy = captureBusy, onAdd = { capture(it) }, onDismiss = { captureOpen = false })
+        CaptureLineDialog(app) { captureOpen = false }
     }
     Scaffold(
+        contentWindowInsets = ShellInsets,
         topBar = {
             TopAppBar(
                 title = { Wordmark() },
                 actions = {
+                    IconButton(onClick = onSwitcher) { Icon(YanaIcons.Command, contentDescription = "Switcher") }
                     IconButton(onClick = onSearch) { Icon(Icons.Default.Search, contentDescription = "Search") }
                     IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
                 },
@@ -204,6 +179,16 @@ fun SpacesScreen(
                     item {
                         TasksRow(count = countState.data) { onTasks() }
                         HorizontalDivider(Modifier.padding(start = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                    item {
+                        TagsRow { onTags() }
+                        HorizontalDivider(Modifier.padding(start = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                    if (pins.isNotEmpty()) {
+                        item { SectionLabel("Pinned") }
+                        items(pins, key = { "pin:" + it.id }) { p ->
+                            RecentRow(p.title) { onNote(p.id, p.title) }
+                        }
                     }
                     if (recents.isNotEmpty()) {
                         item { SectionLabel("Recent") }
@@ -370,35 +355,32 @@ private fun CaptureRow(onClick: () -> Unit) {
     }
 }
 
-/** The capture prompt: one field, Enter to add, the web's palette prompt. */
+/** The tags page's entry: every #tag and the notes carrying it. */
 @Composable
-private fun CaptureDialog(busy: Boolean, onAdd: (String) -> Unit, onDismiss: () -> Unit) {
-    var line by remember { mutableStateOf("") }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.capture_title)) },
-        text = {
-            OutlinedTextField(
-                value = line,
-                onValueChange = { line = it },
-                placeholder = { Text(stringResource(R.string.capture_hint)) },
-                supportingText = { Text(stringResource(R.string.capture_support)) },
-                singleLine = true,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { onAdd(line) }),
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
+private fun TagsRow(onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(start = 20.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer) {
+            Text(
+                "#",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(horizontal = 9.dp, vertical = 1.dp),
             )
-        },
-        confirmButton = {
-            TextButton(onClick = { onAdd(line) }, enabled = line.isNotBlank() && !busy) {
-                Text(stringResource(R.string.capture_add))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
-        },
-    )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Tags", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Every #tag and the notes carrying it",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable
