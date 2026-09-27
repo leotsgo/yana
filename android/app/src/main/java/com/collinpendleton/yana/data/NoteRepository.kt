@@ -7,11 +7,14 @@ import com.collinpendleton.yana.data.replica.MoveOp
 import com.collinpendleton.yana.data.replica.OpPayload
 import com.collinpendleton.yana.data.replica.ReplicaStore
 import com.collinpendleton.yana.data.replica.TaskOp
+import com.collinpendleton.yana.data.replica.UploadOp
 import com.collinpendleton.yana.data.search.parseQuery
 import java.io.IOException
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.HttpException
 
 /**
@@ -65,6 +68,28 @@ interface NoteRepository {
     suspend fun enqueueCreate(space: String, path: String, content: String)
     suspend fun enqueueAppend(noteId: String, text: String)
     suspend fun enqueueMove(noteId: String, toPath: String)
+
+    /**
+     * PUT one file under an `_assets` directory (`PUT /api/files/`),
+     * the same endpoint the web editor uploads through; the server
+     * picks a free name and the answer carries it. Throws [IOException]
+     * when the network is gone and [retrofit2.HttpException] when the
+     * server refuses (over the asset limit, a viewer's space).
+     */
+    suspend fun uploadAsset(path: String, bytes: ByteArray, mime: String): UploadResponse
+
+    /** Queues an upload whose bytes sit in a staged file; replay on the next sync. */
+    suspend fun enqueueUpload(op: UploadOp)
+
+    /** The `_assets/` paths whose upload still waits, for the reader's placeholders. */
+    val pendingUploadPaths: Flow<Set<String>>
+
+    /**
+     * Rewrites a note's `![](_assets/...)` link when a queued upload
+     * lands under another name than the one asked for; wired to the
+     * realtime engine by the app, so the fix rides the document.
+     */
+    val fixUploadLink: suspend (noteId: String, askedFor: String, written: String) -> Unit
 
     /**
      * Ticks a task box while reading: through the server's endpoint when
@@ -234,9 +259,13 @@ internal fun Throwable.asHistoryError(): Throwable =
 class YanaNoteRepository(
     private val client: YanaClient,
     private val store: ReplicaStore,
+    private val uploads: PendingUploadStore,
+    override val fixUploadLink: suspend (noteId: String, askedFor: String, written: String) -> Unit = { _, _, _ -> },
 ) : NoteRepository {
 
     override val pendingCount: Flow<Int> get() = store.pendingCount
+
+    override val pendingUploadPaths: Flow<Set<String>> get() = store.pendingUploadPaths()
 
     override suspend fun sync() {
         bind()
@@ -316,6 +345,14 @@ class YanaNoteRepository(
 
     override suspend fun enqueueMove(noteId: String, toPath: String) =
         store.enqueueMove(MoveOp(noteId, toPath))
+
+    override suspend fun uploadAsset(path: String, bytes: ByteArray, mime: String): UploadResponse {
+        bind()
+        val type = mime.takeIf { it.isNotBlank() }?.toMediaTypeOrNull()
+        return client.api().uploadFile(encodeAssetPath(path), bytes.toRequestBody(type))
+    }
+
+    override suspend fun enqueueUpload(op: UploadOp) = store.enqueueUpload(op)
 
     override suspend fun tickTask(noteId: String, line: Int, done: Boolean): TickOutcome {
         bind()
@@ -584,6 +621,26 @@ class YanaNoteRepository(
                 is OpPayload.Task -> try {
                     client.api().tickTask(TaskTickRequest(op.op.noteId, op.op.line, op.op.done))
                     true
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    !(e is HttpException && permanent(e.code()))
+                }
+                is OpPayload.Upload -> try {
+                    val bytes = uploads.read(op.op.file)
+                    if (bytes == null) {
+                        // The staged bytes are gone (a wiped queue left the
+                        // file behind, or vice versa): the op can never send.
+                        true
+                    } else {
+                        val res = client.api().uploadFile(encodeAssetPath(op.op.path), bytes.toRequestBody(null))
+                        uploads.delete(op.op.file)
+                        if (res.name.isNotEmpty() && res.name != op.op.name) {
+                            // The name was taken; the server picked another,
+                            // so the note's link is fixed through the document.
+                            fixUploadLink(op.op.noteId, op.op.name, res.name)
+                        }
+                        true
+                    }
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     !(e is HttpException && permanent(e.code()))

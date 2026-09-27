@@ -198,10 +198,13 @@ The entry points:
   (`GET /api/status` carries the pattern; the server's default stands
   in until it has answered). Capture takes one line onto the end of
   today's note without opening it, as `- text`, the web's capture.
-- **The share target** (`ACTION_SEND`, text and URLs): a light activity
-  shows what arrived with two ways in — a new note in the inbox folder,
+- **The share target** (`ACTION_SEND`, text, URLs, and photos): a light
+  activity shows what arrived with two ways in — a new note in the inbox folder,
   or the block appended to a note picked from the recent list with
-  search over the replica. A new note opens the editor inside the share
+  search over the replica. Photos (`ACTION_SEND` or
+  `ACTION_SEND_MULTIPLE` with images) upload to `_assets/` through the
+  same path as the editor's image action before the note is written.
+  A new note opens the editor inside the share
   activity, so backing out returns to the app that shared; an append
   confirms and returns on its own.
 - **The APPEND intent** (`com.collinpendleton.yana.APPEND`, exported):
@@ -390,6 +393,40 @@ leaving the editor withdraws the cursor.
 Every offset is a UTF-16 code unit end to end — the text field's
 selections, the document, and the wire agree — so emoji and combining
 characters edit cleanly.
+
+## Images
+
+A note's photos live where the web keeps them: the `_assets/`
+directory beside the note. The editor's image action (the picture in
+its bottom bar) offers the photo picker (`PickVisualMedia`, no
+storage permission) or the camera (`TakePicture` into the app's own
+cache through a `FileProvider`); the photo uploads through the same
+`PUT /api/files/<path>` the web editor uses, and the link
+`![caption](_assets/name.jpg)` lands at the cursor as one document
+operation. While the upload runs the document holds a placeholder
+marker, which becomes the link when the server answers with the name
+it wrote, or leaves with the reason when it refuses.
+
+Names follow the web client exactly — the same sanitization, the same
+stamped fallback a pasted screenshot gets (`photo-<YYYYMMDD-HHMMSS>`,
+UTC to the second) — so both clients produce the same tree. A photo
+longer than 2048 pixels on its longest edge is downscaled to it and
+re-encoded as JPEG quality 90, rotated the way its EXIF says first so
+a portrait photo stays portrait; anything inside the limit goes up
+untouched. Offline, the link is written now and the upload joins the
+`pending_ops` queue with its bytes staged beside the replica,
+replaying on the next sync; a replay that lands under another name
+(the one asked for was taken) fixes the note's link through the
+document. Until an upload lands, the reading view shows a placeholder
+naming the photo, and when the queue drains the body re-renders with
+the real ones.
+
+`_assets/` images render with the auth header and a disk cache —
+OkHttp's, inside the reader's own `AssetFetcher`, which is the "or
+equivalent" of the usual Coil choice: the reading view is a WebView
+whose page never loads an image itself, so the fetcher that already
+stands between it and the server is the right place, and the token
+never enters the page.
 
 The work happens three ways:
 

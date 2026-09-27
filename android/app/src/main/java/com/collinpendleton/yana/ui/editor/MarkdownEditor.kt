@@ -1,10 +1,15 @@
 package com.collinpendleton.yana.ui.editor
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -12,6 +17,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,6 +45,7 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -46,10 +56,26 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.collinpendleton.yana.data.AssetNames
+import com.collinpendleton.yana.data.ImageAssets
+import com.collinpendleton.yana.data.ImageSource
+import com.collinpendleton.yana.data.NoteRepository
+import com.collinpendleton.yana.data.assetBaseOf
 import com.collinpendleton.yana.data.rt.PeerCursor
 import com.collinpendleton.yana.data.rt.SyncEngine
+import com.collinpendleton.yana.data.userMessage
+import com.collinpendleton.yana.ui.YanaIcons
+import java.io.File
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 
 /**
  * The markdown editor: a plain text field bound to the note's document
@@ -67,12 +93,20 @@ fun MarkdownEditor(
     handle: SyncEngine.NoteHandle,
     noteId: String,
     modifier: Modifier = Modifier,
+    /** The note's tree path; the image action uploads beside it. Null hides the action. */
+    notePath: String? = null,
+    repo: NoteRepository? = null,
+    images: ImageAssets? = null,
+    /** A scope that outlives this screen, so an upload in flight survives navigation. */
+    workScope: CoroutineScope? = null,
 ) {
     var field by remember(noteId) { mutableStateOf<TextFieldValue?>(null) }
     var layout by remember(noteId) { mutableStateOf<TextLayoutResult?>(null) }
     val bursts = remember(noteId) { UndoBursts() }
     val throttle = remember(noteId) { CursorThrottle(50) }
     val measurer = rememberTextMeasurer()
+    val context = LocalContext.current
+    val toast: (String) -> Unit = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() }
 
     val presence by handle.presence.collectAsStateWithLifecycle()
     val undoDepth by handle.undoDepth.collectAsStateWithLifecycle()
@@ -147,6 +181,87 @@ fun MarkdownEditor(
         bursts.onRedone()
     }
 
+    // --- images ---------------------------------------------------------------
+
+    /** Applies one marker→replacement swap through the diff, wherever the marker sits now. */
+    fun applyUploadResult(marker: String, replacement: String) {
+        val current = field ?: return
+        val (text, cursor) = AssetNames.replaceMarker(current.text, marker, replacement, current.selection.min)
+        if (text == current.text) return
+        change(TextFieldValue(text, TextRange(cursor)))
+    }
+
+    /**
+     * One photo into the note at the cursor: the marker goes in now as
+     * one op, the upload runs behind it, and the marker becomes the
+     * link — or leaves, with the reason — when the server answers.
+     * Offline, the bytes queue and the link is written for the name
+     * asked for.
+     */
+    fun insertImage(source: ImageSource) {
+        val path = notePath
+        val base = if (path != null) assetBaseOf(path) else ""
+        val repository = repo
+        val assets = images
+        val scope = workScope
+        if (path == null || base.isEmpty() || repository == null || assets == null || scope == null) return
+        scope.launch {
+            val prepared = runCatching { assets.prepare(source) }.getOrNull()
+            if (prepared == null) {
+                withContext(Dispatchers.Main) { toast("Could not read that photo.") }
+                return@launch
+            }
+            val marker = AssetNames.marker(prepared.name)
+            withContext(Dispatchers.Main) {
+                val current = field ?: return@withContext
+                val at = current.selection.min
+                val text = current.text.substring(0, at) + marker + current.text.substring(at)
+                change(TextFieldValue(text, TextRange(at + marker.length)))
+            }
+            try {
+                val res = repository.uploadAsset("$base/_assets/${prepared.name}", prepared.bytes, prepared.mime)
+                val name = res.name.ifEmpty { prepared.name }
+                withContext(Dispatchers.Main) { applyUploadResult(marker, AssetNames.imageLink(name)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                assets.queueOffline(prepared, base, noteId, repository)
+                withContext(Dispatchers.Main) {
+                    applyUploadResult(marker, AssetNames.imageLink(prepared.name))
+                    toast("Offline. ${prepared.name} uploads when the connection returns.")
+                }
+            } catch (e: HttpException) {
+                withContext(Dispatchers.Main) {
+                    applyUploadResult(marker, "")
+                    toast(e.userMessage())
+                }
+            }
+        }
+    }
+
+    var imageMenu by remember(noteId) { mutableStateOf(false) }
+    var cameraTarget by remember(noteId) { mutableStateOf<File?>(null) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) insertImage(ImageSource.Picked(uri))
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val f = cameraTarget
+        cameraTarget = null
+        if (ok && f != null && f.exists()) insertImage(ImageSource.Capture(f))
+    }
+
+    fun takePhoto() {
+        val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+        val f = File(dir, "photo-${AssetNames.stamp()}.jpg")
+        cameraTarget = f
+        val uri = FileProvider.getUriForFile(context, context.packageName + ".files", f)
+        runCatching { camera.launch(uri) }.onFailure {
+            cameraTarget = null
+            toast("No camera app took the request.")
+        }
+    }
+
     // Leaving the editor withdraws the cursor from the room.
     DisposableEffect(noteId) {
         onDispose { sync.sendCursorRemoval(noteId) }
@@ -205,8 +320,38 @@ fun MarkdownEditor(
         Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                if (notePath != null && repo != null && images != null && workScope != null) {
+                    Box {
+                        IconButton(onClick = { imageMenu = true }) {
+                            Icon(
+                                YanaIcons.Image,
+                                contentDescription = "Insert image",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        DropdownMenu(expanded = imageMenu, onDismissRequest = { imageMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Choose photo") },
+                                onClick = {
+                                    imageMenu = false
+                                    picker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                    )
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Take photo") },
+                                onClick = {
+                                    imageMenu = false
+                                    takePhoto()
+                                },
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
                 TextButton(onClick = ::undo, enabled = undoDepth > 0) {
                     Text("Undo", style = MaterialTheme.typography.labelLarge)
                 }

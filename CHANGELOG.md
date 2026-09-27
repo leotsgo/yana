@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Android images (Phase 12h). The editor grows an image action — the
+  photo picker or the camera — that uploads through the same
+  `PUT /api/files` the web editor uses into the note's sibling
+  `_assets/` directory and inserts `![alt](_assets/name)` at the
+  cursor as one document operation, with a placeholder marker while
+  the upload runs. Names follow the web client's convention exactly
+  (the same sanitization, the same stamped `photo-` fallback), a
+  photo longer than 2048 pixels on its longest edge is downscaled to
+  it and re-encoded as JPEG 90 with its EXIF rotation applied, and
+  anything smaller goes up untouched. Offline the link is written
+  immediately and the upload joins `pending_ops` with its bytes
+  staged on disk, replaying on the next sync; a replay that lands
+  under another name fixes the note's link through the document. The
+  reading view shows a placeholder naming photos whose upload still
+  waits and re-renders when they land. The share target accepts
+  `ACTION_SEND`/`ACTION_SEND_MULTIPLE` images into a new or existing
+  note through the same path, uploading first when the network is
+  there so the links carry the names the server chose.
+
 - Android capture speed (Phase 12f). Every fast entry point — the share
   target, two quick-settings tiles, a Glance home-screen widget,
   launcher shortcuts, and Today and Capture on the home screen — makes

@@ -93,6 +93,16 @@ interface YanaApi {
     @POST("api/notes/{id}/move")
     suspend fun moveNote(@Path("id") id: String, @Body body: MoveRequest): retrofit2.Response<Unit>
 
+    /**
+     * PUT one file under an `_assets` directory; the path is
+     * percent-encoded per segment and the server picks a free name.
+     */
+    @PUT("api/files/{path}")
+    suspend fun uploadFile(
+        @Path(value = "path", encoded = true) path: String,
+        @Body body: okhttp3.RequestBody,
+    ): UploadResponse
+
     /** Saves an HTML note's source, whole-file and last-write-wins. */
     @PUT("api/notes/{id}/source")
     suspend fun saveSource(@Path("id") id: String, @Body body: SaveSourceRequest): SaveSourceResponse

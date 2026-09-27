@@ -74,6 +74,13 @@ object YanaIcons {
         "M12 17h.01",
     ) }
 
+    /** A photo, the editor's image action. */
+    val Image: ImageVector by lazy { build("image",
+        "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z",
+        "M11 9a2 2 0 1 1-4 0a2 2 0 1 1 4 0",
+        "m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21",
+    ) }
+
     private fun build(name: String, vararg paths: String): ImageVector =
         ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f).apply {
             for (d in paths) {

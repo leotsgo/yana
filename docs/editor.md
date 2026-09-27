@@ -595,7 +595,10 @@ a PDF, a spreadsheet, a document. While the upload runs the document holds a
 placeholder link, so other clients see something sensible; the server picks
 a free name (`shot.png`, `shot-2.png`, …) rather than overwriting, and the
 link uses the name it actually wrote. Uploads are bounded by
-`YANA_MAX_ASSET_SIZE` and require write access to the space.
+`YANA_MAX_ASSET_SIZE` and require write access to the space. The Android
+app's editor does the same from its image action — pick or take a photo,
+downscaled to at most 2048 pixels on its longest edge — and photos shared
+to the app go up the same path into a new or existing note.
 
 In the read view, a link into `_assets/` that is not a picture renders as a
 card: name, size, and for a PDF its page count and a button that expands an

@@ -18,6 +18,7 @@ import com.collinpendleton.yana.data.search.SearchQuery
 import com.collinpendleton.yana.data.search.buildSearchQuery
 import com.collinpendleton.yana.data.rt.OutboxRow
 import java.time.Instant
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 
 /** The JSON payloads of the offline operations. */
@@ -45,6 +46,20 @@ data class MoveOp(val noteId: String, val toPath: String)
 @Serializable
 data class TaskOp(val noteId: String, val line: Int, val done: Boolean)
 
+/**
+ * One queued asset upload: the bytes sit in a staged file on disk (the
+ * queue's payloads are JSON), the PUT names [path] under the note's
+ * `_assets/`, and [noteId] names the note the link went into so a
+ * replay that lands under another name can fix the link.
+ */
+@Serializable
+data class UploadOp(
+    val path: String,
+    val name: String,
+    val noteId: String,
+    val file: String,
+)
+
 @Serializable
 sealed interface OpPayload {
     @Serializable
@@ -58,6 +73,9 @@ sealed interface OpPayload {
 
     @Serializable
     data class Task(val op: TaskOp) : OpPayload
+
+    @Serializable
+    data class Upload(val op: UploadOp) : OpPayload
 }
 
 /** One pending operation, decoded. */
@@ -314,6 +332,7 @@ class ReplicaStore(private val db: ReplicaDatabase) : com.collinpendleton.yana.d
     suspend fun enqueueAppend(op: AppendOp) = enqueue("append", YanaJson.encodeToString(OpPayload.serializer(), OpPayload.Append(op)))
     suspend fun enqueueMove(op: MoveOp) = enqueue("move", YanaJson.encodeToString(OpPayload.serializer(), OpPayload.Move(op)))
     suspend fun enqueueTask(op: TaskOp) = enqueue("task", YanaJson.encodeToString(OpPayload.serializer(), OpPayload.Task(op)))
+    suspend fun enqueueUpload(op: UploadOp) = enqueue("upload", YanaJson.encodeToString(OpPayload.serializer(), OpPayload.Upload(op)))
 
     private suspend fun enqueue(type: String, payload: String) {
         dao.addPendingOp(PendingOpEntity(type = type, payload = payload, createdAt = System.currentTimeMillis()))
@@ -337,6 +356,20 @@ class ReplicaStore(private val db: ReplicaDatabase) : com.collinpendleton.yana.d
         dao.createOpPayloads().mapNotNull { payload ->
             runCatching { YanaJson.decodeFromString(CreateOp.serializer(), payload).id }.getOrNull()
         }.filter { it.isNotEmpty() }
+
+    /** The queued uploads, decoded, oldest first. */
+    suspend fun pendingUploads(): List<UploadOp> =
+        dao.uploadOpPayloads().mapNotNull { payload ->
+            runCatching { YanaJson.decodeFromString(UploadOp.serializer(), payload) }.getOrNull()
+        }
+
+    /** The `_assets/` paths whose upload still waits, for the reader's placeholders. */
+    fun pendingUploadPaths(): kotlinx.coroutines.flow.Flow<Set<String>> =
+        dao.uploadOpPayloadsFlow().map { payloads ->
+            payloads.mapNotNull { payload ->
+                runCatching { YanaJson.decodeFromString(UploadOp.serializer(), payload).path }.getOrNull()
+            }.toSet()
+        }
 
     // --- CRDT state and outbox (the sync engine's RtStore) --------------------
 

@@ -84,6 +84,17 @@ class CaptureNotes(
     }
 
     /**
+     * The directory a new inbox note lands in — where shared photos
+     * upload before their note exists.
+     */
+    suspend fun inboxBase(): String {
+        val space = captureSpace()
+        if (space.isEmpty()) return ""
+        val folder = prefs.inboxFolder(space)
+        return if (folder.isEmpty()) space else "$space/$folder"
+    }
+
+    /**
      * A new note in the space's inbox folder, created in the replica
      * with a client-minted ULID and an empty document that is ready to
      * type into right now. [initial] (a share's block) becomes the
@@ -92,12 +103,13 @@ class CaptureNotes(
      * space to capture into.
      */
     suspend fun newInboxNote(initial: String = ""): CapturedNote? {
+        val base = inboxBase()
+        if (base.isEmpty()) return null
         val space = captureSpace()
-        if (space.isEmpty()) return null
         val folder = prefs.inboxFolder(space)
         val taken = store.namesIn(space, folder)
         val name = CaptureKit.nextInboxName(taken)
-        val path = (if (folder.isEmpty()) space else "$space/$folder") + "/" + name + ".md"
+        val path = "$base/$name.md"
         val id = CaptureKit.newUlid(now())
         createLocalNote(id, space, path, name, initial)
         // The network, when it is there, makes the note real for
