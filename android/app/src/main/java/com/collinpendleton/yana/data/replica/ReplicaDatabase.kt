@@ -146,6 +146,14 @@ interface ReplicaDao {
     @Query("SELECT payload FROM pending_ops WHERE type = 'create'")
     suspend fun createOpPayloads(): List<String>
 
+    /** The JSON payloads of the queued uploads, replayed oldest first. */
+    @Query("SELECT payload FROM pending_ops WHERE type = 'upload' ORDER BY seq")
+    suspend fun uploadOpPayloads(): List<String>
+
+    /** The same payloads, observed, for the reader's pending placeholders. */
+    @Query("SELECT payload FROM pending_ops WHERE type = 'upload' ORDER BY seq")
+    fun uploadOpPayloadsFlow(): kotlinx.coroutines.flow.Flow<List<String>>
+
     // --- CRDT state and outbox ---------------------------------------------
 
     @Query("SELECT * FROM note_crdt WHERE note_id = :id")

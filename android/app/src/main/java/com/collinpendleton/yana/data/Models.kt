@@ -192,6 +192,19 @@ data class SaveSourceResponse(
     @SerialName("conflict_copy") val conflictCopy: String? = null,
 )
 
+/**
+ * One uploaded asset's answer: the path that was written (the server
+ * picks a free name rather than overwriting), its size, and the URL it
+ * serves at.
+ */
+@Serializable
+data class UploadResponse(
+    val path: String = "",
+    val name: String = "",
+    val size: Long = 0,
+    val url: String = "",
+)
+
 @Serializable
 data class SessionsResponse(val sessions: List<SessionInfo> = emptyList())
 

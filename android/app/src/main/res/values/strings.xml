@@ -18,6 +18,11 @@
     <string name="share_added_local">Added on this device. It merges when the server is back.</string>
     <string name="share_not_on_device">That note has not been opened on this device yet; open it once first.</string>
     <string name="share_not_found">That note is not on this device.</string>
+    <plurals name="share_photos">
+        <item quantity="one">%d photo</item>
+        <item quantity="other">%d photos</item>
+    </plurals>
+    <string name="share_photo_refused">The server would not take %1$s.</string>
 
     <!-- Capture -->
     <string name="capture_title">Capture</string>

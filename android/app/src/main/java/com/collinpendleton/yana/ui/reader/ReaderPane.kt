@@ -92,6 +92,19 @@ fun ReaderPane(
     var pushedSeq by remember(note.id) { mutableStateOf(0) }
     var repush by remember(note.id) { mutableStateOf(0) }
 
+    // Images whose upload the offline queue still holds answer with a
+    // placeholder; when the queue drains, one repush re-renders the
+    // body so the real ones load.
+    var pendingWas by remember(note.id) { mutableStateOf(false) }
+    LaunchedEffect(note.id) {
+        repo.pendingUploadPaths.collect { paths ->
+            fetcher.pending = paths
+            val pendingNow = paths.isNotEmpty()
+            if (pendingWas && !pendingNow) repush++
+            pendingWas = pendingNow
+        }
+    }
+
     // A tasks row's line: scroll its checkbox into view once the body
     // that holds it is on the page, trying until the render lands (the
     // first paints may still carry an empty body) and giving up after a

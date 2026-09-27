@@ -9,6 +9,8 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.collinpendleton.yana.data.CaptureKit
 import com.collinpendleton.yana.data.CaptureNotes
 import com.collinpendleton.yana.data.EncryptedSessionStore
+import com.collinpendleton.yana.data.ImageAssets
+import com.collinpendleton.yana.data.PendingUploadStore
 import com.collinpendleton.yana.data.SyncScheduler
 import com.collinpendleton.yana.data.YanaClient
 import com.collinpendleton.yana.data.YanaNoteRepository
@@ -19,6 +21,7 @@ import com.collinpendleton.yana.data.rt.OkHttpRtTransport
 import com.collinpendleton.yana.data.rt.RtStatus
 import com.collinpendleton.yana.data.rt.SyncEngine
 import com.collinpendleton.yana.ui.theme.ThemeMode
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,6 +47,8 @@ class YanaApp : Application() {
         private set
     lateinit var capture: CaptureNotes
         private set
+    lateinit var images: ImageAssets
+        private set
     lateinit var prefs: Prefs
         private set
 
@@ -57,7 +62,6 @@ class YanaApp : Application() {
         super.onCreate()
         client = YanaClient(EncryptedSessionStore(this))
         store = ReplicaStore.open(this)
-        repo = YanaNoteRepository(client, store)
         syncEngine = SyncEngine(
             client = client,
             store = store,
@@ -65,6 +69,16 @@ class YanaApp : Application() {
             docs = GoDocFactory(),
             scope = syncScope,
         )
+        val pendingUploads = PendingUploadStore(File(getFilesDir(), "pending-uploads"))
+        repo = YanaNoteRepository(
+            client,
+            store,
+            uploads = pendingUploads,
+            fixUploadLink = { noteId, askedFor, written ->
+                com.collinpendleton.yana.data.fixUploadLink(syncEngine, noteId, askedFor, written)
+            },
+        )
+        images = ImageAssets(contentResolver, pendingUploads)
         prefs = Prefs(this)
         capture = CaptureNotes(
             repo = repo,
@@ -118,6 +132,11 @@ class YanaApp : Application() {
         )
         SyncScheduler.schedule(this)
         CrdtSyncScheduler.schedule(this)
+        // Staged uploads no queued op names (a wiped queue, a crash
+        // between the two writes) leave with the next start.
+        scope.launch {
+            runCatching { images.staged.sweep(store.pendingUploads().map { it.file }.toSet()) }
+        }
         // The daily-note pattern drifts rarely; whenever the server is
         // reachable at all, today's offline path knows where to look.
         scope.launch { capture.refreshPattern() }

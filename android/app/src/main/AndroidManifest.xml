@@ -34,8 +34,8 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
-        <!-- The share target: text and URLs from other apps. The editor
-             opens inside it, so backing out returns to the sender. -->
+        <!-- The share target: text, URLs, and photos from other apps. The
+             editor opens inside it, so backing out returns to the sender. -->
         <activity
             android:name=".capture.ShareActivity"
             android:exported="true"
@@ -48,6 +48,16 @@
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter android:label="@string/share_target_label">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter android:label="@string/share_target_label">
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
 

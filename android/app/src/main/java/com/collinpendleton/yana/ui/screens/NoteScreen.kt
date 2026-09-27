@@ -214,6 +214,10 @@ fun NoteScreen(
                     handle = live,
                     noteId = id,
                     modifier = Modifier.fillMaxSize(),
+                    notePath = note.path,
+                    repo = repo,
+                    images = app.images,
+                    workScope = app.appScope,
                 )
             } else {
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
