@@ -57,7 +57,10 @@ class FeedFormatTest {
     }
 
     @Test fun rowsGroupByDayWithFlatStarts() {
-        val zone = ZoneId.of("UTC")
+        // groupByDay labels in the system zone; the rows must be built
+        // against the same one, or the test flips when the two zones
+        // sit on different days.
+        val zone = ZoneId.systemDefault()
         val morning = java.time.LocalDate.now(zone).atStartOfDay(zone).plusHours(9)
         val afternoon = morning.plusHours(4)
         val yesterdaySame = morning.minusDays(1)
