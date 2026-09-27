@@ -2,6 +2,8 @@ package com.collinpendleton.yana
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Looper
+import android.webkit.WebView
 import android.graphics.Color
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -50,6 +52,13 @@ class MainActivity : ComponentActivity() {
         // A recreation hands the same intent back; the entry point ran
         // once already and must not run again.
         if (savedInstanceState == null) take(intent)
+        // The first WebView in a process loads Chromium, seconds on a
+        // slow phone; doing that once the first frame is up keeps it off
+        // the first note open, where it froze the transition.
+        Looper.myQueue().addIdleHandler {
+            runCatching { WebView(this).destroy() }
+            false
+        }
         val app = yana
         setContent {
             val mode by app.prefs.themeMode.collectAsStateWithLifecycle()
