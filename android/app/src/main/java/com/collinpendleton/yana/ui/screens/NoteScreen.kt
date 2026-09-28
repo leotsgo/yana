@@ -2,6 +2,9 @@ package com.collinpendleton.yana.ui.screens
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -45,11 +48,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -57,12 +64,19 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import com.collinpendleton.yana.ui.ShellInsets
 import com.collinpendleton.yana.data.Backlink
+import com.collinpendleton.yana.data.LinkTargets
 import com.collinpendleton.yana.data.Note
+import com.collinpendleton.yana.data.NoteMoveOutcome
 import com.collinpendleton.yana.data.NoteRepository
+import com.collinpendleton.yana.data.findHeading
 import com.collinpendleton.yana.data.markdownBody
+import com.collinpendleton.yana.data.resolveTitle
 import com.collinpendleton.yana.data.rt.SyncEngine
+import com.collinpendleton.yana.data.toSwitcherNote
+import com.collinpendleton.yana.data.userMessage
 import com.collinpendleton.yana.capture.CapturePerf
 import com.collinpendleton.yana.ui.ConnectionDot
 import com.collinpendleton.yana.ui.Loader
@@ -70,6 +84,8 @@ import com.collinpendleton.yana.ui.Placeholder
 import com.collinpendleton.yana.ui.ShellState
 import com.collinpendleton.yana.ui.YanaIcons
 import com.collinpendleton.yana.ui.formatTime
+import com.collinpendleton.yana.ui.editor.EditorLookup
+import com.collinpendleton.yana.ui.editor.Format
 import com.collinpendleton.yana.ui.editor.MarkdownEditor
 import com.collinpendleton.yana.ui.htmlnote.HtmlNotePane
 import com.collinpendleton.yana.ui.reader.ReaderPane
@@ -144,6 +160,34 @@ fun NoteScreen(
     val status by sync.status.collectAsStateWithLifecycle()
     var editing by rememberSaveable(id) { mutableStateOf(startEditing) }
 
+    // What the editor's completions draw on: the notes of this note's
+    // space, as the switcher orders them, with the wikilink target
+    // that resolves to each, and every tag in use.
+    var lookup by remember(id) { mutableStateOf<EditorLookup?>(null) }
+    LaunchedEffect(id, note?.space, note?.updatedAt) {
+        val sp = note?.space ?: return@LaunchedEffect
+        val metas = runCatching { repo.allNotes() }.getOrDefault(emptyList())
+        val (bySpace, tags) = LinkTargets.build(metas)
+        val targets = bySpace[sp].orEmpty().associateBy { it.id }
+        lookup = EditorLookup(
+            notes = metas.filter { it.space == sp }.map { it.toSwitcherNote() },
+            recents = app.prefs.recents.value.map { it.id }.toSet(),
+            targets = targets,
+            tags = tags,
+        )
+    }
+
+    // The scroll each mode leaves, as a fraction of how far it can go:
+    // Edit opens about where the reading was, and Done resumes about
+    // where the editing was — the same hand-off the web's tab scroll
+    // gives its two views.
+    var readFraction by rememberSaveable(id) { mutableStateOf(0f) }
+    var editFraction by rememberSaveable(id) { mutableStateOf(0f) }
+
+    // The title a rename left showing, until the note's own catches up.
+    var renamedTitle by rememberSaveable(id) { mutableStateOf<String?>(null) }
+    if (note?.title != null && renamedTitle != null && note.title == renamedTitle) renamedTitle = null
+
     // The editor holds the whole screen: the bottom bar steps out of
     // the way while it is up, the way the web's phone bar does.
     LaunchedEffect(editing) { ShellState.editing.value = editing }
@@ -167,6 +211,46 @@ fun NoteScreen(
     }
     val context = LocalContext.current
     val toast: (String) -> Unit = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() }
+    val scope = rememberCoroutineScope()
+
+    /**
+     * Rename by the title, the web's commitTitle: the H1 in the
+     * document follows as one edit, then the file moves to the path
+     * the title spells — the server rewrites the links — with the
+     * offline move joining the queue when it cannot go out now.
+     */
+    fun commitTitle(raw: String) {
+        val n = note ?: return
+        val res = resolveTitle(n.path, n.title, raw)
+        if (res.title.isEmpty() || (res.title == n.title && res.path == n.path)) return
+        renamedTitle = res.title
+        scope.launch {
+            if (res.title != n.title && live != null && liveReady) {
+                liveText?.let { t ->
+                    findHeading(t)?.let { (from, len) ->
+                        sync.editOps(id, Format.opsJson(listOf(Format.Op(from, len, res.title))))
+                    }
+                }
+            }
+            if (res.path == n.path) {
+                vm.reload(pull = true)
+                return@launch
+            }
+            runCatching { repo.moveNote(id, res.path) }
+                .onSuccess { outcome ->
+                    if (outcome is NoteMoveOutcome.Done) {
+                        vm.reload(pull = true)
+                    } else {
+                        toast("Offline. The rename moves when the connection returns.")
+                        vm.reload(pull = true)
+                    }
+                }
+                .onFailure { e ->
+                    renamedTitle = null
+                    toast(if (e is retrofit2.HttpException) e.userMessage() else "Could not rename the note.")
+                }
+        }
+    }
 
     // The note's menu: pinning and the details sheet.
     val pins by app.prefs.pins.collectAsStateWithLifecycle()
@@ -178,7 +262,19 @@ fun NoteScreen(
         contentWindowInsets = ShellInsets,
         topBar = {
             TopAppBar(
-                title = { Text(note?.title?.ifEmpty { null } ?: title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    val shown = note?.title?.ifEmpty { null } ?: title
+                    if (canEdit && note != null) {
+                        TitleField(
+                            key = id,
+                            current = renamedTitle ?: shown,
+                            onCommit = ::commitTitle,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        Text(shown, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
@@ -260,6 +356,10 @@ fun NoteScreen(
                     repo = repo,
                     images = app.images,
                     workScope = app.appScope,
+                    lookup = lookup,
+                    atEnd = startEditing,
+                    initialFraction = readFraction,
+                    onScrollFraction = { editFraction = it },
                 )
             } else {
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -286,6 +386,8 @@ fun NoteScreen(
                             body = body,
                             dark = dark,
                             atLine = atLine,
+                            restoreFraction = editFraction,
+                            onScrollFraction = { readFraction = it },
                             onOpenNote = onOpenNote,
                             onTag = onTag,
                             onToast = toast,
@@ -439,6 +541,37 @@ private fun DetailLine(label: String, value: String) {
         )
         Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
     }
+}
+
+/**
+ * The title as the web's editable heading: a plain field in the app
+ * bar, committed on Done or when the focus leaves it. A slash in what
+ * is typed places the note, the same rule the web's title follows.
+ */
+@Composable
+private fun TitleField(key: String, current: String, onCommit: (String) -> Unit, modifier: Modifier = Modifier) {
+    var draft by remember(key) { mutableStateOf<String?>(null) }
+    var focused by remember(key) { mutableStateOf(false) }
+    val shown = draft ?: current
+    fun settle() {
+        val v = draft
+        draft = null
+        if (v != null && v.trim().isNotEmpty() && v != current) onCommit(v)
+    }
+    BasicTextField(
+        value = shown,
+        onValueChange = { draft = it },
+        singleLine = true,
+        textStyle = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { settle() }),
+        modifier = modifier
+            .onFocusChanged { f ->
+                if (focused && !f.isFocused) settle()
+                focused = f.isFocused
+            },
+    )
 }
 
 /** A size in the web's words: B, KB, MB, GB, rounded to one decimal. */

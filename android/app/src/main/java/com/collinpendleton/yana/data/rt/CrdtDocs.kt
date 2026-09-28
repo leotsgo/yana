@@ -59,6 +59,14 @@ interface RtDoc {
      */
     fun edit(pos: Int, del: Int, insert: String): ByteArray?
 
+    /**
+     * Applies several replacement hunks in one transaction, so a
+     * formatting button is one update and one undo step. [ops] is the
+     * JSON the bind package takes: an array of {"p":pos,"d":del,"i":ins}
+     * hunks measured against the text as it stands, not overlapping.
+     */
+    fun editOps(ops: String): ByteArray?
+
     /** Reverts the most recent local edit; the update to forward, or null when there is nothing to undo. */
     fun undo(): ByteArray?
 
@@ -132,6 +140,8 @@ private class GoDoc(override val noteId: String, state: ByteArray) : RtDoc {
     override fun replaceText(want: String): ByteArray? = doc.replaceText(want)
 
     override fun edit(pos: Int, del: Int, insert: String): ByteArray? = doc.edit(pos.toLong(), del.toLong(), insert)
+
+    override fun editOps(ops: String): ByteArray? = doc.editMany(ops)
 
     override fun undo(): ByteArray? = undoManager.undo()
 

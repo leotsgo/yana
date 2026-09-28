@@ -446,7 +446,12 @@ things stand — offline, syncing, or live — with no toasts.
 
 ## The markdown editor
 
-A note's edit button opens the editor (`ui/editor/`): a plain text
+Reading is the default. A markdown note opens rendered; Edit opens the
+editor (`ui/editor/`) and Done returns to the reading view, each handoff
+carrying the scroll across as a fraction of how far the pane could go —
+the editor opens about where the reading was and the reader resumes
+about where the editing left it. A new note opens straight in the editor
+with the caret at the end, ready to type. The editor is a plain text
 field bound to the document. Each change the field reports diffs to one
 replacement — `doc.edit(pos, del, insert)` commits the delete and the
 insert as one transaction, so a keystroke is one update, one undo step,
@@ -455,8 +460,39 @@ an undo, the initial sync — arrive on the `observeText` feed as the
 text plus the change's replacement hunks, and the editor maps the
 cursor through them instead of resetting it. Undo is scoped to this
 device by the bind package's manager; a typing burst (keystrokes no
-more than 700ms apart) undoes as one step, and the buttons sit beside
-the field with Ctrl-Z / Ctrl-Y for hardware keyboards.
+more than 700ms apart) undoes as one step, the buttons sit in the bar
+above the keyboard with Ctrl-Z / Ctrl-Y for hardware keyboards, and a
+formatting button never merges with the typing around it.
+
+The formatting bar is the web's phone bar: bold, italic, heading, list,
+task, quote, code, link, image, tag, undo, and redo, in that order
+(`ui/editor/FormatCommands.kt` is a port of `web/src/format.tsx`, with
+unit tests over the same selections). Each button commits its change as
+one multi-region transaction — the bind package's `EditMany` applies
+several replacement hunks in one go — so a button is one CRDT
+operation, one undo step, and the same markdown the web's button
+writes. Buttons take no focus, so the keyboard stays up and the caret
+stays put. The image button is the photo picker and camera from
+[Images](#images); the link and tag buttons open the completions.
+
+Completion: typing `[[` offers the notes of the space in the
+switcher's order (the same `Switcher.rows` the quick switcher lists —
+recents first on an empty query, fuzzy titles and paths once letters
+arrive); picking one finishes the link and leaves the caret inside the
+brackets so `|` can start an alias, the way the web's popup does. `#`
+offers the tags in use. A note links by its file name, and twins in
+one space link by their path within it (`data/LinkTargets.kt`, the
+web's rule).
+
+The title in the app bar is editable: the heading in the document
+follows as one edit, and the file moves to the path the title spells
+(a slash places the note) with the server rewriting the links —
+online now, or through the offline move queue when the network is
+gone. The rules are the web's `paths.ts`, ported with tests
+(`data/NotePaths.kt`).
+
+"New from template" is not yet available; see
+[docs/android.md](../docs/android.md).
 
 Presence is the awareness protocol the web speaks: the local cursor
 broadcasts as a JSON relative position on a 50ms throttle over the
@@ -566,6 +602,8 @@ app/src/main/java/com/collinpendleton/yana/
   data/CaptureKit.kt             the pure half: ULIDs, share blocks, the daily pattern
   data/Fuzzy.kt                  the switcher's matcher, a line-for-line port of web/src/fuzzy.ts
   data/Switcher.kt               the switcher's row rules and the tree-side operator matching
+  data/LinkTargets.kt            what [[ and # can complete to: link targets per space, the tags in use
+  data/NotePaths.kt              the title edit's rules: typed titles resolve to headings and paths (web paths.ts)
   data/replica/                  the Room replica: entities, DAO, tree cache, pending ops, CRDT state
   data/rt/                       the realtime layer: wire codec, socket, engine, workers
   data/search/                   the query grammar and offline search SQL (ports of the server's)
@@ -577,7 +615,7 @@ app/src/main/java/com/collinpendleton/yana/
   ui/screens/                    one file per screen (home, tree, note, switcher, tags, search, tasks, …)
   ui/activity/                   the feed model, formatting, and the point-in-time restore dialog
   ui/history/                    the unified-diff parser and renderer
-  ui/editor/                     the markdown editor over the CRDT
+  ui/editor/                     the markdown editor over the CRDT; the formatting commands (format.tsx ported) and the completion triggers
   ui/htmlnote/                   the sandboxed WebView, the source editor, view-token minting
   ui/reader/                     the reading view's WebView and asset fetcher
   ui/theme/                      the Identity palette and type

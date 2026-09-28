@@ -235,6 +235,22 @@ class SyncEngine(
         }
     }
 
+    /**
+     * The formatting buttons' path: several replacement hunks in one
+     * transaction — one update, one undo step, the shape a wrap or a
+     * line-prefix rewrite produces.
+     */
+    fun editOps(noteId: String, ops: String) {
+        val s = sync { sessions[noteId] } ?: return
+        scope.launch {
+            val update = runCatching { s.withDoc { it.editOps(ops) } }.getOrNull() ?: return@launch
+            if (update != null) store.addOutboxUpdate(noteId, update)
+            s.afterChange()
+            dirty.add(noteId)
+            scheduleFlush()
+        }
+    }
+
     /** Reverts the most recent local edit. True when something was undone. */
     fun undo(noteId: String) {
         applyStackOp(noteId) { it.undo() }

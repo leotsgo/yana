@@ -110,6 +110,62 @@ func TestEditReplacesRangeInOneStep(t *testing.T) {
 	}
 }
 
+func TestEditManyAppliesHunksInOneStep(t *testing.T) {
+	d := NewDoc()
+	defer d.Close()
+	um := NewUndoManager(d)
+	defer um.Destroy()
+	if _, err := d.Insert(0, "one two three"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wrap "one" and "three" in marks with one call, hunks given out of
+	// order: one update, one undo step.
+	ops := `[{"p":8,"d":0,"i":"**"},{"p":0,"d":0,"i":"**"},{"p":13,"d":0,"i":"**"},{"p":3,"d":0,"i":"**"}]`
+	u, err := d.EditMany(ops)
+	if err != nil || u == nil {
+		t.Fatalf("editMany: u=%v err=%v", u, err)
+	}
+	if got := d.Text(); got != "**one** two **three**" {
+		t.Fatalf("text = %q", got)
+	}
+	if n := um.UndoStackSize(); n != 2 { // the insert + the wrap
+		t.Fatalf("undo stack = %d, want 2", n)
+	}
+	if _, err := um.Undo(); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Text(); got != "one two three" {
+		t.Fatalf("after undo text = %q, want one two three (one step)", got)
+	}
+
+	// Mixed shapes: turn two list lines into task lines.
+	d.ReplaceText("- a\n- b")
+	um2 := NewUndoManager(d)
+	defer um2.Destroy()
+	ops = `[{"p":2,"d":0,"i":"[ ] "},{"p":6,"d":0,"i":"[ ] "}]`
+	if _, err := d.EditMany(ops); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Text(); got != "- [ ] a\n- [ ] b" {
+		t.Fatalf("text = %q", got)
+	}
+
+	// Malformed and bad inputs are refused, not clamped.
+	if _, err := d.EditMany(`not json`); err == nil {
+		t.Fatal("bad json accepted")
+	}
+	if _, err := d.EditMany(`[{"p":0,"d":99,"i":"x"}]`); err == nil {
+		t.Fatal("out-of-range hunk accepted")
+	}
+	if _, err := d.EditMany(`[{"p":0,"d":4,"i":"x"},{"p":2,"d":0,"i":"y"}]`); err == nil {
+		t.Fatal("overlapping hunks accepted")
+	}
+	if u, err := d.EditMany(`[{"p":0,"d":0,"i":""}]`); err != nil || u != nil {
+		t.Fatalf("no-op: u=%v err=%v", u, err)
+	}
+}
+
 func TestObserveTextDeliversHunks(t *testing.T) {
 	d := NewDoc()
 	defer d.Close()

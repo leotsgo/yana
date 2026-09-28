@@ -48,6 +48,10 @@ fun ReaderPane(
     modifier: Modifier = Modifier,
     /** The body line a tasks row opened the note at; -1 opens at the top. */
     atLine: Int = -1,
+    /** Where the editor left the note, as a fraction of its scroll; the page resumes there. */
+    restoreFraction: Float = 0f,
+    /** The read view's scroll as a fraction, reported as the person moves; feeds the editor's open. */
+    onScrollFraction: (Float) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -91,6 +95,18 @@ fun ReaderPane(
     var loadedPage by remember(note.id) { mutableStateOf<String?>(null) }
     var pushedSeq by remember(note.id) { mutableStateOf(0) }
     var repush by remember(note.id) { mutableStateOf(0) }
+
+    // The scroll mapping with the editor: the fraction the editor left
+    // goes back on this mount once the page has its body, and the
+    // person's own scrolling is reported as a fraction so the editor
+    // can open about where the reading was.
+    var scrollRestored by remember(note.id) { mutableStateOf(restoreFraction <= 0f) }
+    var lastReportY by remember(note.id) { mutableStateOf(0) }
+    val reportScroll: (android.webkit.WebView) -> Unit = { wv ->
+        wv.evaluateJavascript(scrollFractionJs()) { v ->
+            v?.toFloatOrNull()?.let(onScrollFraction)
+        }
+    }
 
     // Images whose upload the offline queue still holds answer with a
     // placeholder; when the queue drains, one repush re-renders the
@@ -159,6 +175,15 @@ fun ReaderPane(
                 web = this
                 setBackgroundColor(background)
                 applyReaderSettings(this)
+                setOnScrollChangeListener { _, _, y, _, oldY ->
+                    // A drag reports often; a fraction per coarse step is plenty.
+                    if (kotlin.math.abs(y - oldY) >= 40 || y == 0) {
+                        if (kotlin.math.abs(y - lastReportY) >= 40 || y == 0) {
+                            lastReportY = y
+                            reportScroll(this)
+                        }
+                    }
+                }
                 webViewClient = ReaderWebViewClient(
                     assets = assetLoader(ctx),
                     fetcher = fetcher,
@@ -187,6 +212,12 @@ fun ReaderPane(
                     pushedSeq = repush + 1
                 }
             }
+            // The editor's fraction goes back once the page it maps is
+            // on screen; the page's own body swap keeps its scroll.
+            if (pageLoaded && !scrollRestored) {
+                scrollRestored = true
+                wv.evaluateJavascript(scrollToFractionJs(restoreFraction), null)
+            }
         },
         onRelease = { it.destroy() },
     )
@@ -201,3 +232,13 @@ internal fun scrollToLineJs(line: Int): String =
     "(function(){var b=document.querySelector('input[type=checkbox][data-line=\"$line\"]');" +
         "if(!b)return false;var li=b.closest('li');if(li)li.classList.add('task-hit');" +
         "b.scrollIntoView({block:'center'});return true})()"
+
+/** The page's scroll as a fraction of how far it can go, for the editor's hand-off. */
+internal fun scrollFractionJs(): String =
+    "(function(){var m=Math.max(1,document.documentElement.scrollHeight-window.innerHeight);" +
+        "return m>0?window.pageYOffset/m:0})()"
+
+/** Scrolls the page to a fraction of its scrollable height. */
+internal fun scrollToFractionJs(fraction: Float): String =
+    "(function(){var m=Math.max(1,document.documentElement.scrollHeight-window.innerHeight);" +
+        "window.scrollTo(0,Math.round(m*$fraction));return true})()"

@@ -10,6 +10,10 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -259,6 +263,23 @@ class SyncEngineTest {
     }
 
     @Test
+    fun editOpsCommitsSeveralHunksAsOneUpdateAndOneUndoStep() {
+        serverTextRef = "one two three"
+        val handle = engine.open(note)
+        waitUntil { engine.status.value == RtStatus.Live }
+        // The formatting bar's shape: two hunks, one transaction.
+        engine.editOps(note, """[{"p":0,"d":0,"i":"**"},{"p":13,"d":0,"i":"**"}]""")
+        waitUntil { store.outboxCount() == 0 }
+        waitUntil { handle.text.value == "**one two three**" }
+        // One undo step reverts the whole wrap at once.
+        waitUntil { handle.undoDepth.value == 1L }
+        engine.undo(note)
+        waitUntil { handle.text.value == "one two three" }
+        waitUntil { handle.undoDepth.value == 0L }
+        engine.close(note)
+    }
+
+    @Test
     fun undoRevertsThisDevicesWorkOnly() {
         serverTextRef = "server text "
         val handle = engine.open(note)
@@ -501,6 +522,31 @@ private class FakeDoc(override val noteId: String, state: ByteArray) : RtDoc {
         text = text.substring(0, pos) + insert + text.substring(pos + del)
         undoOps.addLast(text to before)
         val update = "e:$pos:$del:$insert".toByteArray()
+        notify(before, local = true)
+        return update
+    }
+
+    override fun editOps(ops: String): ByteArray? {
+        val parsed = kotlinx.serialization.json.Json.parseToJsonElement(ops)
+        val hunks = parsed.jsonArray.map { h ->
+            val o = h.jsonObject
+            Triple(
+                o.getValue("p").jsonPrimitive.int,
+                o.getValue("d").jsonPrimitive.int,
+                o.getValue("i").jsonPrimitive.content,
+            )
+        }.sortedByDescending { it.first }
+        if (hunks.isEmpty()) return null
+        val before = text
+        val b = StringBuilder(text)
+        for ((p, d, i) in hunks) {
+            require(p >= 0 && p + d <= b.length) { "edit out of range" }
+            b.replace(p, p + d, i)
+        }
+        if (b.toString() == before) return null
+        text = b.toString()
+        undoOps.addLast(text to before)
+        val update = "m:$ops".toByteArray()
         notify(before, local = true)
         return update
     }
