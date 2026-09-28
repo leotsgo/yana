@@ -2,9 +2,7 @@ package com.collinpendleton.yana.data
 
 import com.collinpendleton.yana.data.search.Ops
 import com.collinpendleton.yana.data.search.Term
-import com.collinpendleton.yana.data.search.parseQuery
-
-/**
+import com.collinpendleton.yana.data.search.parseQuery/**
  * One note as the switcher lists it: enough to match, to show, and to
  * open. [path] is the note's path within its space; [full] is the path
  * as the tree shows it, the space prefixed, and it is what the path and
@@ -75,8 +73,19 @@ object Switcher {
         terms.filter { it.op == "" }.joinToString(" ") { it.text }.trim()
 }
 
+/** The wire's note metadata as the switcher's row. */
+fun NoteMeta.toSwitcherNote() =
+    SwitcherNote(
+        id = id,
+        space = space,
+        path = path,
+        title = title,
+        kind = kind,
+        tags = tags,
+    )
+
 /**
- * Whether a note satisfies the terms the tree can evaluate — tag, path,
+ * Whether a note satisfies the terms the tree can evaluate — tag, path, path,
  * space, is:untagged, is:html — a port of the web's noteMatches. The
  * other operators need the index, so the switcher leaves them to the
  * search box.

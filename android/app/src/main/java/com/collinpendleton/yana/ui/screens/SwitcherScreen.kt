@@ -42,6 +42,7 @@ import com.collinpendleton.yana.Prefs
 import com.collinpendleton.yana.data.NoteRepository
 import com.collinpendleton.yana.data.Switcher
 import com.collinpendleton.yana.data.SwitcherNote
+import com.collinpendleton.yana.data.toSwitcherNote
 import com.collinpendleton.yana.ui.Loader
 import com.collinpendleton.yana.ui.Placeholder
 import com.collinpendleton.yana.ui.YanaIcons
@@ -176,14 +177,3 @@ private fun NothingMatches() {
         modifier = Modifier.padding(20.dp),
     )
 }
-
-/** The wire's note metadata as the switcher's row. */
-private fun com.collinpendleton.yana.data.NoteMeta.toSwitcherNote() =
-    SwitcherNote(
-        id = id,
-        space = space,
-        path = path,
-        title = title,
-        kind = kind,
-        tags = tags,
-    )

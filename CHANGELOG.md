@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Android editing affordances (Phase 12n). A markdown note reads by
+  default; Edit opens the editor with the scroll carried over from the
+  reading and Done returns to the rendered note about where the
+  editing left it, and a new note opens straight in the editor with
+  the caret at the end. Above the keyboard sits the web's phone
+  formatting bar — bold, italic, heading, list, task, quote, code,
+  link, image, tag, undo, redo — where every button is the same edit
+  the web's button makes over the same selection, committed as one
+  document operation and one undo step through a new multi-hunk
+  transaction in the CRDT bind package. Typing `[[` offers the notes
+  of the space in the switcher's order (a pick finishes the link and
+  leaves the caret inside for a `|alias`), `#` offers the tags in
+  use, and the title in the app bar renames the note the way the
+  web's title does — the heading follows through the document and the
+  file moves with its links rewritten, online now or on the next sync
+  when offline. "New from template" is not yet available on Android;
+  it arrives with Phase 26.
+
 - Android images (Phase 12h). The editor grows an image action — the
   photo picker or the camera — that uploads through the same
   `PUT /api/files` the web editor uses into the note's sibling

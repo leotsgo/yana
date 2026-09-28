@@ -137,6 +137,30 @@ class EditorLogicTest {
         assertEquals(1, b.nextUndoSteps())
     }
 
+    @Test
+    fun aFormattingButtonUndoesAlone() {
+        var t = 0L
+        val b = UndoBursts(700) { t }
+        repeat(4) { b.onEdit() } // typing right up to the button
+        b.onAlone() // the button's own op
+        // Undo takes the button alone, not the typing with it.
+        assertEquals(1, b.nextUndoSteps())
+        b.onUndone()
+        assertEquals(4, b.nextUndoSteps())
+        // And the typing after the button starts a burst of its own,
+        // still inside the window.
+        b.onEdit()
+        assertEquals(1, b.nextUndoSteps())
+        b.onUndone()
+        assertEquals(4, b.nextUndoSteps())
+        // A button right after a button is still one step each.
+        b.onAlone()
+        b.onAlone()
+        assertEquals(1, b.nextUndoSteps())
+        b.onUndone()
+        assertEquals(1, b.nextUndoSteps())
+    }
+
     // --- the cursor throttle ----------------------------------------------------
 
     @Test

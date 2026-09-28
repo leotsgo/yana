@@ -92,6 +92,49 @@ object YanaIcons {
         "M12 5v14",
     ) }
 
+    /** The format bar's glyphs — the same Lucide shapes the web's bar draws. */
+    val Bold: ImageVector by lazy { build("bold",
+        "M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8",
+    ) }
+    val Italic: ImageVector by lazy { build("italic",
+        "M19 4h-9",
+        "M14 20H5",
+        "M15 4 9 20",
+    ) }
+    val Heading: ImageVector by lazy { build("heading",
+        "M6 12h12",
+        "M6 20V4",
+        "M18 20V4",
+    ) }
+    val List: ImageVector by lazy { build("list",
+        "M3 12h.01",
+        "M3 18h.01",
+        "M3 6h.01",
+        "M8 12h13",
+        "M8 18h13",
+        "M8 6h13",
+    ) }
+    val Quote: ImageVector by lazy { build("quote",
+        "M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z",
+        "M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z",
+    ) }
+    val Link: ImageVector by lazy { build("link",
+        "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71",
+        "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+    ) }
+    val Tag: ImageVector by lazy { build("tag",
+        "M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z",
+        "M7.5 7.5h.01",
+    ) }
+    val Undo: ImageVector by lazy { build("undo",
+        "M3 7v6h6",
+        "M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13",
+    ) }
+    val Redo: ImageVector by lazy { build("redo",
+        "M21 7v6h-6",
+        "M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7",
+    ) }
+
     /** A square with a check, the tasks tab. */
     val CheckSquare: ImageVector by lazy { build("square-check",
         "M21 10.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.5",

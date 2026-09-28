@@ -104,17 +104,30 @@ class UndoBursts(private val windowMs: Long = 700, private val now: () -> Long =
     private val undo = ArrayDeque<Int>()
     private val redo = ArrayDeque<Int>()
     private var lastEditAt = 0L
+    private var breakNext = false
 
     /** Records one local edit op. */
     fun onEdit() {
         val t = now()
-        if (undo.isEmpty() || t - lastEditAt > windowMs) {
+        if (breakNext || undo.isEmpty() || t - lastEditAt > windowMs) {
             undo.addLast(1)
         } else {
             undo.addLast(undo.removeLast() + 1)
         }
+        breakNext = false
         lastEditAt = t
         redo.clear()
+    }
+
+    /**
+     * One op the person sees as a single thing — a formatting button,
+     * a completion pick — that undoes alone: it never joins the typing
+     * before it, and the typing after it starts a burst of its own.
+     */
+    fun onAlone() {
+        breakNext = true
+        onEdit()
+        breakNext = true
     }
 
     /** How many steps the next undo covers. */
