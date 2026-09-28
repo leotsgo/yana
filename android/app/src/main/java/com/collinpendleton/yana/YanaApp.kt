@@ -94,6 +94,7 @@ class YanaApp : Application() {
                     prefs.clearRecents()
                     prefs.clearPins()
                     prefs.clearTreeState()
+                    prefs.clearFolders()
                     store.wipe()
                     syncEngine.shutdown()
                 }
@@ -254,6 +255,55 @@ class Prefs(context: Context) {
         }
     }
 
+    // --- folders ---------------------------------------------------------------
+
+    private val folderList = MutableStateFlow(readRecentFolders())
+
+    /**
+     * The folders a note was made in or moved to on this device
+     * lately, newest first; the pickers list them at the top.
+     */
+    val recentFolders: StateFlow<List<String>> = folderList.asStateFlow()
+
+    /** Puts a folder at the top of the recents, dropping the oldest past [MAX_FOLDERS]. */
+    fun touchFolder(path: String) {
+        if (path.isEmpty()) return
+        val next = (listOf(path) + folderList.value.filter { it != path }).take(MAX_FOLDERS)
+        if (next == folderList.value) return
+        sp.edit { putString("folders.recent", next.joinToString("\n")) }
+        folderList.value = next
+    }
+
+    /** Forgets the folder recents; a sign-out, since they name the account's folders. */
+    fun clearFolders() {
+        sp.edit { remove("folders.recent") }
+        folderList.value = emptyList()
+    }
+
+    private fun readRecentFolders(): List<String> =
+        sp.getString("folders.recent", null).orEmpty().lines().filter { it.isNotEmpty() }
+
+    /** The folder a note was last made in on this device; empty when none. */
+    fun lastFolder(): String = sp.getString("folders.last", null) ?: ""
+
+    fun setLastFolder(path: String) {
+        if (path.isNotEmpty()) sp.edit { putString("folders.last", path) }
+    }
+
+    /** Drops a note from the recents and the pins — what a delete does, so nothing dead lists it. */
+    fun forgetNote(id: String) {
+        val nextRecent = recentList.value.filter { it.id != id }
+        if (nextRecent != recentList.value) {
+            sp.edit { putString("recents", nextRecent.joinToString("\n") { it.id + "\t" + it.title }) }
+            recentList.value = nextRecent
+        }
+        val nextPins = pinList.value.filter { it.id != id }
+        if (nextPins != pinList.value) {
+            sp.edit { putString("pins", nextPins.joinToString("\n") { it.id + "\t" + it.title }) }
+            pinList.value = nextPins
+        }
+    }
+
     // --- pinned ---------------------------------------------------------------
 
     private val pinList = MutableStateFlow(readPins())
@@ -287,6 +337,7 @@ class Prefs(context: Context) {
 
     companion object {
         const val MAX_RECENTS = 8
+        const val MAX_FOLDERS = 8
     }
 }
 

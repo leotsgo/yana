@@ -507,6 +507,75 @@ data class DeletedRestoreResult(
     val from: String = "",
 )
 
+/** The trash listing's answer: GET /api/trash. The rows are the same
+ * deleted-note shape the deleted-notes list reads; the trash's own
+ * fields (has_file, has_sidecar, untracked) ride on it, and
+ * in_history stays false — the trash speaks for its own window. */
+@Serializable
+data class TrashResponse(val entries: List<DeletedNoteRow> = emptyList())
+
+/** What a restore from the trash did: where the note landed, whether
+ * something new had taken its path, and the re-indexed note when the
+ * scan has already picked it up. */
+@Serializable
+data class TrashRestoreResult(
+    val ok: Boolean = false,
+    val path: String = "",
+    val conflict: Boolean = false,
+    val note: Note? = null,
+    /** True when the scan has not picked the note up yet; there is nothing to open. */
+    val deferred: Boolean = false,
+)
+
+/** What emptying the trash did: how many entries were destroyed for good. */
+@Serializable
+data class TrashEmptyResult(val ok: Boolean = false, val destroyed: Int = 0)
+
+/** Makes a folder: POST /api/dirs. The path names a folder inside a space. */
+@Serializable
+data class DirCreateRequest(val path: String)
+
+@Serializable
+data class DirCreateResponse(val path: String = "")
+
+/** Moves or renames a folder: POST /api/dirs/move — every note under
+ * it moves with it, its inbound links rewritten. */
+@Serializable
+data class DirMoveRequest(val path: String, val to: String)
+
+@Serializable
+data class DirMoveResponse(
+    val path: String = "",
+    val moved: Int = 0,
+    val total: Int = 0,
+    val rewritten: Int = 0,
+    val broken: Int = 0,
+)
+
+/** Deleting a folder trashes its notes: DELETE /api/dirs?path=. */
+@Serializable
+data class DirDeleteResponse(
+    val ok: Boolean = false,
+    val deleted: Int = 0,
+    val removed: Boolean = false,
+)
+
+/** A note's soft delete: the file moves under the trash for thirty days. */
+@Serializable
+data class NoteDeleteResponse(
+    val ok: Boolean = false,
+    @SerialName("trash_path") val trashPath: String = "",
+)
+
+/** What moving a note did on the server: its row at the new path and
+ * the links the move rewrote. */
+@Serializable
+data class MoveNoteResult(
+    val note: Note? = null,
+    val rewritten: Int = 0,
+    val broken: Int = 0,
+)
+
 /** One row of the conflicts list: a copy, and the note it belongs to while that survives. */
 @Serializable
 data class ConflictEntry(

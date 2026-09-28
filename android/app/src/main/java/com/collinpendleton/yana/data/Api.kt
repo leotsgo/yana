@@ -99,7 +99,39 @@ interface YanaApi {
     suspend fun backlinks(@Path("id") id: String): BacklinksResponse
 
     @POST("api/notes/{id}/move")
-    suspend fun moveNote(@Path("id") id: String, @Body body: MoveRequest): retrofit2.Response<Unit>
+    suspend fun moveNote(@Path("id") id: String, @Body body: MoveRequest): MoveNoteResult
+
+    /** Deletes a note: the file moves under the trash for thirty days. */
+    @DELETE("api/notes/{id}")
+    suspend fun deleteNote(@Path("id") id: String): NoteDeleteResponse
+
+    /** Makes an empty folder; it shows in the tree at once. */
+    @POST("api/dirs")
+    suspend fun createDir(@Body body: DirCreateRequest): DirCreateResponse
+
+    /** Moves or renames a folder: every note under it moves, links rewritten. */
+    @POST("api/dirs/move")
+    suspend fun moveDir(@Body body: DirMoveRequest): DirMoveResponse
+
+    /** Deletes a folder: its notes go to the trash, the empty shell goes. */
+    @DELETE("api/dirs")
+    suspend fun deleteDir(@Query("path") path: String): DirDeleteResponse
+
+    /** Every deleted note with something to bring it back, and its actions. */
+    @GET("api/trash")
+    suspend fun trash(): TrashResponse
+
+    /** Returns one deleted note to its original path, or beside its new occupant. */
+    @POST("api/trash/{id}/restore")
+    suspend fun restoreTrash(@Path("id") id: String): TrashRestoreResult
+
+    /** Destroys one trash entry for good; this cannot be undone. */
+    @DELETE("api/trash/{id}")
+    suspend fun destroyTrash(@Path("id") id: String): OkResponse
+
+    /** Destroys every trash entry the caller may write. */
+    @POST("api/trash/empty")
+    suspend fun emptyTrash(): TrashEmptyResult
 
     /**
      * PUT one file under an `_assets` directory; the path is
