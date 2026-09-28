@@ -93,6 +93,33 @@ relaunch shows the same shape (the web's Phase 30 semantics: only
 opened folders and closed spaces are stored, so an empty store is the
 default state).
 
+The tree organises, the web's Phase 17 actions on a phone: a plus on a
+space or folder row makes an untitled note there, and a long press
+opens the row's actions — a new note or a new folder inside, rename
+and move with a folder picker, delete after a confirm that says the
+notes go to the trash for thirty days. Making and moving a note work
+offline: the move joins the `pending_ops` queue and the replica moves
+with it, so airplane mode reads the change and the replay lands it,
+the id unchanged. Folders and deletes are writes the server must see.
+
+The New tab opens the new-note picker, the web's `newnote.tsx`: the
+input holds a path — everything up to the last slash is the folder,
+the rest is the name — and the list under it walks into folders and
+back out, matching segments fuzzily. A name that names a note that is
+there opens that note instead of making a second; an empty name makes
+an untitled note in the folder and opens it ready to title. The
+folders a note was made in or moved to on this device sit at the top
+until something is typed, and the folder used last is where the picker
+starts. The quick entries — the tile, the widget, the share target —
+keep going straight to the editor in the capture space's inbox; only
+the in-app New uses the picker.
+
+The trash — Settings, Data, Trash — lists the deleted notes the server
+can bring back (`GET /api/trash`) with restore, delete for good, and
+emptying, both destructions behind a confirm. The deleted-notes list
+below it covers what the history alone remembers; the trash's last row
+leads there.
+
 The switcher — the command mark in home's and the tree's title bar —
 is a search-as-you-type list of every note over the replica, the web's
 quick palette: an empty box lists recents first, typing fuzzy-matches
@@ -298,10 +325,10 @@ member list at once, the one write the server takes), picking from the
 server's accounts by name when the server's owner does it. People (the
 server's owner only) lists the accounts, adds one with a starting
 password, resets one, or removes it (`/api/users`). Data holds the
-deleted-notes and conflicts lists and exports a space as a zip
-(`GET /api/spaces/{space}/export/notes.zip`, downloaded with the
-session's auth) through the share sheet; the trash arrives with its
-own screen (Phase 12o). Help opens the Start here note, asking the
+trash, the deleted-notes and conflicts lists, and exports a space as a
+zip (`GET /api/spaces/{space}/export/notes.zip`, downloaded with the
+session's auth) through the share sheet. Help opens the Start here
+note, asking the
 server to make it (`POST /api/guide`) when it is not there yet. Agents
 and backups (the owner's), site export, and space conventions stay on
 the web: their rows open the signed-in server at its `/settings/`

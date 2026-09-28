@@ -35,6 +35,7 @@ import com.collinpendleton.yana.ui.screens.ConflictScreen
 import com.collinpendleton.yana.ui.screens.ConflictsScreen
 import com.collinpendleton.yana.ui.screens.DataScreen
 import com.collinpendleton.yana.ui.screens.DeletedNotesScreen
+import com.collinpendleton.yana.ui.screens.NewNoteScreen
 import com.collinpendleton.yana.ui.screens.NoteHistoryScreen
 import com.collinpendleton.yana.ui.screens.NoteScreen
 import com.collinpendleton.yana.ui.screens.PeopleScreen
@@ -50,6 +51,7 @@ import com.collinpendleton.yana.ui.screens.SwitcherScreen
 import com.collinpendleton.yana.ui.screens.TagScreen
 import com.collinpendleton.yana.ui.screens.TagsScreen
 import com.collinpendleton.yana.ui.screens.TasksScreen
+import com.collinpendleton.yana.ui.screens.TrashScreen
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
@@ -69,6 +71,12 @@ import kotlinx.serialization.Serializable
 /** [space] is "" for the feed across every space. */
 @Serializable data class ActivityRoute(val space: String = "")
 @Serializable data object DeletedNotesRoute
+/** The new-note picker: [start] names the folder being viewed when the
+ * New tab was pressed from the tree; the picker falls back to the
+ * folder this device used last. */
+@Serializable data class NewNoteRoute(val start: String = "")
+/** Deleted notes with their ways out: restore, destroy, empty. */
+@Serializable data object TrashRoute
 /** Every conflict copy in the account's spaces, the Data page's list. */
 @Serializable data object ConflictsRoute
 /** One note's conflict copies and their resolutions; [id] is the surviving note. */
@@ -142,14 +150,16 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
     }
 
     fun newNote() {
-        scope.launch {
-            val note = app.capture.newInboxNote()
-            if (note == null) {
-                Toast.makeText(context, app.getString(R.string.capture_no_space), Toast.LENGTH_SHORT).show()
-            } else {
-                nav.navigate(NoteRoute(note.id, note.title, edit = true))
-            }
+        // The picker starts in the folder being viewed — the space the
+        // tree was opened for — and falls back to the folder this
+        // device used last. Only the in-app New goes through it; the
+        // quick entries (tile, widget, share) keep the inbox path.
+        val start = if (dest.nameOf() == SpaceRoute.routeName) {
+            backStack?.toRoute<SpaceRoute>()?.space.orEmpty()
+        } else {
+            ""
         }
+        nav.navigate(NewNoteRoute(start))
     }
 
     var captureOpen by remember { mutableStateOf(false) }
@@ -215,10 +225,12 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                 SpaceScreen(
                     repo = app.repo,
                     prefs = app.prefs,
+                    capture = app.capture,
                     focus = r.space,
                     label = r.label,
                     onBack = { if (!nav.popBackStack()) nav.navigate(SpacesRoute) },
                     onNote = { id, title -> nav.navigate(NoteRoute(id, title)) },
+                    onNewNote = { id, title -> nav.navigate(NoteRoute(id, title, edit = true)) },
                     onActivity = { nav.navigate(ActivityRoute(r.space)) },
                     onSwitcher = { nav.navigate(SwitcherRoute) },
                 )
@@ -308,6 +320,30 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                     onOpenNote = { id, title -> nav.navigate(NoteRoute(id, title)) },
                 )
             }
+            composable<NewNoteRoute> { entry ->
+                val r = entry.toRoute<NewNoteRoute>()
+                NewNoteScreen(
+                    app = app,
+                    repo = app.repo,
+                    prefs = app.prefs,
+                    start = r.start,
+                    onBack = { nav.popBackStack() },
+                    onOpen = { id, title ->
+                        nav.navigate(NoteRoute(id, title)) { popUpTo(NewNoteRoute.routeName) { inclusive = true } }
+                    },
+                    onCreated = { id, title ->
+                        nav.navigate(NoteRoute(id, title, edit = true)) { popUpTo(NewNoteRoute.routeName) { inclusive = true } }
+                    },
+                )
+            }
+            composable<TrashRoute> {
+                TrashScreen(
+                    repo = app.repo,
+                    onBack = { nav.popBackStack() },
+                    onOpenNote = { id, title -> nav.navigate(NoteRoute(id, title)) },
+                    onDeletedNotes = { nav.navigate(DeletedNotesRoute) },
+                )
+            }
             composable<ConflictsRoute> {
                 ConflictsScreen(
                     repo = app.repo,
@@ -388,6 +424,7 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                     app = app,
                     onBack = { nav.popBackStack() },
                     onDeletedNotes = { nav.navigate(DeletedNotesRoute) },
+                    onTrash = { nav.navigate(TrashRoute) },
                     onConflicts = { nav.navigate(ConflictsRoute) },
                 )
             }

@@ -54,9 +54,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
- * The data of the account from a phone: what can come back (deleted
- * notes, conflicts) and what leaves (a space as a zip, handed to the
- * share sheet). The trash arrives with its own screen.
+ * The data of the account from a phone: what can come back (the trash,
+ * deleted notes, conflicts) and what leaves (a space as a zip, handed
+ * to the share sheet).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +64,7 @@ fun DataScreen(
     app: YanaApp,
     onBack: () -> Unit,
     onDeletedNotes: () -> Unit = {},
+    onTrash: () -> Unit = {},
     onConflicts: () -> Unit = {},
 ) {
     // The conflict count: a hint for the row, not a fact the screen
@@ -96,6 +97,11 @@ fun DataScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(Modifier.widthIn(max = 560.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SettingsRow(
+                    title = "Trash",
+                    blurb = "Deleted notes kept for 30 days: restore, delete for good, empty.",
+                    onClick = onTrash,
+                )
                 SettingsRow(
                     title = "Deleted notes",
                     blurb = "Notes whose files are gone, each restorable to where it lived.",

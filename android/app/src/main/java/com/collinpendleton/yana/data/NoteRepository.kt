@@ -70,6 +70,44 @@ interface NoteRepository {
     suspend fun enqueueMove(noteId: String, toPath: String)
 
     /**
+     * Every folder path, the space included, the pickers' pool — the
+     * replica's answer, pulled once when it holds nothing yet.
+     */
+    suspend fun folderList(): List<String>
+
+    /**
+     * Moves a note to a full path now when the server answers; when it
+     * cannot, the move joins the queue and the replica is moved
+     * anyway, so the tree reads it offline. A server refusal
+     * (a name already taken) throws.
+     */
+    suspend fun moveNote(id: String, toPath: String): NoteMoveOutcome
+
+    /** Makes a folder (POST /api/dirs); a write the server must see, so it is online only. */
+    suspend fun createFolder(path: String)
+
+    /** Moves or renames a folder (POST /api/dirs/move); online only. */
+    suspend fun moveFolder(path: String, to: String): DirMoveResponse
+
+    /** Deletes a folder (DELETE /api/dirs): its notes go to the trash; online only. */
+    suspend fun deleteFolder(path: String): DirDeleteResponse
+
+    /** Deletes a note (DELETE /api/notes/{id}): the file moves to the trash; online only. */
+    suspend fun deleteNote(id: String): NoteDeleteResponse
+
+    /** The trash listing (GET /api/trash); online only, a failure says why. */
+    suspend fun trash(): List<DeletedNoteRow>
+
+    /** Puts one trash entry back where it lived, or beside its new occupant. */
+    suspend fun restoreTrashNote(id: String): TrashRestoreResult
+
+    /** Destroys one trash entry for good. */
+    suspend fun destroyTrashNote(id: String)
+
+    /** Destroys every trash entry this account may write. */
+    suspend fun emptyTrash(): TrashEmptyResult
+
+    /**
      * PUT one file under an `_assets` directory (`PUT /api/files/`),
      * the same endpoint the web editor uploads through; the server
      * picks a free name and the answer carries it. Throws [IOException]
@@ -231,6 +269,15 @@ sealed interface TickOutcome {
     data class Refused(val message: String, val status: Int? = null) : TickOutcome
 }
 
+/** What moving a note did: the server took it, or it waits in the queue. */
+sealed interface NoteMoveOutcome {
+    /** The move landed; the result carries the new row and the link rewrites. */
+    data class Done(val result: MoveNoteResult) : NoteMoveOutcome
+
+    /** The server was out of reach; the op is queued and the replica already moved. */
+    data object Queued : NoteMoveOutcome
+}
+
 /** The tasks page's filters. [key] is the cache's scope string. */
 data class TaskScope(
     val space: String = "",
@@ -362,6 +409,81 @@ class YanaNoteRepository(
 
     override suspend fun enqueueMove(noteId: String, toPath: String) =
         store.enqueueMove(MoveOp(noteId, toPath))
+
+    override suspend fun folderList(): List<String> {
+        bind()
+        store.dirPaths().let { if (it.isNotEmpty()) return it }
+        runCatching { pull() }
+        return store.dirPaths()
+    }
+
+    override suspend fun moveNote(id: String, toPath: String): NoteMoveOutcome {
+        bind()
+        return try {
+            val res = client.api().moveNote(id, MoveRequest(toPath))
+            NoteMoveOutcome.Done(res)
+        } catch (e: YanaClient.NotSignedIn) {
+            throw e
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            // Offline: the op rides with the next sync and the replica
+            // moves now, so the tree reads it in airplane mode.
+            store.enqueueMove(MoveOp(id, toPath))
+            NoteMoveOutcome.Queued
+        } finally {
+            runCatching { store.moveLocal(id, toPath) }
+        }
+    }
+
+    override suspend fun createFolder(path: String) {
+        bind()
+        client.api().createDir(DirCreateRequest(path))
+    }
+
+    override suspend fun moveFolder(path: String, to: String): DirMoveResponse {
+        bind()
+        return client.api().moveDir(DirMoveRequest(path, to))
+    }
+
+    override suspend fun deleteFolder(path: String): DirDeleteResponse {
+        bind()
+        return client.api().deleteDir(path)
+    }
+
+    override suspend fun deleteNote(id: String): NoteDeleteResponse {
+        bind()
+        val res = client.api().deleteNote(id)
+        // The replica keeps its row until the next sync takes it out;
+        // the caller's refresh handles that, the body stays readable.
+        return res
+    }
+
+    override suspend fun trash(): List<DeletedNoteRow> {
+        bind()
+        return try {
+            client.api().trash().entries
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw e.asHistoryError()
+        }
+    }
+
+    override suspend fun restoreTrashNote(id: String): TrashRestoreResult {
+        bind()
+        return client.api().restoreTrash(id)
+    }
+
+    override suspend fun destroyTrashNote(id: String) {
+        bind()
+        client.api().destroyTrash(id)
+    }
+
+    override suspend fun emptyTrash(): TrashEmptyResult {
+        bind()
+        return client.api().emptyTrash()
+    }
 
     override suspend fun uploadAsset(path: String, bytes: ByteArray, mime: String): UploadResponse {
         bind()
@@ -638,9 +760,8 @@ class YanaNoteRepository(
                     !(e is HttpException && permanent(e.code()))
                 }
                 is OpPayload.Move -> try {
-                    client.api().moveNote(op.op.noteId, MoveRequest(op.op.toPath)).let { r ->
-                        r.isSuccessful || permanent(r.code())
-                    }
+                    client.api().moveNote(op.op.noteId, MoveRequest(op.op.toPath))
+                    true
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     !(e is HttpException && permanent(e.code()))

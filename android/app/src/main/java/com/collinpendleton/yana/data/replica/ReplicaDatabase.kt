@@ -118,6 +118,36 @@ interface ReplicaDao {
     @Query("SELECT * FROM tree_nodes WHERE space = :space ORDER BY position")
     suspend fun treeOf(space: String): List<TreeNodeEntity>
 
+    /** Every folder the tree holds, in the server's order; the pickers' pool. */
+    @Query("SELECT path FROM tree_nodes WHERE type = 'dir' ORDER BY position")
+    suspend fun dirPaths(): List<String>
+
+    /**
+     * Moves one note's rows to a new path so the replica reads the
+     * move at once, offline or before the next sync replaces it with
+     * the server's own tree. The tree node follows when one exists (a
+     * note composed offline has none yet).
+     */
+    @Transaction
+    suspend fun moveNoteLocal(
+        noteId: String,
+        space: String,
+        rel: String,
+        treeFrom: String,
+        treeTo: String,
+        parent: String,
+        name: String,
+    ) {
+        moveNoteRow(noteId, rel, space)
+        moveTreeNode(treeFrom, treeTo, parent, name, space)
+    }
+
+    @Query("UPDATE notes SET rel_path = :rel, space = :space WHERE id = :noteId")
+    suspend fun moveNoteRow(noteId: String, rel: String, space: String)
+
+    @Query("UPDATE tree_nodes SET path = :to, parent = :parent, name = :name, space = :space WHERE path = :from")
+    suspend fun moveTreeNode(from: String, to: String, parent: String, name: String, space: String)
+
     @Query("SELECT COUNT(*) FROM tree_nodes")
     suspend fun treeCount(): Int
 

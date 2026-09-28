@@ -172,6 +172,29 @@ class ReplicaStore(private val db: ReplicaDatabase) : com.collinpendleton.yana.d
         return nestTree(rows)
     }
 
+    /**
+     * Every folder path the tree holds, the space included, in the
+     * server's order — the new-note picker's and the move picker's
+     * pool, answered offline.
+     */
+    suspend fun dirPaths(): List<String> = dao.dirPaths()
+
+    /**
+     * Moves one note's rows to [toPath] (a full path, the space
+     * included) so the tree and the lists read the move offline,
+     * before the replay lands it on the server. Nothing happens when
+     * the note is unknown here.
+     */
+    suspend fun moveLocal(noteId: String, toPath: String) {
+        val row = dao.noteById(noteId) ?: return
+        val from = if (row.space.isEmpty()) row.relPath else "${row.space}/${row.relPath}"
+        val space = toPath.substringBefore('/', "")
+        val rel = if (space.isEmpty()) toPath else toPath.substringAfter('/')
+        val name = toPath.substringAfterLast('/')
+        val parent = toPath.substringBeforeLast('/', "")
+        dao.moveNoteLocal(noteId, space, rel, from, toPath, parent, name)
+    }
+
     /** One cached note, with its tags, or null. */
     suspend fun note(id: String): NoteWithTags? = dao.noteWithTags(id)
 
@@ -188,11 +211,15 @@ class ReplicaStore(private val db: ReplicaDatabase) : com.collinpendleton.yana.d
     suspend fun newestNotes(limit: Int): List<RecentNoteRow> = dao.newestNotes(limit)
 
     /**
-     * The note file names already sitting in one folder of a space, for
-     * the inbox's next free name.
+     * The note file names already sitting directly in one folder of a
+     * space, for the next free name. The folder is a full path (the
+     * space included) — the shape the notes table's rel_path keeps —
+     * and notes in deeper folders do not count.
      */
     suspend fun namesIn(space: String, folder: String): List<String> =
-        dao.pathsIn(space, folder).map { it.substringAfterLast('/') }
+        dao.pathsIn(space, folder)
+            .filter { !it.removePrefix("$folder/").contains('/') }
+            .map { it.substringAfterLast('/') }
 
     /**
      * A note composed offline: its row and its first body land in the

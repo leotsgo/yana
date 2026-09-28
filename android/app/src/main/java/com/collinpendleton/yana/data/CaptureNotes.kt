@@ -106,8 +106,7 @@ class CaptureNotes(
         val base = inboxBase()
         if (base.isEmpty()) return null
         val space = captureSpace()
-        val folder = prefs.inboxFolder(space)
-        val taken = store.namesIn(space, folder)
+        val taken = store.namesIn(space, base)
         val name = CaptureKit.nextInboxName(taken)
         val path = "$base/$name.md"
         val id = CaptureKit.newUlid(now())
@@ -116,6 +115,37 @@ class CaptureNotes(
         // everyone else; when it is not, the queue holds it.
         scope.launch { runCatching { repo.sync() } }
         return CapturedNote(id, path, name, local = true)
+    }
+
+    /**
+     * A note in a folder the picker chose: the new-note picker's
+     * create, the tree's plus, and the folder menu's New note here.
+     * [dir] is a full folder path (a space, or a space and folders);
+     * a null [name] makes the next untitled note there, and a name is
+     * the file name — its extension kept when it names a note file,
+     * `.md` added otherwise. The note is born in the replica like
+     * every capture — it opens offline and the create carries the id
+     * to the server — and the folder becomes one this device used
+     * lately.
+     */
+    suspend fun newNoteIn(dir: String, name: String?): CapturedNote? {
+        val space = dir.substringBefore('/', "")
+        if (space.isEmpty()) return null
+        val taken = store.namesIn(space, dir)
+        val hasExt = name != null && Regex("\\.(md|markdown|html?)$", RegexOption.IGNORE_CASE).containsMatchIn(name)
+        val file = when {
+            name == null -> CaptureKit.nextInboxName(taken) + ".md"
+            hasExt -> name
+            else -> "$name.md"
+        }
+        val title = file.substringBeforeLast('.')
+        val path = "$dir/$file"
+        val id = CaptureKit.newUlid(now())
+        createLocalNote(id, space, path, title, "# $title\n\n")
+        prefs.touchFolder(dir)
+        prefs.setLastFolder(dir)
+        scope.launch { runCatching { repo.sync() } }
+        return CapturedNote(id, path, title, local = true)
     }
 
     /**
