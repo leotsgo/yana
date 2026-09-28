@@ -44,6 +44,7 @@ the `Makefile`:
 | `doc.text()` / `doc.len()` | read the body; `len` is in UTF-16 code units |
 | `doc.insert(pos, s)` / `doc.delete(pos, n)` | edit at a UTF-16 offset; returns the update bytes |
 | `doc.edit(pos, del, s)` | replace `del` units at `pos` with `s` in one transaction: one update, one undo step — the shape a text field's diff produces |
+| `doc.editMany(ops)` | several replacement hunks (`[{"p":..,"d":..,"i":..}]`, positions against the text as it stands, non-overlapping) in one transaction — one update, one undo step, the shape a formatting button produces |
 | `doc.replaceText(want)` | diff-apply: mutate the body so it reads as `want`, keeping untouched characters' identity |
 | `doc.applyUpdate(update)` | integrate a peer's update |
 | `doc.stateVector()` / `doc.diff(remoteVector)` / `doc.state()` | delta handshake and snapshot |

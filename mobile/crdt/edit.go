@@ -1,9 +1,11 @@
 package crdt
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -137,6 +139,97 @@ func (y *Doc) Edit(pos, del int64, s string) ([]byte, error) {
 		}
 		if s != "" {
 			t.Insert(txn, p, s, nil)
+		}
+		return nil
+	}, y.local)
+	if err != nil {
+		y.out = nil
+		return nil, err
+	}
+	return y.take(), nil
+}
+
+// editHunk is one replacement of a multi-region edit as the JSON in
+// EditMany spells it.
+type editHunk struct {
+	P int64  `json:"p"`
+	D int64  `json:"d"`
+	I string `json:"i"`
+}
+
+// EditMany applies several replacements in one transaction, so a
+// change the person sees as one thing — a formatting button wrapping a
+// selection in marks, a prefix rewritten on every selected line — is
+// one update, one undo step, the way a CodeMirror transaction is on
+// the web. ops is a JSON array of hunks, each {"p":pos,"d":del,"i":ins}
+// with UTF-16 positions measured against the text as it stands before
+// the call; hunks must not overlap. Order does not matter: the hunks
+// are applied from the last position to the first, where each earlier
+// position is still valid. It returns the update to forward, or nil
+// when the hunks changed nothing.
+func (y *Doc) EditMany(ops string) ([]byte, error) {
+	y.mu.Lock()
+	defer y.mu.Unlock()
+	if y.d == nil {
+		return nil, ErrClosed
+	}
+	var hunks []editHunk
+	if err := json.Unmarshal([]byte(ops), &hunks); err != nil {
+		return nil, fmt.Errorf("yana/crdt: ops are not a hunk array: %w", err)
+	}
+	if len(hunks) == 0 {
+		return nil, nil
+	}
+	// Validate every hunk against the text as it stands, then apply
+	// from the end so positions stay what the caller measured.
+	sort.SliceStable(hunks, func(a, b int) bool { return hunks[a].P > hunks[b].P })
+	length := utf16Len(y.text.ToString())
+	for i, h := range hunks {
+		if h.P < 0 || h.D < 0 {
+			return nil, fmt.Errorf("yana/crdt: hunk %d has a negative position or length", i)
+		}
+		if err := checkUTF8(h.I); err != nil {
+			return nil, err
+		}
+		p, l, err := toIndex2(h.P, h.D)
+		if err != nil {
+			return nil, err
+		}
+		if p+l > length {
+			return nil, fmt.Errorf("yana/crdt: hunk %d range [%d, %d) out of range [0, %d)", i, p, p+l, length)
+		}
+		if i > 0 {
+			prev := hunks[i-1]
+			if int64(p+l) > prev.P {
+				return nil, fmt.Errorf("yana/crdt: hunk %d overlaps the hunk before it", i)
+			}
+		}
+	}
+	sawChange := false
+	for _, h := range hunks {
+		if h.D == 0 && h.I == "" {
+			continue
+		}
+		sawChange = true
+	}
+	if !sawChange {
+		return nil, nil
+	}
+	y.out = nil
+	err := y.d.TransactE(func(txn *ycrdt.Transaction) error {
+		t := txn.GetText(TextName)
+		for _, h := range hunks {
+			if h.D == 0 && h.I == "" {
+				continue
+			}
+			if h.D > 0 {
+				p, l, _ := toIndex2(h.P, h.D)
+				t.Delete(txn, p, l)
+			}
+			if h.I != "" {
+				p, _ := toIndex(h.P)
+				t.Insert(txn, p, h.I, nil)
+			}
 		}
 		return nil
 	}, y.local)
