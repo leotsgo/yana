@@ -42,12 +42,67 @@ import com.collinpendleton.yana.data.AppendOutcome
 import kotlinx.coroutines.launch
 
 /**
- * The bottom bar's window on the editor: NoteScreen raises it while it
- * holds the editor, and the bar steps out of the way, the way the web's
- * phone bar does while editing.
+ * The bottom bar's window on the editor: every note pane raises its
+ * slot while it holds the editor, and the bar steps out of the way,
+ * the way the web's phone bar does while editing. Panes are named
+ * ("route", "detail", "beside") because a large screen can hold two
+ * at once.
  */
 object ShellState {
-    val editing = kotlinx.coroutines.flow.MutableStateFlow(false)
+    private val panes = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+
+    /** The panes holding the editor right now; empty when none does. */
+    val editingPanes: kotlinx.coroutines.flow.StateFlow<Set<String>> = panes
+
+    /** One pane saying whether it holds the editor. */
+    fun setEditing(pane: String, on: Boolean) {
+        panes.value = if (on) panes.value + pane else panes.value - pane
+    }
+
+    // The hardware keyboard asks for the edit toggle and for Done this
+    // way: the pane that owns the key ("route" on a phone, "detail" on
+    // a large screen) flips its own editor.
+    private val _editToggle = kotlinx.coroutines.flow.MutableSharedFlow<String>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+    )
+    val editToggle = _editToggle
+
+    fun requestEdit(pane: String) {
+        _editToggle.tryEmit(pane)
+    }
+
+    private val _editDone = kotlinx.coroutines.flow.MutableSharedFlow<String>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+    )
+    val editDone = _editDone
+
+    fun requestEditDone(pane: String) {
+        _editDone.tryEmit(pane)
+    }
+}
+
+/**
+ * What a note's pane was doing when it was last on screen — the
+ * editing flag, the caret, the scroll of each view — held at the app
+ * level so a rotation, a fold, or a walk between the phone layout and
+ * the list-detail one reopens the note as it was left. Keyed by note
+ * id; plain memory, wiped with the process.
+ */
+object NoteSessions {
+    class State {
+        var editing: Boolean = false
+        var caret: Int = -1
+        var readFraction: Float = 0f
+        var editFraction: Float = 0f
+    }
+
+    private val states = HashMap<String, State>()
+
+    fun state(id: String): State = states.getOrPut(id) { State() }
+
+    fun wasEditing(id: String): Boolean = states[id]?.editing == true
 }
 
 /**

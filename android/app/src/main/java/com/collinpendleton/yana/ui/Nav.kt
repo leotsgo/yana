@@ -1,21 +1,44 @@
 package com.collinpendleton.yana.ui
 
 import android.widget.Toast
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination
@@ -101,13 +124,28 @@ private fun NavDestination?.nameOf(): String? = this?.route?.substringBefore('?'
 /** The name a route object carries, as its destination is known by. */
 private val Any.routeName: String get() = this::class.qualifiedName!!
 
+/** A note the detail side holds, as saveable strings. */
+private val NoteSpecSaver: Saver<NoteSpec?, List<String>> = Saver(
+    save = { it?.let(::encodeNoteSpec) },
+    restore = { decodeNoteSpec(it) },
+)
+
 /**
  * The shell: the navigation stack with the phone's bottom bar under
  * it. The bar carries the web's phone set — Notes (the tree), Search,
  * Capture, Today, Tasks with the open count, New — and steps out of
  * the way on the screens that are not its own and while a note is
  * being edited.
+ *
+ * On a medium or expanded width — a tablet, a foldable opened flat, a
+ * Chromebook — the shell goes two-pane instead, the way the web does
+ * at tablet size: the list screen (the tree, search, tasks, tags)
+ * stays on the left and the note it picks opens on the right, and the
+ * bar steps out of the way entirely, as the web's does past its phone
+ * layout. At expanded width the note side itself splits over a
+ * draggable divider (see [DetailPane]).
  */
+@OptIn(androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi::class)
 @Composable
 fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) {
     val client = app.client
@@ -115,7 +153,21 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
     val start: Any = remember { if (session != null) SpacesRoute else ServerRoute }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val editing by ShellState.editing.collectAsStateWithLifecycle()
+    val editingPanes by ShellState.editingPanes.collectAsStateWithLifecycle()
+    val editing = editingPanes.isNotEmpty()
+
+    // The window's width class: compact keeps the phone layout; medium
+    // and expanded go list-detail; expanded also allows two notes.
+    val activity = LocalActivity.current
+    val width = activity?.let { calculateWindowSizeClass(it) }
+    val wide = width != null && width.widthSizeClass != WindowWidthSizeClass.Compact
+    val expanded = width?.widthSizeClass == WindowWidthSizeClass.Expanded
+
+    // What the detail side holds, and how the note side splits when it
+    // does. Both live past a rotation and a fold.
+    var detail by rememberSaveable(stateSaver = NoteSpecSaver) { mutableStateOf<NoteSpec?>(null) }
+    var beside by rememberSaveable(stateSaver = NoteSpecSaver) { mutableStateOf<NoteSpec?>(null) }
+    var besideFraction by rememberSaveable { mutableStateOf(0.5f) }
 
     // The open count the Tasks tab carries; freshened as the person
     // moves around, the cached count answering offline.
@@ -126,16 +178,58 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
 
     val backStack by nav.currentBackStackEntryAsState()
     val dest = backStack?.destination
-    val barShown = session != null && !editing && dest.barred()
+    val showDetailPane = wide && session != null && dest.barred()
+    val barShown = session != null && !editing && !wide && dest.barred()
 
     // A session that ends underneath the shell (revoked on the web, signed
     // out, expired) sends the app back to the start with nothing behind it.
     LaunchedEffect(session == null) {
         if (session != null) return@LaunchedEffect
+        detail = null
+        beside = null
         val here = nav.currentBackStackEntry?.destination?.route ?: return@LaunchedEffect
         if (here.contains("ServerRoute") || here.contains("SignInRoute")) return@LaunchedEffect
         nav.navigate(ServerRoute) { popUpTo(0) { inclusive = true } }
         client.lastServer?.let(::normalizeServerUrl)?.let { nav.navigate(SignInRoute(it.toString(), setup = false)) }
+    }
+
+    // The fold line crossed: a note route sitting on a list route folds
+    // into the detail pane when the window goes wide, and the detail
+    // pane's note becomes a plain route when it goes compact — the note
+    // never reloads and the editor keeps its caret (NoteSessions). A
+    // note pushed over a full-screen page (the feed, the trash, Help's
+    // guide) stays a full-screen page, here and there.
+    LaunchedEffect(wide, dest?.route) {
+        if (!wide) {
+            val spec = detail
+            if (spec != null) {
+                if (dest.barred()) nav.navigate(NoteRoute(spec.id, spec.title, spec.line, spec.edit))
+                detail = null
+            }
+            beside = null
+            return@LaunchedEffect
+        }
+        val topEntry = nav.currentBackStackEntry ?: return@LaunchedEffect
+        if (topEntry.destination.nameOf() != NoteRoute.routeName) return@LaunchedEffect
+        val top = topEntry.toRoute<NoteRoute>().let { r -> NoteSpec(r.id, r.title, r.line, r.edit) }
+        // Pop down to the topmost note entry; the run folds only when
+        // what it sits on is a list route.
+        while (nav.previousBackStackEntry?.destination?.nameOf() == NoteRoute.routeName) {
+            if (!nav.popBackStack()) return@LaunchedEffect
+        }
+        if (nav.previousBackStackEntry?.destination?.barred() == true) {
+            nav.popBackStack()
+            detail = top
+        }
+    }
+
+    /** Opens a note: the detail pane when the shell is list-detail, a route otherwise. */
+    fun openNote(id: String, title: String, line: Int = -1, edit: Boolean = false, inDetail: Boolean = wide && dest.barred()) {
+        if (inDetail) {
+            detail = NoteSpec(id, title, line, edit)
+        } else {
+            nav.navigate(NoteRoute(id, title, line, edit))
+        }
     }
 
     fun openToday() {
@@ -144,7 +238,7 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
             if (today == null) {
                 Toast.makeText(context, app.getString(R.string.today_failed), Toast.LENGTH_SHORT).show()
             } else {
-                nav.navigate(NoteRoute(today.id, today.path.substringAfterLast('/').removeSuffix(".md")))
+                openNote(today.id, today.path.substringAfterLast('/').removeSuffix(".md"))
             }
         }
     }
@@ -184,11 +278,55 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        NavHost(
-            nav,
-            startDestination = start,
-            modifier = Modifier.weight(1f),
+    // The hardware keyboard's shortcuts, the web's set on the keys an
+    // app can take: Ctrl+P the switcher, Ctrl+T a new note, Ctrl+F
+    // search. The Ctrl pairs are read on the way down, so they work
+    // with the caret in a field too.
+    fun onPreviewKey(e: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (e.type != KeyEventType.KeyDown || session == null || !e.isCtrlPressed || e.isAltPressed || e.isMetaPressed) return false
+        return when (e.key) {
+            Key.P -> { nav.navigate(SwitcherRoute); true }
+            Key.T -> { newNote(); true }
+            Key.F -> { nav.navigate(SearchRoute()) { launchSingleTop = true }; true }
+            else -> false
+        }
+    }
+
+    // The bare keys arrive only when nothing under them took them: E
+    // flips the note on screen between reading and editing, Escape
+    // finishes an editor, closes the detail pane, or goes back.
+    fun onKey(e: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (e.type != KeyEventType.KeyDown || session == null) return false
+        val plain = !e.isCtrlPressed && !e.isAltPressed && !e.isMetaPressed
+        return when {
+            e.key == Key.E && plain && !e.isShiftPressed -> when {
+                showDetailPane && detail != null -> { ShellState.requestEdit("detail"); true }
+                dest.nameOf() == NoteRoute.routeName -> { ShellState.requestEdit("route"); true }
+                else -> false
+            }
+            e.key == Key.Escape -> when {
+                editingPanes.isNotEmpty() -> {
+                    editingPanes.forEach(ShellState::requestEditDone)
+                    true
+                }
+                showDetailPane && detail != null -> { detail = null; true }
+                else -> nav.popBackStack()
+            }
+            else -> false
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent(::onPreviewKey)
+            .onKeyEvent(::onKey),
+    ) {
+        Row(Modifier.weight(1f).fillMaxWidth()) {
+            NavHost(
+                nav,
+                startDestination = start,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
             enterTransition = { slideIntoContainer(SlideDirection.Start, tween(NAV_MS)) + fadeIn(tween(NAV_MS)) },
             exitTransition = { fadeOut(tween(NAV_MS)) },
             popEnterTransition = { fadeIn(tween(NAV_MS)) },
@@ -215,7 +353,7 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                     onSettings = { nav.navigate(SettingsRoute) },
                     onTasks = { nav.navigate(TasksRoute()) },
                     onActivity = { nav.navigate(ActivityRoute()) },
-                    onNote = { id, title -> nav.navigate(NoteRoute(id, title)) },
+                    onNote = { id, title -> openNote(id, title) },
                     onSwitcher = { nav.navigate(SwitcherRoute) },
                     onTags = { nav.navigate(TagsRoute) },
                 )
@@ -229,8 +367,8 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                     focus = r.space,
                     label = r.label,
                     onBack = { if (!nav.popBackStack()) nav.navigate(SpacesRoute) },
-                    onNote = { id, title -> nav.navigate(NoteRoute(id, title)) },
-                    onNewNote = { id, title -> nav.navigate(NoteRoute(id, title, edit = true)) },
+                    onNote = { id, title -> openNote(id, title) },
+                    onNewNote = { id, title -> openNote(id, title, edit = true) },
                     onActivity = { nav.navigate(ActivityRoute(r.space)) },
                     onSwitcher = { nav.navigate(SwitcherRoute) },
                 )
@@ -257,7 +395,8 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                     prefs = app.prefs,
                     onBack = { nav.popBackStack() },
                     onNote = { id, title ->
-                        nav.navigate(NoteRoute(id, title)) { popUpTo(SwitcherRoute.routeName) { inclusive = true } }
+                        nav.popBackStack(SwitcherRoute.routeName, true)
+                        openNote(id, title, inDetail = wide)
                     },
                     onCreate = { name ->
                         scope.launch {
@@ -265,9 +404,8 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                             if (note == null) {
                                 Toast.makeText(context, app.getString(R.string.capture_no_space), Toast.LENGTH_SHORT).show()
                             } else {
-                                nav.navigate(NoteRoute(note.id, note.title, edit = true)) {
-                                    popUpTo(SwitcherRoute.routeName) { inclusive = true }
-                                }
+                                nav.popBackStack(SwitcherRoute.routeName, true)
+                                openNote(note.id, note.title, edit = true, inDetail = wide)
                             }
                         }
                     },
@@ -289,7 +427,7 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                     onAllTags = {
                         if (!nav.popBackStack(TagsRoute.routeName, false)) nav.navigate(TagsRoute)
                     },
-                    onNote = { id, title -> nav.navigate(NoteRoute(id, title)) },
+                    onNote = { id, title -> openNote(id, title) },
                 )
             }
             composable<NoteHistoryRoute> { entry ->
@@ -329,10 +467,12 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                     start = r.start,
                     onBack = { nav.popBackStack() },
                     onOpen = { id, title ->
-                        nav.navigate(NoteRoute(id, title)) { popUpTo(NewNoteRoute.routeName) { inclusive = true } }
+                        nav.popBackStack(NewNoteRoute.routeName, true)
+                        openNote(id, title, inDetail = wide)
                     },
                     onCreated = { id, title ->
-                        nav.navigate(NoteRoute(id, title, edit = true)) { popUpTo(NewNoteRoute.routeName) { inclusive = true } }
+                        nav.popBackStack(NewNoteRoute.routeName, true)
+                        openNote(id, title, edit = true, inDetail = wide)
                     },
                 )
             }
@@ -367,7 +507,7 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                     repo = app.repo,
                     initialQuery = r.query,
                     onBack = { nav.popBackStack() },
-                    onNote = { id, title -> nav.navigate(NoteRoute(id, title)) },
+                    onNote = { id, title -> openNote(id, title) },
                 )
             }
             composable<TasksRoute> { entry ->
@@ -377,7 +517,7 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                     sync = app.syncEngine,
                     initialSpace = r.space,
                     onBack = { nav.popBackStack() },
-                    onNote = { id, title, line -> nav.navigate(NoteRoute(id, title, line)) },
+                    onNote = { id, title, line -> openNote(id, title, line) },
                 )
             }
             composable<SettingsRoute> {
@@ -428,6 +568,33 @@ fun YanaNavHost(app: YanaApp, nav: NavHostController = rememberNavController()) 
                     onConflicts = { nav.navigate(ConflictsRoute) },
                 )
             }
+        }
+        if (showDetailPane) {
+            // The line the web draws between its sidebar and its content.
+            Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
+            Box(Modifier.weight(1.4f).fillMaxHeight()) {
+                val spec = detail
+                if (spec != null) {
+                    DetailPane(
+                        app = app,
+                        main = spec,
+                        onMain = { detail = it },
+                        beside = beside,
+                        onBeside = { beside = it },
+                        fraction = besideFraction,
+                        onFraction = { besideFraction = it },
+                        splitAllowed = expanded,
+                        onTag = { tag -> nav.navigate(TagRoute(tag)) },
+                        onHistory = { id, title -> nav.navigate(NoteHistoryRoute(id, title)) },
+                        onConflicts = { id, title -> nav.navigate(ConflictRoute(id, title)) },
+                        onClose = { detail = null },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    DetailPlaceholder(Modifier.fillMaxSize())
+                }
+            }
+        }
         }
         if (barShown) {
             val selected = when {

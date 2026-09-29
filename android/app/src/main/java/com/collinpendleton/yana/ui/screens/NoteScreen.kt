@@ -49,6 +49,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -80,6 +81,7 @@ import com.collinpendleton.yana.data.userMessage
 import com.collinpendleton.yana.capture.CapturePerf
 import com.collinpendleton.yana.ui.ConnectionDot
 import com.collinpendleton.yana.ui.Loader
+import com.collinpendleton.yana.ui.NoteSessions
 import com.collinpendleton.yana.ui.Placeholder
 import com.collinpendleton.yana.ui.ShellState
 import com.collinpendleton.yana.ui.YanaIcons
@@ -120,6 +122,13 @@ fun NoteScreen(
     onTag: (String) -> Unit = {},
     onHistory: (id: String, title: String) -> Unit = { _, _ -> },
     onConflicts: (id: String, title: String) -> Unit = { _, _ -> },
+    /** This pane's slot in the shell: "route" on a phone, "detail" or "beside" on a large screen. */
+    pane: String = "route",
+    /** Open this note beside itself, or close the pane beside; hidden when null. */
+    onOpenBeside: ((editing: Boolean) -> Unit)? = null,
+    /** Whether the pane beside is open, for the menu item's word. */
+    besideOpen: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val app = LocalContext.current.yana
     val vm: Loader<Note> = viewModel(key = "note:$id") {
@@ -158,7 +167,9 @@ fun NoteScreen(
     val liveText = live?.text?.collectAsStateWithLifecycle()?.value
     val liveReady = live?.ready?.collectAsStateWithLifecycle()?.value == true
     val status by sync.status.collectAsStateWithLifecycle()
-    var editing by rememberSaveable(id) { mutableStateOf(startEditing) }
+    // The editing flag comes back after a rotation or a fold from the
+    // note's session state, so the editor reopens where it stood.
+    var editing by rememberSaveable(id) { mutableStateOf(startEditing || NoteSessions.wasEditing(id)) }
 
     // What the editor's completions draw on: the notes of this note's
     // space, as the switcher orders them, with the wikilink target
@@ -180,19 +191,32 @@ fun NoteScreen(
     // The scroll each mode leaves, as a fraction of how far it can go:
     // Edit opens about where the reading was, and Done resumes about
     // where the editing was — the same hand-off the web's tab scroll
-    // gives its two views.
-    var readFraction by rememberSaveable(id) { mutableStateOf(0f) }
-    var editFraction by rememberSaveable(id) { mutableStateOf(0f) }
+    // gives its two views. The session copy carries it across a fold.
+    val session = NoteSessions.state(id)
+    var readFraction by rememberSaveable(id) { mutableStateOf(session.readFraction) }
+    var editFraction by rememberSaveable(id) { mutableStateOf(session.editFraction) }
 
     // The title a rename left showing, until the note's own catches up.
     var renamedTitle by rememberSaveable(id) { mutableStateOf<String?>(null) }
     if (note?.title != null && renamedTitle != null && note.title == renamedTitle) renamedTitle = null
 
-    // The editor holds the whole screen: the bottom bar steps out of
-    // the way while it is up, the way the web's phone bar does.
-    LaunchedEffect(editing) { ShellState.editing.value = editing }
-    DisposableEffect(id) {
-        onDispose { ShellState.editing.value = false }
+    // The editor holds its pane of the screen: the bottom bar steps
+    // out of the way while it is up, the way the web's phone bar does,
+    // and the session remembers the note was being edited.
+    LaunchedEffect(editing) {
+        ShellState.setEditing(pane, editing)
+        session.editing = editing
+    }
+    DisposableEffect(id, pane) {
+        onDispose {
+            ShellState.setEditing(pane, false)
+        }
+    }
+
+    // The hardware keyboard's Edit key and Escape-Done arrive here: the
+    // shell routes them to the pane that owns them.
+    LaunchedEffect(pane, id) {
+        ShellState.editDone.collect { p -> if (p == pane && editing) editing = false }
     }
 
     // The capture timing log: this screen is the "first editable frame"
@@ -203,6 +227,10 @@ fun NoteScreen(
     }
 
     val canEdit = !isHtml && note?.role != "viewer"
+    val canEditNow by rememberUpdatedState(canEdit)
+    LaunchedEffect(pane, id) {
+        ShellState.editToggle.collect { p -> if (p == pane && canEditNow) editing = !editing }
+    }
     val mode by app.prefs.themeMode.collectAsStateWithLifecycle()
     val dark = when (mode) {
         ThemeMode.System -> isSystemInDarkTheme()
@@ -262,6 +290,7 @@ fun NoteScreen(
     var sendSheet by remember { mutableStateOf(false) }
 
     Scaffold(
+        modifier = modifier,
         contentWindowInsets = ShellInsets,
         topBar = {
             TopAppBar(
@@ -315,6 +344,15 @@ fun NoteScreen(
                                 detailsOpen = true
                             },
                         )
+                        if (onOpenBeside != null) {
+                            DropdownMenuItem(
+                                text = { Text(if (besideOpen) "Close the pane beside" else "Open beside") },
+                                onClick = {
+                                    menuOpen = false
+                                    onOpenBeside(editing)
+                                },
+                            )
+                        }
                     }
                     if (canEdit && editing) {
                         IconButton(onClick = { editing = false }) {
@@ -375,8 +413,13 @@ fun NoteScreen(
                     workScope = app.appScope,
                     lookup = lookup,
                     atEnd = startEditing,
+                    initialCaret = session.caret,
+                    onCaret = { session.caret = it },
                     initialFraction = readFraction,
-                    onScrollFraction = { editFraction = it },
+                    onScrollFraction = {
+                        editFraction = it
+                        session.editFraction = it
+                    },
                 )
             } else {
                 Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -404,7 +447,10 @@ fun NoteScreen(
                             dark = dark,
                             atLine = atLine,
                             restoreFraction = editFraction,
-                            onScrollFraction = { readFraction = it },
+                            onScrollFraction = {
+                                readFraction = it
+                                session.readFraction = it
+                            },
                             onOpenNote = onOpenNote,
                             onTag = onTag,
                             onToast = toast,
