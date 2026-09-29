@@ -30,7 +30,7 @@ import type { Layout } from './layout'
 import type { MenuSpec } from './menu'
 import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
 import type { LinkMenu, OpenNote } from './panels'
-import { resolveTitle } from './paths'
+import { headLines, resolveTitle } from './paths'
 import { ShareLinkDialog } from './publiclink'
 import { renderRich } from './rich-load'
 import { wireAttachments } from './attach'
@@ -38,6 +38,7 @@ import type { OpenMode } from './prefs'
 import * as sessions from './sessions'
 import { SyncClient, presence } from './sync'
 import type { PresenceState, PresenceUser, SyncEvents, SyncStatus } from './sync'
+import type { FlatNote } from './tree'
 
 export interface NotePageProps {
   id: string
@@ -68,6 +69,9 @@ export interface NotePageProps {
   fresh: boolean
   /** The new note was named before it was made: the caret goes to the body. */
   freshNamed?: boolean
+  /** A note made from a template: where its {{cursor}} landed, in runes
+   * into the body. Undefined means the end of the document. */
+  freshCaret?: number
   /** Goes up each time the title is asked for again on the same note. */
   freshSeq: number
   onDelete: () => void
@@ -91,10 +95,14 @@ export interface NotePageProps {
   taskLine: number | null
   /** The notes and tags the editor offers after `[[` and `#`, for a space. */
   lookup: (space: string) => Completions
+  /** The space's templates, for Insert from template in the overflow. */
+  templates: FlatNote[]
+  /** Open the template picker; its body inserts at the caret. */
+  onTemplateInsert: () => void
 }
 
 export function NotePage(props: NotePageProps) {
-  const { id, layout, focused, mode, onMode, live, onEditing, onOpen, onLinkMenu, onNote, onToast, onMenu, fresh, freshNamed = false, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, taskLine, lookup, scroll, onScroll } = props
+  const { id, layout, focused, mode, onMode, live, onEditing, onOpen, onLinkMenu, onNote, onToast, onMenu, fresh, freshNamed = false, freshCaret, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, taskLine, lookup, templates, onTemplateInsert, scroll, onScroll } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -354,6 +362,9 @@ export function NotePage(props: NotePageProps) {
 
   function openOverflow(anchor: HTMLElement): void {
     const viewer = note?.role === 'viewer'
+    // Insert from template needs the editor's caret, so it is offered
+    // while the note is being edited and the space keeps templates.
+    const canInsert = note?.kind === 'md' && !viewer && shown === 'edit' && templates.length > 0
     onMenu({
       anchor,
       label: 'note actions',
@@ -367,6 +378,7 @@ export function NotePage(props: NotePageProps) {
             { id: 'pin', label: pinned ? 'Unpin from the sidebar' : 'Pin to the sidebar', icon: pinned ? 'pin-off' : 'pin', run: onPin },
             { id: 'move', label: 'Move to a folder', icon: 'move', run: onMove },
             { id: 'rename', label: 'Rename or move by path', icon: 'pencil', run: onRename },
+            ...(canInsert ? [{ id: 'insert-template', label: 'Insert from template', icon: 'copy' as const, run: onTemplateInsert }] : []),
             { id: 'share', label: 'Share a link', icon: 'globe', detail: note?.public ? 'live' : undefined, run: () => setShare(true) },
             { id: 'export', label: 'Export as HTML', icon: 'download', detail: 'one file', run: onExport },
             'sep',
@@ -542,6 +554,7 @@ export function NotePage(props: NotePageProps) {
               readOnly={readOnly}
               autofocus={fresh ? titleDone : shown === 'edit'}
               atEnd={fresh || phone}
+              caret={fresh ? freshCaret : undefined}
               phone={phone}
               live={live}
               onToast={onToast}
@@ -946,20 +959,6 @@ function markTaskLine(el: HTMLElement, line: number, scroll: boolean): boolean {
   if (row) row.classList.add('task-hit')
   if (scroll) box.scrollIntoView({ block: 'center' })
   return true
-}
-
-/** Lines taken by a frontmatter block at the top of the text, 0 when
- * there is none. Mirrors the server's rule: the first line is exactly
- * `---`, the block ends at `---` or `...`, and an unterminated block is
- * body. */
-function headLines(text: string): number {
-  if (!/^---\r?\n/.test(text)) return 0
-  const lines = text.split('\n')
-  for (let i = 1; i < lines.length; i++) {
-    const l = (lines[i] ?? '').replace(/\r$/, '')
-    if (l === '---' || l === '...') return i + 1
-  }
-  return 0
 }
 
 // Enables the task boxes in a render and flips the `[ ]` on the line each

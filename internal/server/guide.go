@@ -24,9 +24,15 @@ import (
 
 // seedGuide writes the guide into space (the tree root when empty),
 // skipping any file already there, and returns the starter note's path
-// and whether anything was written.
+// and whether anything was written. Into a space it also writes the
+// starter templates; at the root a templates/ folder would read as a
+// space of its own.
 func (s *Server) seedGuide(ctx context.Context, space string) (rel string, created bool, err error) {
-	for i, f := range guide.Files() {
+	files := guide.Files()
+	if space != "" {
+		files = append(files, guide.TemplateFiles()...)
+	}
+	for i, f := range files {
 		rel := f.Rel
 		if space != "" {
 			rel = space + "/" + rel

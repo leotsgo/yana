@@ -673,10 +673,49 @@ Two settings shape it, both paths relative to the space:
 | `YANA_DAILY_PATTERN` | `journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md` | Where the note lives |
 | `YANA_DAILY_TEMPLATE` | `templates/daily.md` | A note whose body seeds a new daily note |
 
-`{YYYY}`, `{MM}`, `{DD}` and `{date}` (`YYYY-MM-DD`) expand in both. When
-the template note does not exist the new note starts as a heading with the
-date. The template's own frontmatter is dropped; the daily note gets an id
-of its own like any other file.
+`{YYYY}`, `{MM}`, `{DD}` and `{date}` (`YYYY-MM-DD`) expand in both, and
+the `{{...}}` variables below work in the template body too. When the
+template note does not exist the new note starts as a heading with the
+date. The template's own frontmatter is dropped; the daily note gets an
+id of its own like any other file.
+
+## Templates
+
+Any note in a space's `templates/` folder is a template — the daily
+note's `templates/daily.md` is one. The folder is a normal folder:
+templates are edited like notes, they sync, and they export. The starter
+space keeps two, a meeting note and a person note, so the folder is there
+to drop more into.
+
+A template's body may carry variables in double braces. On use the
+template's frontmatter is dropped, the variables are substituted, and the
+new note gets an id of its own:
+
+| Variable | Becomes |
+|---|---|
+| `{{title}}` | The new note's title |
+| `{{date}}` | Today, `YYYY-MM-DD` |
+| `{{date:YYYY-MM-DD}}` | Today in a pattern of `YYYY`, `YY`, `MM`, `DD`, `HH` and `mm` |
+| `{{time}}` | The time of creation, `HH:MM` |
+| `{{user}}` | The account creating the note |
+| `{{space}}` | The space the note lands in |
+| `{{folder}}` | The folder the note lands in, relative to the space |
+| `{{cursor}}` | Nothing — this is where the caret lands |
+| `{{prompt:Label}}` | Asked once, as a field in a small form, when the note is made |
+
+Unknown variables are left as written, and nothing inside a fenced code
+block is touched, so a template can show its own variables in an example.
+`{{prompt:Label}}` asks once per distinct label; the answers fill every
+occurrence. The template's own file name may carry variables too: a
+template called `Meeting {{date}}.md` suggests the title "Meeting
+2026-09-29".
+
+"New from template" sits in the command palette, in the tree's folder
+menu (long-press on a phone, where the menu is a sheet from the bottom),
+and on the home screen; it makes a note in that folder. From the editor's
+overflow, "Insert from template" puts the expanded body into the open
+note at the caret, which a `{{cursor}}` in the template places inside the
+inserted text.
 
 ## Endpoints added for the editor
 
@@ -688,6 +727,7 @@ of its own like any other file.
 | `GET /api/assets/orphans` | Assets no note in their space references, for the Data page |
 | `GET /api/notes/{id}/asset-view?asset=` | Mints the content-origin URL an attachment card's inline viewer loads |
 | `POST /api/notes/daily` | `{space, date}` → today's note, created from the template if missing |
+| `POST /api/templates/{id}/expand` | `{title, folder, answers}` → a template's body with its variables substituted, plus the prompts it asks, where `{{cursor}}` landed, and the title its name suggests; the note itself is made with `POST /api/notes` |
 | `POST /api/guide` | `{space}` → the starter note in that space, written first when missing (`201`), found otherwise (`200`); editors and up |
 | `POST /api/render` | `{markdown}` → `{html}` for the read view and the preview |
 | `GET /api/tags` | Every tag with its note count, across the spaces the account can see |

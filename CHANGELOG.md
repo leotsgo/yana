@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Templates with variables (Phase 26). Any note in a space's
+  `templates/` folder is now a template, the way the daily note's
+  always was: its frontmatter is dropped on use and the new note gets
+  an id of its own, while the folder stays a normal folder — templates
+  are edited like notes, they sync and export with everything else.
+  Bodies (and file names) may carry `{{title}}`, `{{date}}`,
+  `{{date:YYYY-MM-DD}}`, `{{time}}`, `{{user}}`, `{{space}}`,
+  `{{folder}}`, `{{cursor}}` (where the caret lands) and
+  `{{prompt:Label}}`, which asks once per distinct label in a small,
+  phone-friendly form when the note is made. Unknown variables are left
+  as written and fenced code blocks are untouched, so a template can
+  document its own variables. Substitution is one pure function in
+  `internal/templates`, table-tested, that the daily note now runs
+  through too (its legacy `{YYYY}`-style tokens keep working);
+  `POST /api/templates/{id}/expand` answers with the body, the prompts,
+  the caret position and the title the template's own name suggests.
+  "New from template" sits in the command palette, in the tree's folder
+  menu (a sheet from the bottom on a phone), and on the home screen,
+  and "Insert from template" in the editor's overflow puts the expanded
+  body into an open note at the caret. The starter space now ships a
+  meeting template and a person template so the folder is there from
+  the first run. Android follows in a later phase.
+
 - Android editing affordances (Phase 12n). A markdown note reads by
   default; Edit opens the editor with the scroll carried over from the
   reading and Done returns to the rendered note about where the
@@ -18,7 +41,7 @@
   web's title does — the heading follows through the document and the
   file moves with its links rewritten, online now or on the next sync
   when offline. "New from template" is not yet available on Android;
-  it arrives with Phase 26.
+  it arrives with the Android phases that follow Phase 26.
 
 - Android images (Phase 12h). The editor grows an image action — the
   photo picker or the camera — that uploads through the same

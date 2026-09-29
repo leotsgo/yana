@@ -88,7 +88,7 @@ func TestSetupLeavesExistingTreeAlone(t *testing.T) {
 }
 
 // Help re-creates the guide inside a space; it is idempotent, and a
-// viewer cannot write it.
+// viewer cannot write it. The space also gets the starter templates.
 func TestGuideEndpoint(t *testing.T) {
 	f := newAuthFixture(t)
 	w := f.buildWorld(t)
@@ -98,6 +98,11 @@ func TestGuideEndpoint(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(f.dir, "home", "_assets", "yana.png")); err != nil {
 		t.Fatalf("asset not written: %v", err)
+	}
+	for _, g := range guide.TemplateFiles() {
+		if _, err := os.Stat(filepath.Join(f.dir, "home", filepath.FromSlash(g.Rel))); err != nil {
+			t.Fatalf("template %s not written: %v", g.Rel, err)
+		}
 	}
 	code, body = doPost(t, f.ts, "POST", "/api/guide", w.samHdr, map[string]string{"space": "home"})
 	if code != http.StatusOK || body["created"] != false {

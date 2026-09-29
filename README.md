@@ -58,10 +58,12 @@ reconnect, with no conflict dialog.
 
 **Capture.** New note starts in the folder you are looking at: type a
 name and press Enter, or Tab into another folder first, the way a shell
-completes a path. **Today** opens the daily note, made from a
-template if you keep one. **Capture** appends one line to today's note
-without opening it — from the home screen, the phone's bottom bar, or the
-share sheet.
+completes a path. A note in a space's `templates/` folder is a template:
+pick it and the variables — the date, the folder, a question you are
+asked once — fill in where they stand. **Today** opens the daily note,
+made from a template if you keep one. **Capture** appends one line to
+today's note without opening it — from the home screen, the phone's
+bottom bar, or the share sheet.
 
 **On a phone.** Install it from the browser and it is a home-screen app
 that works offline: the tree, recent notes, and every note you have
@@ -289,7 +291,7 @@ publish the image.
 ## Roadmap
 
 Planned next, roughly in order: importers for markdown vaults and Notion
-exports; templates with variables; vim keys; and the rest of the
+exports; vim keys; and the rest of the
 Android app. It signs in, browses, renders HTML notes, edits through
 the realtime document, and captures from the share sheet, two tiles,
 a widget, and Today and Capture on the home screen — offline first,
