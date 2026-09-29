@@ -155,6 +155,12 @@ object YanaIcons {
         "M17 3h4v4",
     ) }
 
+    /** The square with a line down it, open a note beside. */
+    val Columns: ImageVector by lazy { build("columns",
+        "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+        "M12 3v18",
+    ) }
+
     private fun build(name: String, vararg paths: String): ImageVector =
         ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f).apply {
             for (d in paths) {

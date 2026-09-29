@@ -3,9 +3,12 @@
 The Android client: Kotlin, Jetpack Compose, Material 3. It signs in to a
 YANA/ server and browses its spaces, folders and notes, with an offline
 replica (Room) that keeps the tree, note reading, and search working in
-airplane mode. Navigation follows the web's phone layout: a bottom bar
-(Notes, Search, Capture, Today, Tasks, New) over a home screen with
-Today, pinned and recent notes, and a "what changed" line; a tree of
+airplane mode. Navigation follows the web's phone layout — a bottom
+bar (Notes, Search, Capture, Today, Tasks, New) over a home screen —
+on a phone; on a tablet, a foldable opened flat, or a Chromebook the
+shell goes two-pane instead (see [Large screens](#large-screens)). The
+home screen holds
+Today, pinned and recent notes, and a "what changed" line; the tree of
 every space that reopens the way it was left; a quick switcher over
 the replica; tags with their pages; and a details sheet on every note
 with its backlinks. Markdown notes read rendered — headings, lists, code,
@@ -138,6 +141,37 @@ A note's menu also holds its details: a sheet with the path, created
 and modified times, size, tags, and Linked from — the backlinks over
 `GET /api/notes/{id}/backlinks`, each row the linking note and the
 line its link sits on — plus the way to the note's history.
+
+## Large screens
+
+A tablet, a foldable opened flat, or a Chromebook uses the width the
+way the web does at tablet size. A compact width keeps the phone
+layout with its bottom bar. A medium or expanded width goes
+list-detail — the list screen on the left (the tree, search, tasks, a
+tag page, home) and the note it picks on the right, opening notes
+never leaving the two-pane layout — and the bottom bar steps out of
+the way, as the web's does past its phone layout. The back arrow on
+the note clears the right side back to its nothing-open rest state.
+
+At an expanded width the note side itself splits, the web's split
+pane: a note's menu carries *Open beside*, which sets the note beside
+itself in the other mode — read beside edit — over a divider that
+drags and double-taps back to the middle. Either side reads or edits,
+a wikilink opens in the pane it was tapped from, and two panes on the
+same note follow each other live through the shared document, so
+edits on one side arrive on the other as they land.
+
+A hardware keyboard carries the web's shortcuts on the keys an app
+can take: Ctrl+P opens the switcher, Ctrl+T the new-note picker,
+Ctrl+F search, E flips the note on screen between reading and
+editing, and Escape finishes an editor, closes the open note, or goes
+back. Settings → Help lists them.
+
+State survives a rotation and a fold: the open note stays, the editor
+keeps its caret and its scroll, and crossing the fold line hands the
+note between the phone layout and the two-pane one without reloading
+it — the list side never resets. The web's tabs are not ported: the
+recents list and the switcher cover the same need on Android.
 
 ## The reading view
 

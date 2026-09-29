@@ -134,6 +134,9 @@ fun MarkdownEditor(
     lookup: EditorLookup? = null,
     /** A new note opens with the caret at the end of the document, ready to type. */
     atEnd: Boolean = false,
+    /** Where the caret stood when this note's editor last left, so a rotation or a fold puts it back. */
+    initialCaret: Int = -1,
+    onCaret: (Int) -> Unit = {},
     /** Where the read view was, as a fraction of its scroll; the editor opens about there. */
     initialFraction: Float = -1f,
     /** The editor's scroll when it leaves, as a fraction; the read view resumes there. */
@@ -159,10 +162,14 @@ fun MarkdownEditor(
 
     // Seed the field once the text is this device's document — an
     // empty document included, which is what a note composed offline
-    // opens as. A new note opens with the caret at the end.
+    // opens as. A new note opens with the caret at the end; a note
+    // coming back from a rotation or a fold takes the caret it had.
     LaunchedEffect(ready, liveText) {
         if (field == null && ready) {
-            field = TextFieldValue(liveText, TextRange(if (atEnd) liveText.length else 0))
+            val caret = if (initialCaret in 1..liveText.length) initialCaret
+            else if (atEnd) liveText.length
+            else 0
+            field = TextFieldValue(liveText, TextRange(caret))
         }
     }
 
@@ -180,6 +187,7 @@ fun MarkdownEditor(
             val sel = current.selection
             val (start, end) = SelectionMapper.mapSelection(hunks, sel.min, sel.max, edit.text.length)
             field = TextFieldValue(edit.text, TextRange(start, end))
+            onCaret(start)
             linkQuery = null
             tagQuery = null
         }
@@ -201,6 +209,7 @@ fun MarkdownEditor(
     fun change(next: TextFieldValue) {
         val current = field
         field = next
+        onCaret(next.selection.min)
         if (current != null) {
             val op = TextFieldDiff.diff(current.text, next.text)
             if (op != null) {
@@ -222,6 +231,7 @@ fun MarkdownEditor(
         if (result.ops.isEmpty()) return
         val next = TextFieldValue(Format.apply(current.text, result.ops), TextRange(result.selStart, result.selEnd))
         field = next
+        onCaret(result.selStart)
         sync.editOps(noteId, Format.opsJson(result.ops))
         bursts.onAlone()
         throttle.offer(next.selection.min, next.selection.max)?.let { sync.sendCursor(noteId, it[0], it[1]) }

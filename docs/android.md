@@ -18,6 +18,19 @@ the same `_assets/` upload path and link as the plain link the web
 writes; PDFs open on the content origin, sandboxed like HTML notes;
 public links read, make, and revoke through the same API the web uses.
 
+## Large screens
+
+On a tablet, a foldable opened flat, or a Chromebook, the app uses the
+width the way the web does at tablet size: medium and expanded widths
+go list-detail (the tree, search, tasks, or a tag page on the left,
+the note on the right), expanded width holds two notes side by side
+over a draggable divider, and a hardware keyboard carries the web's
+shortcuts — switcher, new note, search, edit, close. State survives a
+rotation and a fold without reloading the note or losing the caret.
+The web's tabs are not ported; the recents list and the switcher cover
+the same need on Android. See
+[android/README.md](../android/README.md) for the details.
+
 ## Not yet available
 
 - **New from template.** The web's template picker (Phase 26) has not

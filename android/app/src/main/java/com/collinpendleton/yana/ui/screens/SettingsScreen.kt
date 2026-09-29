@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -76,6 +77,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val toast: (String) -> Unit = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() }
     var helpBusy by remember { mutableStateOf(false) }
+    var keysOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     /** Opens the web app at one of its settings sections. */
@@ -184,6 +186,11 @@ fun SettingsScreen(
                     blurb = "The guide note: how links, pictures, tasks and tags work.",
                     onClick = { openStartHere() },
                 )
+                SettingsRow(
+                    title = "Keyboard shortcuts",
+                    blurb = "For the keyboards a tablet, a foldable, and a Chromebook carry.",
+                    onClick = { keysOpen = true },
+                )
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 Section("On the web")
@@ -215,6 +222,43 @@ fun SettingsScreen(
                 About()
             }
         }
+        if (keysOpen) {
+            KeyboardShortcutsDialog { keysOpen = false }
+        }
+    }
+}
+
+/** The keys a hardware keyboard carries, the web's set on the keys an app can take. */
+@Composable
+private fun KeyboardShortcutsDialog(onDismiss: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Keyboard shortcuts") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ShortcutRow("Ctrl+P", "Open a note by name or #tag")
+                ShortcutRow("Ctrl+T", "New note: choose the folder and the name")
+                ShortcutRow("Ctrl+F", "Search")
+                ShortcutRow("E", "Edit the note you are reading; the same key finishes")
+                ShortcutRow("Escape", "Finish editing, close what is open, go back")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+    )
+}
+
+@Composable
+private fun ShortcutRow(keys: String, what: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            keys,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.width(84.dp),
+        )
+        Text(what, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
