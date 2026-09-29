@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.collinpendleton.yana.ui.ShellInsets
@@ -49,7 +50,7 @@ import com.collinpendleton.yana.data.TaskCount
 import com.collinpendleton.yana.ui.CaptureLineDialog
 import com.collinpendleton.yana.ui.Loader
 import com.collinpendleton.yana.ui.Placeholder
-import com.collinpendleton.yana.ui.Wordmark
+import com.collinpendleton.yana.ui.BrandMark
 import com.collinpendleton.yana.ui.YanaIcons
 import com.collinpendleton.yana.ui.activity.ActivityRow
 import com.collinpendleton.yana.ui.activity.FeedWindow
@@ -135,7 +136,7 @@ fun SpacesScreen(
         contentWindowInsets = ShellInsets,
         topBar = {
             TopAppBar(
-                title = { Wordmark() },
+                title = { BrandMark(logo = 28.dp, size = 20.sp) },
                 actions = {
                     IconButton(onClick = onSwitcher) { Icon(YanaIcons.Command, contentDescription = "Switcher") }
                     IconButton(onClick = onSearch) { Icon(Icons.Default.Search, contentDescription = "Search") }

@@ -8,7 +8,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.res.painterResource
+import com.collinpendleton.yana.R
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -336,9 +340,16 @@ private fun CaptureSettings(app: YanaApp) {
 @Composable
 private fun About() {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.Top) {
-            Wordmark(size = 30.sp)
-            Text("1", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                painterResource(R.drawable.yana_logo),
+                contentDescription = null,
+                modifier = Modifier.padding(end = 10.dp).height(40.dp),
+            )
+            Row(verticalAlignment = Alignment.Top) {
+                Wordmark(size = 30.sp)
+                Text("1", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            }
         }
         Text(
             "Plain files on your server, edited from any device. Version ${BuildConfig.VERSION_NAME}.",

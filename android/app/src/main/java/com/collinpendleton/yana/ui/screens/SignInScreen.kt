@@ -45,7 +45,7 @@ import com.collinpendleton.yana.data.YanaClient
 import com.collinpendleton.yana.data.display
 import com.collinpendleton.yana.data.normalizeServerUrl
 import com.collinpendleton.yana.data.userMessage
-import com.collinpendleton.yana.ui.Wordmark
+import com.collinpendleton.yana.ui.BrandMark
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -106,7 +106,7 @@ fun SignInScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(Modifier.widthIn(max = 420.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Wordmark(size = 34.sp)
+                BrandMark()
                 Spacer(Modifier.height(20.dp))
                 Text(if (setup) "Create the owner account" else "Sign in", style = MaterialTheme.typography.headlineSmall)
                 Text(
