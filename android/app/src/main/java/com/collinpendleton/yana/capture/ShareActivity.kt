@@ -85,7 +85,9 @@ class ShareActivity : ComponentActivity() {
         val bareUrl = Regex("^https?://\\S+$").find(rawText.trim())
         val text = if (bareUrl != null) "" else rawText
         val url = bareUrl?.value ?: ""
-        val images = if ((intent.type ?: "").startsWith("image/")) {
+        // Streams of every MIME type ride the same door: photos down the
+        // image path, any other file down the plain attachment path.
+        val streams = if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
             if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
                 IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
             } else {
@@ -102,19 +104,22 @@ class ShareActivity : ComponentActivity() {
                 ThemeMode.Light -> false
                 ThemeMode.Dark -> true
             }
-            YanaTheme(mode) { SharePage(app, title, text, url, images) }
+            YanaTheme(mode) { SharePage(app, title, text, url, streams) }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SharePage(app: YanaApp, title: String, text: String, url: String, images: List<Uri> = emptyList()) {
+private fun SharePage(app: YanaApp, title: String, text: String, url: String, streams: List<Uri> = emptyList()) {
     val context = LocalContext.current
     val session by app.client.session.collectAsStateWithLifecycle()
     val block = remember(title, text, url) { CaptureKit.shareBlock(title, text, url) }
-    val photoCount = images.size
-    val hasShare = block.isNotBlank() || photoCount > 0
+    val resolver = remember { context.contentResolver }
+    val isImage: (Uri) -> Boolean = { uri -> runCatching { (resolver.getType(uri) ?: "").startsWith("image/") }.getOrDefault(false) }
+    val photoCount = streams.count(isImage)
+    val fileCount = streams.size - photoCount
+    val hasShare = block.isNotBlank() || streams.isNotEmpty()
     var busy by remember { mutableStateOf(false) }
     var opened by remember { mutableStateOf<Pair<String, String>?>(null) }
     var added by remember { mutableStateOf<String?>(null) }
@@ -124,21 +129,27 @@ private fun SharePage(app: YanaApp, title: String, text: String, url: String, im
     LaunchedEffect(Unit) { CapturePerf.done("share-open") }
 
     /**
-     * Sends the photos up (or collects what must queue) against
-     * [base], and answers the block they add to the share. Photos that
-     * uploaded link under the name the server wrote; ones the network
-     * would not take link under the name asked for and come back for
-     * queueing against the note.
+     * Sends the attachments up (or collects what must queue) against
+     * [base], and answers the block they add to the share. Each item
+     * rides its own path — pictures down the image one with its alt
+     * text link, everything else as the plain link the web writes —
+     * and links under the name the server actually wrote. Ones the
+     * network would not take link under the name asked for and come
+     * back for queueing against the note.
      */
-    suspend fun photoPart(base: String): Pair<String, List<PreparedAsset>> {
-        if (photoCount == 0 || base.isEmpty()) return "" to emptyList()
-        val prepared = app.images.prepareAll(images.map(ImageSource::Picked))
+    suspend fun assetPart(base: String): Pair<String, List<PreparedAsset>> {
+        if (streams.isEmpty() || base.isEmpty()) return "" to emptyList()
+        val prepared = streams.mapNotNull { uri ->
+            runCatching {
+                if (isImage(uri)) app.images.prepare(ImageSource.Picked(uri)) else app.images.prepareFile(uri)
+            }.getOrNull()
+        }
         if (prepared.isEmpty()) return "" to emptyList()
         val delivered = app.images.deliver(prepared, base, app.repo)
-        val links = delivered.mapNotNull { d ->
+        val links = delivered.zip(prepared).mapNotNull { (d, item) ->
             when (d) {
-                is Delivery.Uploaded -> AssetNames.imageLink(d.name)
-                is Delivery.Offline -> AssetNames.imageLink(d.item.name)
+                is Delivery.Uploaded -> AssetNames.linkFor(d.name, item.isImage)
+                is Delivery.Offline -> AssetNames.linkFor(d.item.name, d.item.isImage)
                 is Delivery.Refused -> {
                     failed = app.getString(R.string.share_photo_refused, d.name)
                     null
@@ -148,8 +159,8 @@ private fun SharePage(app: YanaApp, title: String, text: String, url: String, im
         return links.joinToString("\n\n") to delivered.filterIsInstance<Delivery.Offline>().map { it.item }
     }
 
-    fun composeBlock(textBlock: String, photoBlock: String): String =
-        listOf(textBlock.takeIf { it.isNotBlank() }, photoBlock.takeIf { it.isNotBlank() }).filterNotNull().joinToString("\n\n")
+    fun composeBlock(textBlock: String, assetBlock: String): String =
+        listOf(textBlock.takeIf { it.isNotBlank() }, assetBlock.takeIf { it.isNotBlank() }).filterNotNull().joinToString("\n\n")
 
     fun addNewNote() {
         if (busy) return
@@ -157,8 +168,8 @@ private fun SharePage(app: YanaApp, title: String, text: String, url: String, im
         CapturePerf.mark("share-edit")
         app.appScope.launch {
             val base = app.capture.inboxBase()
-            val (photoBlock, toQueue) = photoPart(base)
-            val full = composeBlock(block, photoBlock)
+            val (assetBlock, toQueue) = assetPart(base)
+            val full = composeBlock(block, assetBlock)
             val note = if (full.isBlank()) null else app.capture.newInboxNote(full)
             if (note != null) {
                 for (item in toQueue) app.images.queueOffline(item, base, note.id, app.repo)
@@ -223,6 +234,13 @@ private fun SharePage(app: YanaApp, title: String, text: String, url: String, im
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
                                 }
+                                if (fileCount > 0) {
+                                    Text(
+                                        context.resources.getQuantityString(R.plurals.share_files, fileCount, fileCount),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
                                 if (block.isNotBlank()) {
                                     Text(
                                         block,
@@ -246,7 +264,8 @@ private fun SharePage(app: YanaApp, title: String, text: String, url: String, im
                         NotePicker(
                             app = app,
                             block = block,
-                            images = images,
+                            streams = streams,
+                            isImage = isImage,
                             onBusy = { busy = it },
                             onAdded = { added = it },
                             onFailed = { failed = it },
@@ -307,7 +326,8 @@ private fun AddedPage(path: String) {
 private fun NotePicker(
     app: YanaApp,
     block: String,
-    images: List<Uri>,
+    streams: List<Uri>,
+    isImage: (Uri) -> Boolean,
     onBusy: (Boolean) -> Unit,
     onAdded: (String) -> Unit,
     onFailed: (String?) -> Unit,
@@ -348,14 +368,14 @@ private fun NotePicker(
                 items(recents, key = { "r:" + it.id }) { n ->
                     PickRow(n.title.ifEmpty { n.path }, n.path) {
                         working = true
-                        pick(app, n.id, block, images, onBusy, onAdded, onFailed)
+                        pick(app, n.id, block, streams, isImage, onBusy, onAdded, onFailed)
                     }
                 }
             } else {
                 items(hits, key = { "h:" + it.id }) { h ->
                     PickRow(h.title.ifEmpty { h.path }, h.path) {
                         working = true
-                        pick(app, h.id, block, images, onBusy, onAdded, onFailed)
+                        pick(app, h.id, block, streams, isImage, onBusy, onAdded, onFailed)
                     }
                 }
             }
@@ -367,36 +387,41 @@ private fun pick(
     app: YanaApp,
     id: String,
     block: String,
-    images: List<Uri>,
+    streams: List<Uri>,
+    isImage: (Uri) -> Boolean,
     onBusy: (Boolean) -> Unit,
     onAdded: (String) -> Unit,
     onFailed: (String?) -> Unit,
 ) {
     onBusy(true)
     app.appScope.launch {
-        // The photos upload (or queue) against the note's own
+        // The attachments upload (or queue) against the note's own
         // `_assets/` before the block is appended, so their links carry
         // the names the server actually wrote.
         var base = ""
-        var photoBlock = ""
+        var assetBlock = ""
         var toQueue = emptyList<PreparedAsset>()
         val path = app.capture.storePathOf(id)
-        if (images.isNotEmpty() && path != null) {
+        if (streams.isNotEmpty() && path != null) {
             base = assetBaseOf(path)
-            val prepared = app.images.prepareAll(images.map(ImageSource::Picked))
+            val prepared = streams.mapNotNull { uri ->
+                runCatching {
+                    if (isImage(uri)) app.images.prepare(ImageSource.Picked(uri)) else app.images.prepareFile(uri)
+                }.getOrNull()
+            }
             if (prepared.isNotEmpty()) {
                 val delivered = app.images.deliver(prepared, base, app.repo)
-                photoBlock = delivered.mapNotNull { d ->
+                assetBlock = delivered.zip(prepared).mapNotNull { (d, item) ->
                     when (d) {
-                        is Delivery.Uploaded -> AssetNames.imageLink(d.name)
-                        is Delivery.Offline -> AssetNames.imageLink(d.item.name)
+                        is Delivery.Uploaded -> AssetNames.linkFor(d.name, item.isImage)
+                        is Delivery.Offline -> AssetNames.linkFor(d.item.name, d.item.isImage)
                         is Delivery.Refused -> null
                     }
                 }.joinToString("\n\n")
                 toQueue = delivered.filterIsInstance<Delivery.Offline>().map { it.item }
             }
         }
-        val full = listOf(block.takeIf { it.isNotBlank() }, photoBlock.takeIf { it.isNotBlank() })
+        val full = listOf(block.takeIf { it.isNotBlank() }, assetBlock.takeIf { it.isNotBlank() })
             .filterNotNull().joinToString("\n\n")
         val outcome = if (full.isBlank()) AppendOutcome.NotFound else app.capture.appendBlock(id, full)
         if (outcome is AppendOutcome.Done) {

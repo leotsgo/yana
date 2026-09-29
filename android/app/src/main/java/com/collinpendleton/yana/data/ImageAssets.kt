@@ -76,8 +76,17 @@ object AssetNames {
     /** The link a picture becomes in the note. */
     fun imageLink(name: String): String = "![${altFor(name)}](_assets/$name)"
 
+    /** The link a file that is not a picture becomes: the name, no bang. */
+    fun fileLink(name: String): String = "[$name](_assets/$name)"
+
+    /** The link any uploaded asset becomes, by whether it is a picture. */
+    fun linkFor(name: String, image: Boolean): String = if (image) imageLink(name) else fileLink(name)
+
     /** The in-flight marker, replaced by the link once the server answers. */
     fun marker(name: String): String = "![uploading $name](...)"
+
+    /** The file version of the in-flight marker, without the bang. */
+    fun fileMarker(name: String): String = "[uploading $name](...)"
 
     /** Swaps [marker] for [replacement], wherever it sits now; the cursor rides through. */
     fun replaceMarker(text: String, marker: String, replacement: String, cursor: Int): Pair<String, Int> {
@@ -143,8 +152,11 @@ class PendingUploadStore(private val dir: File) {
     }
 }
 
-/** One image ready to go up: its (possibly downscaled) bytes and the name it asks for. */
-data class PreparedAsset(val bytes: ByteArray, val name: String, val mime: String)
+/** One asset ready to go up: its bytes and the name it asks for. */
+data class PreparedAsset(val bytes: ByteArray, val name: String, val mime: String) {
+    /** True of picture types, which link with a bang and an alt. */
+    val isImage: Boolean get() = mime.startsWith("image/")
+}
 
 /** What became of one shared photo on its way into the note. */
 sealed interface Delivery {
@@ -206,6 +218,31 @@ class ImageAssets(
     /** Prepares each source, dropping what cannot be read. */
     suspend fun prepareAll(sources: List<ImageSource>): List<PreparedAsset> =
         sources.mapNotNull { runCatching { prepare(it) }.getOrNull() }
+
+    /**
+     * Reads one file that is not a picture, as it is: no decode, no
+     * downscale, the name the picker reported (the web client's
+     * sanitization applies), and the MIME the resolver names. A share
+     * with no name to show gets the file stamp's spine. What will not
+     * read answers null.
+     */
+    suspend fun prepareFile(uri: Uri): PreparedAsset? = withContext(Dispatchers.IO) {
+        val mime = resolver.getType(uri).orEmpty().ifEmpty { "application/octet-stream" }
+        val display = displayName(uri)?.trim().orEmpty()
+        val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+        if (bytes == null || bytes.isEmpty()) return@withContext null
+        val asked = AssetNames.safeName(display, mime)
+        // The web's fallback spine names photos; a file that arrives
+        // with nothing to show gets its own stamp instead.
+        val stamped = Regex("""^photo-\d{8}-\d{6}""")
+        val name = if (display.isEmpty() || stamped.containsMatchIn(asked)) {
+            val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
+            "file-${AssetNames.stamp()}" + (ext?.let { ".$it" } ?: "")
+        } else {
+            asked
+        }
+        PreparedAsset(bytes, name, mime)
+    }
 
     /**
      * Sends each prepared asset up now: uploaded, refused, or offline

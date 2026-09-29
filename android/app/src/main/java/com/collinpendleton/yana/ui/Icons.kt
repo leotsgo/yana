@@ -22,6 +22,19 @@ object YanaIcons {
         "M12 7v5l4 2",
     ) }
 
+    /** The globe a note's public link shows while it is live. */
+    val Globe: ImageVector by lazy { build("globe",
+        "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20",
+        "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20",
+        "M2 12h20",
+    ) }
+
+    /** The copy action, beside an address worth keeping. */
+    val Copy: ImageVector by lazy { build("copy",
+        "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2",
+        "M8 8h12v12H8z",
+    ) }
+
     /** The counterclockwise arrow every restore action carries. */
     val Restore: ImageVector by lazy { build("restore",
         "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8",

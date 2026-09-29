@@ -196,6 +196,34 @@ data class NoteView(
     @SerialName("expires_at") val expiresAt: String = "",
 )
 
+/**
+ * The note's live public link: the address anyone with it reads the
+ * note at, read-only, on the content origin until it expires or is
+ * revoked.
+ */
+@Serializable
+data class PublicLink(
+    val id: String = "",
+    @SerialName("note_id") val noteId: String = "",
+    val url: String = "",
+    @SerialName("created_at") val createdAt: String = "",
+    /** When the link lapses; null while it lives. */
+    @SerialName("expires_at") val expiresAt: String? = null,
+)
+
+@Serializable
+data class PublicLinkResponse(val link: PublicLink? = null)
+
+/** `expires` is one of 1d, 1w, or never; it applies to a new link only. */
+@Serializable
+data class PublicLinkRequest(val expires: String = "never")
+
+@Serializable
+data class PublicLinkCreateResponse(
+    val link: PublicLink? = null,
+    val created: Boolean = false,
+)
+
 @Serializable
 data class SaveSourceRequest(
     val source: String,

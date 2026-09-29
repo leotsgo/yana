@@ -1,6 +1,21 @@
 package com.collinpendleton.yana.ui.reader
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.webkit.WebView
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -8,11 +23,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import com.collinpendleton.yana.data.GoRender
 import com.collinpendleton.yana.data.Note
 import com.collinpendleton.yana.data.NoteRepository
@@ -20,6 +42,10 @@ import com.collinpendleton.yana.data.ResolvedLink
 import com.collinpendleton.yana.data.TickOutcome
 import com.collinpendleton.yana.data.YanaClient
 import com.collinpendleton.yana.data.YanaJson
+import com.collinpendleton.yana.data.userMessage
+import com.collinpendleton.yana.ui.htmlnote.NoteWebView
+import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -139,6 +165,64 @@ fun ReaderPane(
         }
     }
 
+    // An attachment opened from the note: a PDF renders here on the
+    // content origin (the same sandboxed WebView an HTML note renders
+    // in, through the minted asset-view URL); anything else downloads
+    // to the cache and leaves for the system viewer.
+    var pdfView by remember(note.id) { mutableStateOf<PdfView?>(null) }
+
+    /**
+     * Opens one `_assets/` file. PDFs mint the content-origin URL and
+     * render in the viewer dialog, never in the app's origin; other
+     * files download with this session's auth and hand the cache copy
+     * to whatever app opens their type.
+     */
+    fun openAsset(path: String) {
+        val name = path.substringAfterLast('/')
+        if (name.endsWith(".pdf", ignoreCase = true)) {
+            pdfView = PdfView(name)
+            scope.launch {
+                try {
+                    pdfView = PdfView(name, repo.assetViewUrl(note.id, path))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: retrofit2.HttpException) {
+                    pdfView = null
+                    onToast(
+                        if (e.code() == 501) "This server runs without the content origin."
+                        else e.userMessage(),
+                    )
+                } catch (e: Exception) {
+                    pdfView = null
+                    onToast("The viewer needs the server; ${e.userMessage()}")
+                }
+            }
+            return
+        }
+        scope.launch {
+            try {
+                val dl = client.downloadAsset(path)
+                val dir = File(context.cacheDir, "attachments").apply { mkdirs() }
+                val file = File(dir, name)
+                withContext(Dispatchers.IO) { file.writeBytes(dl.bytes) }
+                val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
+                val view = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, mimeFor(name, dl.mime))
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                try {
+                    context.startActivity(view)
+                } catch (_: ActivityNotFoundException) {
+                    onToast("No app opens $name.")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onToast(e.userMessage())
+            }
+        }
+    }
+
     val onTap: (ReaderTap) -> Unit = { tap ->
         when (tap) {
             is ReaderTap.OpenNote -> onOpenNote(tap.id)
@@ -151,6 +235,7 @@ fun ReaderPane(
                 }
             }
             is ReaderTap.Tag -> onTag(tap.name)
+            is ReaderTap.Asset -> openAsset(tap.path)
             is ReaderTap.Task -> scope.launch {
                 when (val outcome = repo.tickTask(note.id, tap.line, tap.done)) {
                     is TickOutcome.Done -> Unit // the live document brings the tick back
@@ -221,6 +306,66 @@ fun ReaderPane(
         },
         onRelease = { it.destroy() },
     )
+
+    pdfView?.let { view -> AssetViewer(view, onClose = { pdfView = null }) }
+}
+
+/** A PDF being viewed: its name and the minted URL, once there is one. */
+data class PdfView(val name: String, val url: String? = null)
+
+/**
+ * The MIME type an `ACTION_VIEW` gets for one attachment: the server's
+ * answer, unless it is the generic octet stream and the file's own
+ * extension names something better.
+ */
+internal fun mimeFor(name: String, served: String?): String {
+    val guess = name.substringAfterLast('.', "").lowercase()
+        .takeIf { it.isNotEmpty() }
+        ?.let { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
+    return when {
+        served == null || served.isBlank() -> guess ?: "application/octet-stream"
+        served == "application/octet-stream" && guess != null -> guess
+        else -> served
+    }
+}
+
+/**
+ * The PDF viewer: a near-fullscreen dialog holding the same sandboxed
+ * content-origin WebView an HTML note renders in, with the same
+ * navigation restrictions — the minted URL is the only credential, and
+ * links off the content origin leave for the system browser.
+ */
+@Composable
+private fun AssetViewer(view: PdfView, onClose: () -> Unit) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxSize().padding(top = 40.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    view.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 8.dp),
+                )
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close") }
+            }
+            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                val url = view.url
+                if (url != null) {
+                    NoteWebView(url, Modifier.fillMaxSize())
+                } else {
+                    CircularProgressIndicator(Modifier.size(28.dp))
+                }
+            }
+        }
+    }
 }
 
 /**

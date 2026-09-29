@@ -252,11 +252,14 @@ fun NoteScreen(
         }
     }
 
-    // The note's menu: pinning and the details sheet.
+    // The note's menu: pinning, the details sheet, the public link, and
+    // sending the note out.
     val pins by app.prefs.pins.collectAsStateWithLifecycle()
     val pinned = pins.any { it.id == id }
     var menuOpen by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
+    var linkSheet by remember { mutableStateOf(false) }
+    var sendSheet by remember { mutableStateOf(false) }
 
     Scaffold(
         contentWindowInsets = ShellInsets,
@@ -289,6 +292,20 @@ fun NoteScreen(
                             onClick = {
                                 menuOpen = false
                                 app.prefs.togglePin(id, note?.title?.ifEmpty { null } ?: title)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Public link") },
+                            onClick = {
+                                menuOpen = false
+                                linkSheet = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Send the note") },
+                            onClick = {
+                                menuOpen = false
+                                sendSheet = true
                             },
                         )
                         DropdownMenuItem(
@@ -405,6 +422,26 @@ fun NoteScreen(
                 onTag = onTag,
                 onHistory = { onHistory(id, note.title.ifEmpty { title }) },
                 onDismiss = { detailsOpen = false },
+            )
+        }
+        if (linkSheet && note != null) {
+            // A make or a revoke is server state: the note refetches so
+            // the public badge follows what the sheet settled.
+            PublicLinkSheet(
+                repo = repo,
+                noteId = id,
+                onChanged = { live -> if (live != note.public) vm.reload(pull = true) },
+                onToast = toast,
+                onDismiss = { linkSheet = false },
+            )
+        }
+        if (sendSheet && note != null) {
+            SendNoteSheet(
+                client = app.client,
+                note = note,
+                body = if (liveReady) liveText else note.markdown?.let(::markdownBody),
+                onToast = toast,
+                onDismiss = { sendSheet = false },
             )
         }
     }
@@ -589,7 +626,40 @@ internal fun formatBytes(bytes: Long): String {
 @Composable
 private fun NoteHeader(note: Note, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(note.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                note.path,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            if (note.public) {
+                // The small badge while a public link is live, the
+                // globe the web shows beside the crumbs.
+                Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Row(
+                        Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            YanaIcons.Globe,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(12.dp),
+                        )
+                        Text(
+                            "Public",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
+            }
+        }
         val meta = listOfNotNull(
             formatTime(note.updatedAt).ifEmpty { null }?.let { "Edited $it" },
             note.role.takeIf { it == "viewer" }?.let { "view only" },

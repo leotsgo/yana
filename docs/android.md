@@ -13,7 +13,10 @@ editor edits the same CRDT documents over the same relay protocol; the
 formatting buttons are a tested port of `web/src/format.tsx`; wikilink
 and tag completion follow the same triggers and write the same text as
 the web's; names (uploads, new notes) follow the web's conventions so
-both clients grow the same tree.
+both clients grow the same tree. Attachments that are not images ride
+the same `_assets/` upload path and link as the plain link the web
+writes; PDFs open on the content origin, sandboxed like HTML notes;
+public links read, make, and revoke through the same API the web uses.
 
 ## Not yet available
 
