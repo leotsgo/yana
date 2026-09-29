@@ -72,6 +72,18 @@ class ImageAssetsTest {
         assertEquals("![uploading my-shot.png](...)", AssetNames.marker("my-shot.png"))
     }
 
+    @Test
+    fun `a file that is not a picture links as the plain link the web writes`() {
+        assertEquals("[budget.xlsx](_assets/budget.xlsx)", AssetNames.fileLink("budget.xlsx"))
+        assertEquals("[uploading budget.xlsx](...)", AssetNames.fileMarker("budget.xlsx"))
+    }
+
+    @Test
+    fun `linkFor picks the picture link only for image types`() {
+        assertEquals("![shot](_assets/shot.png)", AssetNames.linkFor("shot.png", image = true))
+        assertEquals("[report.pdf](_assets/report.pdf)", AssetNames.linkFor("report.pdf", image = false))
+    }
+
     // --- the marker's replacement ------------------------------------------------
 
     @Test

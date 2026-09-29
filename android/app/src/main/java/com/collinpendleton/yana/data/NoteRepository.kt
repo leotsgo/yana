@@ -53,6 +53,25 @@ interface NoteRepository {
      */
     suspend fun noteView(id: String): NoteView
 
+    /**
+     * The signed content-origin URL one of the note's attachments
+     * opens in, so a PDF renders sandboxed there and never in the
+     * app's origin. Online only: the mint needs the server.
+     */
+    suspend fun assetViewUrl(id: String, asset: String): String
+
+    /**
+     * The note's live public link, or null while none is live. Online
+     * only; a failure is the caller's to word.
+     */
+    suspend fun publicLink(id: String): PublicLink?
+
+    /** Makes (or returns) the note's public link with the given expiry choice. */
+    suspend fun createPublicLink(id: String, expires: String): PublicLink
+
+    /** Retires the note's public link; a note with none revokes to none. */
+    suspend fun revokePublicLink(id: String)
+
     /** Saves an HTML note's source, whole-file and last-write-wins. */
     suspend fun saveSource(id: String, source: String, baseHash: String): SaveSourceResponse
 
@@ -376,6 +395,27 @@ class YanaNoteRepository(
     override suspend fun noteView(id: String): NoteView {
         bind()
         return client.api().noteView(id)
+    }
+
+    override suspend fun assetViewUrl(id: String, asset: String): String {
+        bind()
+        return client.api().assetView(id, asset).url
+    }
+
+    override suspend fun publicLink(id: String): PublicLink? {
+        bind()
+        return client.api().publicLink(id).link
+    }
+
+    override suspend fun createPublicLink(id: String, expires: String): PublicLink {
+        bind()
+        return client.api().createPublicLink(id, PublicLinkRequest(expires)).link
+            ?: throw IOException("the server made no link")
+    }
+
+    override suspend fun revokePublicLink(id: String) {
+        bind()
+        client.api().revokePublicLink(id)
     }
 
     override suspend fun saveSource(id: String, source: String, baseHash: String): SaveSourceResponse {

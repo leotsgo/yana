@@ -22,6 +22,10 @@
         <item quantity="one">%d photo</item>
         <item quantity="other">%d photos</item>
     </plurals>
+    <plurals name="share_files">
+        <item quantity="one">%d file</item>
+        <item quantity="other">%d files</item>
+    </plurals>
     <string name="share_photo_refused">The server would not take %1$s.</string>
 
     <!-- Capture -->

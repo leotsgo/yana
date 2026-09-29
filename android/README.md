@@ -572,6 +572,51 @@ The JVM suite (`SyncEngineTest`) runs the same scenarios against
 MockWebServer speaking the real frames, with a stand-in for the CRDT
 engine the AAR provides.
 
+## Attachments, PDFs, public links, and sending a note
+
+Everything that is not an image rides the same rails. The editor's
+image action also offers *Choose file* — the system document picker
+(`OpenDocument`, no storage permission) — and the share target takes
+`ACTION_SEND` of any MIME type: a file a picker or another app hands
+over uploads as it is (no decode, no resize) to the note's sibling
+`_assets/` through the same `PUT /api/files/<path>` the web editor
+uses, under the web client's name for it, and lands at the cursor (or
+in the shared block) as the plain link the web writes for a
+non-image, `[name](_assets/name)`. The in-flight marker, the offline
+queue with staged bytes, the name-collision fix through the document,
+and the reader's placeholder while an upload waits are all the
+image path's, shared.
+
+In the reading view, an attachment's link opens by type:
+
+- A **PDF** mints the note's `GET /api/notes/{id}/asset-view` URL and
+  renders in a dialog holding the same sandboxed content-origin
+  WebView an HTML note renders in — the same navigation restrictions,
+  the minted URL the only credential, links off the content origin
+  bound for the system browser. It never renders in the app's origin.
+  The mint needs the server, so a PDF does not open offline.
+- Anything else downloads with the session's auth into the cache and
+  leaves for the system viewer (`ACTION_VIEW` through the
+  `FileProvider`, the MIME type from the server or the file's
+  extension); a device with nothing that opens the type says so.
+
+Public links come from the note's menu: *Public link* makes the
+note's live link (the web's expiry choices — 1 day, 1 week, never),
+shows the address with Copy and the phone's share sheet, and revokes
+it. While a link is live the note carries a small globe badge beside
+its path, the phone's reading of the web's globe. A revoked link
+stops working at once, everywhere.
+
+*Send the note*, also from the menu, hands the note out two ways: the
+markdown text through the share sheet, or the standalone HTML export
+(`GET /api/notes/{id}/export.html`) as one self-contained file.
+
+Search finds text inside attachments when the phone is online — the
+server's index covers PDF text since Phase 22, and the app's search
+asks the server first. Offline search does not cover attachment
+text: the replica indexes note titles and the bodies this device has
+opened, not the files beside them.
+
 ## HTML notes
 
 HTML notes render in a WebView on the content origin, the server's

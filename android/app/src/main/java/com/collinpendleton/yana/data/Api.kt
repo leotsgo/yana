@@ -47,6 +47,28 @@ interface YanaApi {
     @GET("api/notes/{id}/view")
     suspend fun noteView(@Path("id") id: String): NoteView
 
+    /** The signed content-origin URL one attachment opens in (PDFs render there). */
+    @GET("api/notes/{id}/asset-view")
+    suspend fun assetView(
+        @Path("id") id: String,
+        @Query("asset") asset: String,
+    ): NoteView
+
+    /** The note's live public link, or null when there is none. */
+    @GET("api/notes/{id}/public-link")
+    suspend fun publicLink(@Path("id") id: String): PublicLinkResponse
+
+    /** Makes (or returns) the note's public link; `expires` sets a new link's life. */
+    @POST("api/notes/{id}/public-link")
+    suspend fun createPublicLink(
+        @Path("id") id: String,
+        @Body body: PublicLinkRequest,
+    ): PublicLinkCreateResponse
+
+    /** Retires the note's public link; revoking a note with none succeeds. */
+    @DELETE("api/notes/{id}/public-link")
+    suspend fun revokePublicLink(@Path("id") id: String): OkResponse
+
     /** Full-text search with the operator grammar, the server's half. */
     @GET("api/search")
     suspend fun search(

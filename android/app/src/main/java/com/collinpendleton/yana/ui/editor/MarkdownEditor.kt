@@ -325,11 +325,60 @@ fun MarkdownEditor(
         }
     }
 
+    /**
+     * One file that is not a photo into the note at the cursor: the
+     * same marker→link ride as a photo, with the plain link the web
+     * writes for a non-image.
+     */
+    fun insertFile(uri: android.net.Uri) {
+        val path = notePath
+        val base = if (path != null) assetBaseOf(path) else ""
+        val repository = repo
+        val assets = images
+        val scope = workScope
+        if (path == null || base.isEmpty() || repository == null || assets == null || scope == null) return
+        scope.launch {
+            val prepared = runCatching { assets.prepareFile(uri) }.getOrNull()
+            if (prepared == null) {
+                withContext(Dispatchers.Main) { toast("Could not read that file.") }
+                return@launch
+            }
+            val marker = AssetNames.fileMarker(prepared.name)
+            withContext(Dispatchers.Main) {
+                val current = field ?: return@withContext
+                val at = current.selection.min
+                val text = current.text.substring(0, at) + marker + current.text.substring(at)
+                change(TextFieldValue(text, TextRange(at + marker.length)))
+            }
+            try {
+                val res = repository.uploadAsset("$base/_assets/${prepared.name}", prepared.bytes, prepared.mime)
+                val name = res.name.ifEmpty { prepared.name }
+                withContext(Dispatchers.Main) { applyUploadResult(marker, AssetNames.fileLink(name)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                assets.queueOffline(prepared, base, noteId, repository)
+                withContext(Dispatchers.Main) {
+                    applyUploadResult(marker, AssetNames.fileLink(prepared.name))
+                    toast("Offline. ${prepared.name} uploads when the connection returns.")
+                }
+            } catch (e: HttpException) {
+                withContext(Dispatchers.Main) {
+                    applyUploadResult(marker, "")
+                    toast(e.userMessage())
+                }
+            }
+        }
+    }
+
     var imageMenu by remember(noteId) { mutableStateOf(false) }
     var cameraTarget by remember(noteId) { mutableStateOf<File?>(null) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) insertImage(ImageSource.Picked(uri))
+    }
+    val docPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) insertFile(uri)
     }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val f = cameraTarget
@@ -489,6 +538,14 @@ fun MarkdownEditor(
                                 onClick = {
                                     imageMenu = false
                                     takePhoto()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Choose file") },
+                                onClick = {
+                                    imageMenu = false
+                                    runCatching { docPicker.launch(arrayOf("*/*")) }
+                                        .onFailure { toast("No document picker took the request.") }
                                 },
                             )
                         }

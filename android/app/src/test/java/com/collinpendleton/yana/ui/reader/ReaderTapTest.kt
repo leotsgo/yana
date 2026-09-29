@@ -37,6 +37,22 @@ class ReaderTapTest {
         assertEquals(ReaderTap.Task(3, false), tap("yana://task/3?done=0"))
     }
 
+    @Test fun attachmentsCarryTheirTreePath() {
+        assertEquals(
+            ReaderTap.Asset("main/_assets/report q3.pdf"),
+            tap("yana://asset/main/_assets/report%20q3.pdf"),
+        )
+        assertEquals(
+            ReaderTap.Asset("work/guides/_assets/budget.xlsx"),
+            tap("yana://asset/work/guides/_assets/budget.xlsx"),
+        )
+    }
+
+    @Test fun attachmentsOutsideAssetsGoNowhere() {
+        assertNull(tap("yana://asset/work/notes/other.md"))
+        assertNull(tap("yana://asset/main/../../etc/_assets/x.pdf"))
+    }
+
     @Test fun anythingElseIsNotOurs() {
         assertNull(tap("https://example.net/leak"))
         assertNull(tap("yana://unknown/x"))

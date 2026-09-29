@@ -93,12 +93,30 @@ class YanaClient(
      */
     suspend fun exportNotesZip(space: String): ByteArray {
         if (space.isEmpty()) throw IOException("the root of the tree exports from the web")
+        return download("api/spaces/$space/export/notes.zip").bytes
+    }
+
+    /**
+     * One note as a single self-contained HTML file
+     * (`GET /api/notes/{id}/export.html`), for the share sheet.
+     */
+    suspend fun exportNoteHtml(id: String): ByteArray =
+        download("api/notes/$id/export.html").bytes
+
+    /**
+     * One attachment's bytes (`GET /api/files/{path}`, percent-encoded
+     * per segment), with the content type the server served it under,
+     * so a file another app should open carries the right MIME.
+     */
+    suspend fun downloadAsset(path: String): HttpDownload {
+        val encoded = encodeAssetPath(path)
+        return download("api/files/$encoded")
+    }
+
+    /** One authed GET, its bytes and content type together. */
+    private suspend fun download(path: String): HttpDownload {
         val base = normalizeServerUrl(store.session.value?.server ?: throw NotSignedIn()) ?: throw NotSignedIn()
-        val url = base.newBuilder()
-            .addPathSegments("api/spaces")
-            .addPathSegment(space)
-            .addPathSegments("export/notes.zip")
-            .build()
+        val url = base.newBuilder().addEncodedPathSegments(path).build()
         val request = Request.Builder().url(url).build()
         return withContext(Dispatchers.IO) {
             authed.newCall(request).execute().use { resp ->
@@ -108,13 +126,12 @@ class YanaClient(
                     }.getOrNull()
                     throw IOException(error?.replaceFirstChar { it.uppercase() } ?: "The server answered HTTP ${resp.code}.")
                 }
-                resp.body.bytes()
+                HttpDownload(resp.body.bytes(), resp.header("Content-Type"))
             }
         }
     }
 
     class NotSignedIn : IOException("not signed in")
-
     companion object {
         private val JSON = "application/json".toMediaType()
 
@@ -132,6 +149,12 @@ class YanaClient(
             return "android · ${name.trim().ifEmpty { "device" }}".take(80)
         }
     }
+}
+
+/** What an authed download brought back: the bytes and the content type. */
+class HttpDownload(val bytes: ByteArray, val contentType: String?) {
+    /** The MIME type without parameters, for intent types and file guessing. */
+    val mime: String? get() = contentType?.substringBefore(';')?.trim()?.ifEmpty { null }
 }
 
 /** A message a person can act on, from whatever a call threw. */

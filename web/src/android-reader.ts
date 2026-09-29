@@ -93,12 +93,23 @@ function wire(root: HTMLElement, cfg: Config): void {
     img.loading = 'lazy'
   }
   // External links open in the system browser; the app decides in
-  // shouldOverrideUrlLoading, so they stay ordinary anchors.
+  // shouldOverrideUrlLoading, so they stay ordinary anchors. A relative
+  // link into an `_assets/` directory is an attachment: it leaves as a
+  // yana://asset navigation, and the app opens it (a PDF renders on the
+  // content origin, anything else leaves for the system viewer).
   for (const a of root.querySelectorAll<HTMLAnchorElement>('a[href]')) {
     const href = a.getAttribute('href') ?? ''
     if (/^https?:/i.test(href)) {
       a.target = '_blank'
       a.rel = 'noopener'
+      continue
+    }
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(href)) continue
+    const clean = href.split(/[?#]/)[0] ?? ''
+    if (!clean) continue
+    const path = join(cfg.base, clean)
+    if (/(^|\/)_assets\//.test(path)) {
+      a.href = yanaURL('asset/' + path.split('/').map(encodeURIComponent).join('/'))
     }
   }
   wireWikiLinks(root, cfg)

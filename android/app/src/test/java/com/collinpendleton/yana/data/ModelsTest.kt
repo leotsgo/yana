@@ -104,4 +104,30 @@ class ModelsTest {
         val e = YanaJson.decodeFromString(ApiErrorBody.serializer(), """{"error":"no account exists yet","setup_required":true}""")
         assertTrue(e.setupRequired)
     }
+
+    @Test fun publicLinkLive() {
+        val r = YanaJson.decodeFromString(
+            PublicLinkResponse.serializer(),
+            """{"link":{"id":"01L","note_id":"01A","url":"https://c.example/p/tok",
+               "created_at":"2026-09-25T01:02:03Z","expires_at":"2026-10-02T01:02:03Z"}}""",
+        )
+        val link = r.link!!
+        assertEquals("01A", link.noteId)
+        assertEquals("https://c.example/p/tok", link.url)
+        assertEquals("2026-10-02T01:02:03Z", link.expiresAt)
+    }
+
+    @Test fun publicLinkNone() {
+        val r = YanaJson.decodeFromString(PublicLinkResponse.serializer(), """{"link":null}""")
+        assertNull(r.link)
+    }
+
+    @Test fun publicLinkNeverExpires() {
+        val r = YanaJson.decodeFromString(
+            PublicLinkResponse.serializer(),
+            """{"link":{"id":"01L","note_id":"01A","url":"https://c.example/p/tok",
+               "created_at":"2026-09-25T01:02:03Z","expires_at":null},"created":true}""",
+        )
+        assertNull(r.link!!.expiresAt)
+    }
 }
