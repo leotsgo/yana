@@ -4,12 +4,15 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -22,15 +25,18 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.collinpendleton.yana.R
 import com.collinpendleton.yana.ui.theme.Mono
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -50,6 +56,15 @@ fun Wordmark(modifier: Modifier = Modifier, size: TextUnit = 20.sp) {
         style = TextStyle(fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = size, letterSpacing = 0.sp),
         color = MaterialTheme.colorScheme.onBackground,
     )
+}
+
+/** The logo beside the wordmark: the first-run screens and About. */
+@Composable
+fun BrandMark(modifier: Modifier = Modifier, logo: Dp = 48.dp, size: TextUnit = 34.sp) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(logo / 4), verticalAlignment = Alignment.CenterVertically) {
+        Image(painterResource(R.drawable.yana_logo), contentDescription = null, modifier = Modifier.height(logo))
+        Wordmark(size = size)
+    }
 }
 
 /**

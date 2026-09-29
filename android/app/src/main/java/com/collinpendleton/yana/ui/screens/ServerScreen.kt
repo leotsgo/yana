@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.collinpendleton.yana.data.YanaClient
 import com.collinpendleton.yana.data.normalizeServerUrl
 import com.collinpendleton.yana.data.userMessage
-import com.collinpendleton.yana.ui.Wordmark
+import com.collinpendleton.yana.ui.BrandMark
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -83,7 +83,7 @@ fun ServerScreen(client: YanaClient, onReady: (server: String, setup: Boolean) -
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(Modifier.widthIn(max = 420.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Wordmark(size = 34.sp)
+                BrandMark()
                 Spacer(Modifier.height(20.dp))
                 Text("Connect to your server", style = MaterialTheme.typography.headlineSmall)
                 Text(
