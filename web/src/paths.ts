@@ -75,3 +75,42 @@ export function resolveTitle(notePath: string, currentTitle: string, raw: string
   const path = dir ? `${dir}/${name}` : name
   return { title, dir, path, moves: dir !== cur }
 }
+
+/** Lines taken by a frontmatter block at the top of the text, 0 when
+ * there is none. Mirrors the server's rule: the first line is exactly
+ * `---`, the block ends at `---` or `...`, and an unterminated block is
+ * body. */
+export function headLines(text: string): number {
+  if (!/^---\r?\n/.test(text)) return 0
+  const lines = text.split('\n')
+  for (let i = 1; i < lines.length; i++) {
+    const l = (lines[i] ?? '').replace(/\r$/, '')
+    if (l === '---' || l === '...') return i + 1
+  }
+  return 0
+}
+
+/** Where the body starts in a note's whole text: the first character
+ * past the frontmatter block. */
+export function bodyStart(text: string): number {
+  let pos = 0
+  for (let i = 0; i < headLines(text); i++) pos = text.indexOf('\n', pos) + 1
+  return pos
+}
+
+/** A rune count (how the server counts) as an offset in JS string terms
+ * (how strings and the editor count): the length, in UTF-16 units, of
+ * the first `runes` runes of body. */
+export function utf16At(runes: number, body: string): number {
+  let units = 0
+  let seen = 0
+  let i = 0
+  while (i < body.length && seen < runes) {
+    const cp = body.codePointAt(i) ?? 0
+    const width = cp > 0xffff ? 2 : 1
+    i += width
+    units += width
+    seen++
+  }
+  return units
+}

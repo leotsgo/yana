@@ -22,6 +22,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/render"
 	"github.com/madeofpendletonwool/yana/internal/scanner"
+	"github.com/madeofpendletonwool/yana/internal/templates"
 )
 
 // DailyConfig is where the daily note lives and what seeds it. Both paths
@@ -177,6 +178,16 @@ func expandDaily(s string, day time.Time) string {
 	return r.Replace(s)
 }
 
+// folderOfDaily is the folder the daily note lands in, relative to its
+// space: what {{folder}} says in a daily template.
+func folderOfDaily(pattern, space string, day time.Time) string {
+	dir := path.Dir(expandDaily(pattern, day))
+	if space != "" {
+		dir = strings.TrimPrefix(dir, space+"/")
+	}
+	return dir
+}
+
 // handleDailyNote opens today's note: it answers with the existing one
 // when the file is there and creates it from the template otherwise. The
 // client sends its local date so "today" is the user's, not the
@@ -252,12 +263,18 @@ func (s *Server) handleDailyNote(w http.ResponseWriter, r *http.Request) {
 		if space != "" {
 			tpl = space + "/" + tpl
 		}
-		if tclean, err := s.Root.Clean(tpl); err == nil && tclean != "" {
-			if tabs, _, err := s.Root.Resolve(tclean); err == nil {
-				if raw, err := os.ReadFile(tabs); err == nil {
-					seed = expandDaily(string(bodyOf(raw)), day)
-				}
-			}
+		if body, ok := s.templateBody(tpl); ok {
+			// The same substitution every template runs, then the
+			// legacy {YYYY}/{MM}/{DD}/{date} tokens the daily note
+			// has always accepted.
+			res := templates.Apply(string(body), templates.Values{
+				Title:  day.Format("2006-01-02"),
+				When:   day,
+				User:   s.ident(r).Username,
+				Space:  space,
+				Folder: folderOfDaily(cfg.Pattern, space, day),
+			})
+			seed = expandDaily(res.Body, day)
 		}
 	}
 	id := scanner.NewID(time.Now())

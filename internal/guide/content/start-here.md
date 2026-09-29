@@ -60,6 +60,8 @@ A word with `#` in front of it is a tag: #guide, for example. Tags are clickable
 
 **Today** opens today's daily note and creates it if it is not there yet. **Capture** takes one line and appends it to today's note without opening it, which is the fastest way to write something down on a phone. Both are on the home screen, in the bottom bar on a phone, and in the command palette.
 
+The `templates/` folder beside this note holds templates: a meeting note and a person note to start with. "New from template" — the palette, a folder's menu, or the home screen — makes a note from one, filling in the date, the folder and anything else the template asks for. Keep a template for anything you write twice.
+
 ## Finding things
 
 - The **search** box in the sidebar searches titles and bodies. On a phone, the search page has its own tab in the bottom bar.

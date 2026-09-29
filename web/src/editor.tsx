@@ -20,6 +20,7 @@ import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
 
 import type { Note } from './api'
 import { livePreview } from './live'
+import { bodyStart, utf16At } from './paths'
 import type { SyncClient } from './sync'
 import { uploadInto } from './upload'
 
@@ -46,6 +47,9 @@ export interface EditorProps {
   autofocus: boolean
   /** Put the caret at the end of the document (a new note, ready to type). */
   atEnd: boolean
+  /** Put the caret this many runes into the body instead (a template's
+   * {{cursor}}); undefined means atEnd decides. */
+  caret?: number
   /** True on a phone: no autocorrect fighting the markdown, larger caret room. */
   phone: boolean
   /** Hide the marks on lines the caret is not on. */
@@ -163,7 +167,7 @@ function hashtags(lookup: () => Completions) {
   }
 }
 
-export function Editor({ sync, note, lookup, readOnly, autofocus, atEnd, phone, live, onToast, onDone, onView }: EditorProps) {
+export function Editor({ sync, note, lookup, readOnly, autofocus, atEnd, caret, phone, live, onToast, onDone, onView }: EditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const look = useRef(lookup)
@@ -256,7 +260,14 @@ export function Editor({ sync, note, lookup, readOnly, autofocus, atEnd, phone, 
     const view = new EditorView({ state, parent: el })
     viewRef.current = view
     onView(view)
-    if (atEnd) {
+    if (caret !== undefined && caret >= 0) {
+      // Where a template's {{cursor}} landed: runes into the body, past
+      // whatever frontmatter the file gained on the way.
+      const doc = view.state.doc.toString()
+      const start = bodyStart(doc)
+      const at = start + utf16At(caret, doc.slice(start))
+      view.dispatch({ selection: { anchor: Math.min(at, doc.length) }, scrollIntoView: true })
+    } else if (atEnd) {
       // A new note opens with the caret after its heading, ready to type.
       const end = view.state.doc.length
       view.dispatch({ selection: { anchor: end }, scrollIntoView: true })

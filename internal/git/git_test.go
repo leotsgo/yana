@@ -157,7 +157,9 @@ func TestNoSnapshotWhenClean(t *testing.T) {
 
 func TestQuietWindowCommitsOnce(t *testing.T) {
 	opts := testOptions()
-	opts.Quiet = 80 * time.Millisecond
+	// A quiet window wide enough that no gap between two pings can read
+	// as one, however slow the runner.
+	opts.Quiet = 300 * time.Millisecond
 	l := git.New(t.TempDir(), opts, nil)
 	ctx := context.Background()
 	if err := l.Ensure(ctx); err != nil {
@@ -165,21 +167,46 @@ func TestQuietWindowCommitsOnce(t *testing.T) {
 	}
 	l.Start()
 	defer l.Close()
-	// A burst of writes with activity pings: one commit once quiet.
+
+	// Poll without failing: before the first commit there is no log to
+	// read yet.
+	count := func() int {
+		out, err := gitOutput(l.Root(), "log", "--format=%an")
+		if err != nil || strings.TrimSpace(out) == "" {
+			return 0
+		}
+		return len(strings.Split(strings.TrimSpace(out), "\n"))
+	}
+
+	// The baseline: a fresh repository (no last commit yet) is committed
+	// on the loop's first pass over whatever is dirty.
+	write(t, l, "home/journal.md", "line\n")
+	l.Notify("home/journal.md")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && count() < 1 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if count() < 1 {
+		t.Fatal("the baseline commit never landed")
+	}
+	// Let the window the baseline opened settle before the burst, so
+	// the two cannot share a commit.
+	time.Sleep(opts.Quiet)
+
+	// A burst of writes with activity pings, back to back: one commit
+	// once quiet. The writes carry no sleeps — a gap between two pings
+	// is a syscall, not a schedule, and the window stays open through
+	// the whole burst.
 	for i := 0; i < 5; i++ {
 		write(t, l, "home/journal.md", "line\n"+strings.Repeat("x", i+1)+"\n")
 		l.Notify("home/journal.md")
-		time.Sleep(15 * time.Millisecond)
 	}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(authors(t, l.Root())) >= 2 { // .gitignore commit + journal commit
-			break
-		}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && count() < 2 {
 		time.Sleep(20 * time.Millisecond)
 	}
 	l.Close()
-	if got := len(authors(t, l.Root())); got != 2 {
+	if got := count(); got != 2 {
 		t.Fatalf("got %d commits for one quiet window, want 2 (baseline + window): %v", got, authors(t, l.Root()))
 	}
 }
@@ -192,18 +219,26 @@ func TestContinuousEditingIsBoundedByInterval(t *testing.T) {
 		t.Fatal(err)
 	}
 	l.Start()
-	// An hour of editing scaled down: writes every 20ms for 600ms with
-	// the quiet window never reached. Only the interval commits.
+	// An hour of editing scaled down: writes every 20ms with the quiet
+	// window never reached. Only the interval commits. A slow runner
+	// stretches the loop, which is fine — one more interval commit per
+	// stretch — so the bound is measured against the time the editing
+	// actually took, not a constant.
+	start := time.Now()
 	for i := 0; i < 30; i++ {
 		write(t, l, "home/busy.md", "edit\n"+strings.Repeat("y", i+1)+"\n")
 		l.Notify("home/busy.md")
 		time.Sleep(20 * time.Millisecond)
 	}
 	l.Close() // shutdown commits what is pending
+	elapsed := time.Since(start)
 	got := len(authors(t, l.Root()))
-	// Baseline + up to three interval commits + the shutdown commit.
-	if got > 5 {
-		t.Fatalf("%d commits for a continuously edited window; the interval bound failed", got)
+	// Baseline plus one commit per interval the editing spanned, plus
+	// the shutdown commit and slack. A commit per edit (the bound
+	// failing) is thirty, far past any of these.
+	allowed := 2 + int(elapsed/opts.Interval) + 2
+	if got > allowed {
+		t.Fatalf("%d commits in %v of editing (allowed %d); the interval bound failed", got, elapsed, allowed)
 	}
 	if got < 2 {
 		t.Fatalf("%d commits; the interval never committed", got)
