@@ -14,6 +14,7 @@
 // strip.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { EditorView } from '@codemirror/view'
 
 import { api, ApiError, baseOf, dirOf, saveBlob, spaceOf, stem } from './api'
 import type { MoveResult, Note, SpaceInfo, SpaceTree, Status, TreeNode } from './api'
@@ -35,9 +36,12 @@ import { NotePage } from './note'
 import * as outbox from './outbox'
 import { NewNotePicker, freeName, noteFile } from './newnote'
 import type { CreateHow, NewNoteSpec } from './newnote'
+import { OperatorInput } from './opsinput'
+import type { CompletionSource } from './opsearch'
+import { noteMatches, parseQuery } from './opsearch'
 import { Palette } from './palette'
 import type { PaletteItem, PaletteSpec } from './palette'
-import { resolveDir } from './paths'
+import { resolveDir, utf16At } from './paths'
 import * as prefs from './prefs'
 import * as pwa from './pwa'
 import { SearchPage, SearchResults } from './search'
@@ -47,6 +51,7 @@ import { SharePage } from './share'
 import { appendToNote, composeShareBlock, today } from './sharelib'
 import { TagPage, TagsIndex } from './tags'
 import { TasksPage } from './tasks'
+import { FromTemplate, spaceOfDir, templatesIn } from './templates'
 import { TrashPage } from './trash'
 import { TAB_DRAG, TabStrip } from './tabstrip'
 import type { TabInfo } from './tabstrip'
@@ -195,12 +200,17 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // The note whose title should be focused: a new one, or one a person
   // double-clicked in the tree. The count makes a repeat on the open note count.
   // Keyed by the tab, so the same note in the other pane is left alone.
-  // A note made with its name already chosen skips the title: named.
-  const [fresh, setFresh] = useState<{ key: string; seq: number; named?: boolean } | null>(null)
+  // A note made with its name already chosen skips the title: named. A
+  // template-made note carries where its {{cursor}} landed.
+  const [fresh, setFresh] = useState<{ key: string; seq: number; named?: boolean; caret?: number } | null>(null)
   const [picker, setPicker] = useState<NewNoteSpec | null>(null) // the new-note picker
+  // The template flow: a note made from a template in a folder, or a
+  // template's body inserted into the editor of one pane.
+  const [tplFlow, setTplFlow] = useState<{ kind: 'new'; dir: string } | { kind: 'insert'; pane: number } | null>(null)
   const [treeEdit, setTreeEdit] = useState<TreeEdit | null>(null) // a folder input open in the tree
   const [themePref, setThemePref] = useState(prefs.theme)
   const [pinList, setPinList] = useState(prefs.pins)
+  const [savedList, setSavedList] = useState(prefs.savedSearches)
   const [rev, setRev] = useState(0) // bumps to reopen the current note after a move
   // A search hit opens with its match scrolled into view, and a task
   // row with its box; the sequence remounts the page so a second one on
@@ -391,6 +401,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         setOpenPref(prefs.openMode())
         setLive(prefs.livePreview())
         setPinList(prefs.pins())
+        setSavedList(prefs.savedSearches())
       }),
     [],
   )
@@ -490,6 +501,16 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const notes = useMemo(() => flatten(spaces ?? []), [spaces])
   const byId = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
   const dirs = useMemo(() => folders(spaces ?? []), [spaces])
+  // What the operator completions offer: the tags, folders and spaces
+  // the tree knows, straight from the last tree load.
+  const searchSource = useMemo<CompletionSource>(
+    () => ({
+      tags: [...new Set(notes.flatMap((n) => n.tags))].sort((a, b) => a.localeCompare(b)),
+      folders: dirs.map((d) => d.path),
+      spaces: (spaces ?? []).map((s) => s.name),
+    }),
+    [notes, dirs, spaces],
+  )
   // A tab whose note the tree no longer has — deleted, trashed, or in a
   // space this account lost — is greyed, and closes when it is picked.
   // Only a tree fresh from the server says so.
@@ -612,15 +633,17 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   // A new note opens in the editor: with its title selected, or, named
   // already, with the caret in the body. In the other pane it takes the
-  // focus; behind the current tab it is only made.
+  // focus; behind the current tab it is only made. A seed (a template's
+  // expanded body) replaces the plain heading, and caret says where in it
+  // the caret lands instead of the end.
   const createNote = useCallback(
-    async (path: string, retryOnTaken = false, how: CreateHow = 'tab', named = false) => {
+    async (path: string, retryOnTaken = false, how: CreateHow = 'tab', named = false, seed?: string, caret?: number) => {
       let p = path.trim().replace(/^\/+/, '')
       if (!/\.(md|markdown|html?)$/i.test(p)) p += '.md'
       const title = baseOf(p).replace(/\.(md|markdown|html?)$/i, '')
-      const seed = /\.html?$/i.test(p) ? `<h1>${escapeHTML(title)}</h1>\n` : `# ${title}\n\n`
+      const body = seed ?? (/\.html?$/i.test(p) ? `<h1>${escapeHTML(title)}</h1>\n` : `# ${title}\n\n`)
       try {
-        const res = await api.createNote(p, seed)
+        const res = await api.createNote(p, body)
         prefs.touchFolder(dirOf(p))
         prefs.setLastFolder(dirOf(p))
         const tab = navigate(res.id, how, { mode: 'edit' })
@@ -628,19 +651,19 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           const at = workspace.find(tab.key)
           if (at) focusPane(at.pane)
         }
-        if (tab && how !== 'background') setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1, named }))
+        if (tab && how !== 'background') setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1, named, caret }))
         void loadTree()
       } catch (err) {
         if (cache.networkDown(err)) {
           // The id comes from the server, so offline the note is queued
           // and created when the server answers again.
-          void outbox.enqueue({ kind: 'create', path: p, content: seed })
+          void outbox.enqueue({ kind: 'create', path: p, content: body })
           say(`Offline. ${p} is created when the connection returns.`)
         } else if (retryOnTaken && err instanceof ApiError && (err.status === 409 || err.status === 400)) {
           // Something on disk the tree has not seen yet holds the name.
           const m = /^(.*?)(?: (\d+))?\.md$/.exec(p)
           const n = m && m[2] ? Number(m[2]) + 1 : 2
-          if (n < 100 && m) void createNote(`${m[1]} ${n}.md`, true, how, named)
+          if (n < 100 && m) void createNote(`${m[1]} ${n}.md`, true, how, named, body, caret)
           else say(err.message)
         } else {
           say(err instanceof ApiError ? err.message : 'Could not create the note.')
@@ -692,6 +715,46 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     }
     const file = force ? freeName(notes, dir, name) : noteFile(name)
     void createNote(`${dir}/${file}`, force, how, true)
+  }
+
+  // --- templates ---------------------------------------------------------
+
+  /** New from template: the picker over the space's templates/ folder,
+   * starting in the folder the note would land in. */
+  function openTemplates(dir?: string): void {
+    setPalette(null)
+    setDrawer(false)
+    setTplFlow({ kind: 'new', dir: dir ?? defaultDir() })
+  }
+
+  /** What the template flow made: a named note in the folder, seeded with
+   * the expanded body, the caret where its {{cursor}} landed. */
+  function applyTemplate(dir: string, name: string, body: string, cursor: number): void {
+    void createNote(`${dir ? dir + '/' : ''}${noteFile(name)}`, true, 'tab', true, body, cursor)
+  }
+
+  /** A template's expanded body into the editor of one pane, at the
+   * caret, which its {{cursor}} places inside the inserted text. The
+   * body starts on a line of its own, wherever the caret was. */
+  function insertTemplate(pane: number, body: string, cursor: number): void {
+    const paneEl = contentRef.current?.querySelectorAll<HTMLElement>(':scope > .pane')[pane]
+    const view = paneEl ? EditorView.findFromDOM(paneEl.querySelector('.cm-editor') ?? paneEl) : null
+    if (!view) {
+      say('Open the editor, then insert the template.')
+      return
+    }
+    const pos = view.state.selection.main.head
+    const line = view.state.doc.lineAt(pos)
+    let text = body
+    let shift = 0
+    if (pos > line.from) {
+      text = '\n\n' + text
+      shift += 2
+    }
+    if (pos < line.to) text += '\n'
+    const at = cursor >= 0 ? pos + shift + utf16At(cursor, body) : pos + text.length
+    view.dispatch({ changes: { from: pos, insert: text }, selection: { anchor: at }, scrollIntoView: true })
+    view.focus()
   }
 
   const openDaily = useCallback(async () => {
@@ -1097,11 +1160,13 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     } else if (target.kind === 'dir') {
       const n = target.node
       const pinned = prefs.isPinned({ kind: 'dir', path: n.path })
+      const templates = templatesIn(notes, spaceOfDir(n.path)).length > 0
       title = n.name + '/'
       subtitle = n.path
       items = [
         { id: 'new', label: 'New note here', icon: 'file-plus', run: () => newNote(n.path) },
         { id: 'folder', label: 'New folder inside', icon: 'folder-plus', run: () => newFolderPrompt(n.path) },
+        ...(templates ? [{ id: 'new-template', label: 'New from template here', icon: 'copy' as const, run: () => openTemplates(n.path) }] : []),
         { id: 'pin', label: pinned ? 'Unpin' : 'Pin to the top', icon: pinned ? 'pin-off' : 'pin', run: () => pinDir(n) },
         { id: 'activity', label: 'Activity here', icon: 'history', run: () => openActivity(spaceOf(n.path), n.path.slice(spaceOf(n.path).length + 1)) },
         { id: 'tasks', label: 'Tasks here', icon: 'check-square', run: () => openTasksPage(spaceOf(n.path), n.path.slice(spaceOf(n.path).length + 1)) },
@@ -1129,6 +1194,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         ...(target.name
           ? [
               { id: 'folder', label: 'New folder', icon: 'folder-plus' as const, run: () => newFolderPrompt(target.name) },
+              ...(templatesIn(notes, target.name).length > 0
+                ? [{ id: 'new-template', label: 'New from template here', icon: 'copy' as const, run: () => openTemplates(target.name) }]
+                : []),
               { id: 'activity', label: 'Activity here', icon: 'history' as const, run: () => openActivity(target.name) },
               { id: 'tasks', label: 'Tasks here', icon: 'check-square' as const, run: () => openTasksPage(target.name) },
             ]
@@ -1374,6 +1442,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   function openSwitcher(): void {
     const recent = new Set(prefs.recents())
+    const byItemId = new Map(notes.map((n) => [n.id, n]))
     const items = notes.map((n) => ({
       id: n.id,
       label: n.title,
@@ -1385,11 +1454,59 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       mode: 'list',
       placeholder: 'Open a note, or type #tag',
       items,
+      operators: searchSource,
+      // Operators the tree can evaluate filter the rows (tag:, path:,
+      // space:, is:untagged, is:html); the rest is fuzzy text as ever.
+      operatorFilter: (q) => {
+        const terms = parseQuery(q)
+        if (!terms.some((t) => t.op)) return null
+        const text = terms.filter((t) => !t.op).map((t) => t.text).join(' ')
+        return {
+          text,
+          keep: (item) => {
+            const n = byItemId.get(item.id)
+            return n !== undefined && noteMatches(terms, n)
+          },
+        }
+      },
       onCreate: (q) => {
         const sp = defaultSpace()
         void createNote(q.includes('/') || !sp ? q : `${sp}/${q}`)
       },
     })
+  }
+
+  // A saved search: the query pinned to the sidebar under a name.
+  function saveSearchPrompt(forQuery: string): void {
+    const q = forQuery.trim()
+    if (!q) return
+    setPalette({
+      mode: 'prompt',
+      placeholder: 'Name this search',
+      initial: '',
+      hint: `Pinned to the sidebar. Runs: ${q}`,
+      onSubmit: (name) => {
+        prefs.saveSearch(name, q)
+        say(`Saved "${name.trim()}" to the sidebar.`)
+      },
+    })
+  }
+
+  function runSavedSearch(q: string): void {
+    setRegex(false)
+    setQuery(q)
+    if (layout === 'phone') {
+      if (location.pathname !== '/search') history.pushState({ tab: null }, '', '/search')
+      setPhoneSearch(true)
+      setDrawer(false)
+    } else {
+      window.setTimeout(() => {
+        const el = searchInput.current
+        if (!el) return
+        el.focus()
+        el.select()
+      }, 0)
+    }
   }
 
   // Exports are downloads the token has to travel with, so they run
@@ -1420,6 +1537,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       ['Tag a note', '#word anywhere in it', 'Tags'],
       ['Write something down fast', 'Capture, into today\'s note', 'Today and capture'],
       ['Find a note again', 'search, the switcher, tags, recents', 'Finding things'],
+      ['Narrow a search', 'tag:, path:, space:, is:, has:, author:, before:, after:', 'Finding things'],
       ['Move a note or make a folder', 'drag in the sidebar, or Move in the menu', 'Folders and moving'],
       ['See what changed, or bring a note back', 'Details, and the trash', 'History'],
       ['Share a space with someone', 'People and Spaces in settings', 'Sharing a space'],
@@ -1468,6 +1586,11 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   function openPalette(): void {
     const items: PaletteItem[] = [
       { id: 'new', label: 'New note', detail: 'choose the folder and the name', hint: label(keys.newNote), run: openNewNote },
+    ]
+    if (templatesIn(notes, spaceOfDir(defaultDir())).length > 0) {
+      items.push({ id: 'new-template', label: 'New from template', detail: `${templatesIn(notes, spaceOfDir(defaultDir())).length} in templates/, variables filled in`, run: () => openTemplates() })
+    }
+    items.push(
       { id: 'capture', label: 'Capture a line', detail: "into today's note, without opening it", hint: label(keys.capture), run: capturePrompt },
       { id: 'daily', label: "Today's note", hint: label(keys.daily), run: () => void openDaily() },
       { id: 'tasks', label: 'Tasks', detail: 'every open box across your spaces', hint: label(keys.tasks), run: () => openTasksPage() },
@@ -1475,7 +1598,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       { id: 'search', label: 'Search notes', hint: label(keys.search), run: focusSearch },
       { id: 'activity', label: 'What changed', detail: 'who changed which notes, when', run: () => openActivity() },
       { id: 'new-folder', label: 'New folder', detail: `in ${defaultDir() || 'the root'}`, run: () => newFolderPrompt(defaultDir()) },
-    ]
+    )
     if (!narrow) {
       items.push({ id: 'sidebar', label: collapsed ? 'Show the sidebar' : 'Hide the sidebar', run: toggleSidebar })
     }
@@ -1742,6 +1865,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   function renderNote(tab: Tab, i: number) {
     const mine = () => paneNotes.current[i] ?? undefined
+    const paneNote = mine()
     return (
       <NotePage
         key={`${tab.key}:${tab.id}:${rev}:${hit?.key === tab.key ? hit.seq : 0}`}
@@ -1765,6 +1889,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         onMenu={setMenu}
         fresh={fresh?.key === tab.key}
         freshNamed={fresh?.key === tab.key && fresh.named === true}
+        freshCaret={fresh?.key === tab.key ? fresh.caret : undefined}
         freshSeq={fresh?.seq ?? 0}
         onDelete={() => deleteNotePrompt(mine())}
         onRename={() => renamePrompt(mine())}
@@ -1782,6 +1907,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         highlight={hit?.key === tab.key ? hit.text : null}
         taskLine={hit?.key === tab.key ? hit.line : null}
         lookup={completions}
+        templates={templatesIn(notes, paneNote ? spaceOf(paneNote.path) : '')}
+        onTemplateInsert={() => setTplFlow({ kind: 'insert', pane: i })}
       />
     )
   }
@@ -1797,6 +1924,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         conflicts={status?.conflicts ?? 0}
         onOpen={navigate}
         onNew={openNewNote}
+        onTemplate={templatesIn(notes, defaultSpace()).length > 0 ? () => openTemplates() : null}
         onCapture={capturePrompt}
         onDaily={() => void openDaily()}
         onTasks={() => openTasksPage()}
@@ -1903,7 +2031,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   if (layout === 'phone' && route.kind === 'search') {
     return (
       <div class={shellClass}>
-        <SearchPage status={status} onOpen={openHit} onClose={() => history.back()} />
+        <SearchPage status={status} source={searchSource} onOpen={openHit} onClose={() => history.back()} onSave={saveSearchPrompt} />
         {toast && <ToastView toast={toast} onClose={() => setToast(null)} />}
       </div>
     )
@@ -1974,18 +2102,15 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         <aside class="sidebar" aria-label="notes" aria-hidden={!sidebarShown}>
           <div class="sidebar-search">
             <Icon name="search" class="sidebar-search-icon" />
-            <input
-              ref={searchInput}
-              type="search"
-              class="search-input"
+            <OperatorInput
+              query={query}
+              onQuery={setQuery}
+              source={searchSource}
               placeholder="Search notes"
-              autocomplete="off"
-              spellcheck={false}
-              aria-label="Search notes"
-              value={query}
+              ariaLabel="Search notes"
+              inputRef={searchInput}
               onFocus={() => { if (layout === 'phone') focusSearch() }}
-              onInput={(ev) => setQuery((ev.target as HTMLInputElement).value)}
-              onKeyDown={(ev) => {
+              onKey={(ev) => {
                 if (ev.key === 'Escape') {
                   setQuery('')
                   ;(ev.target as HTMLInputElement).blur()
@@ -1997,7 +2122,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               class={'regex-btn' + (regex ? ' on' : '')}
               disabled={status ? !status.regex_search : false}
               aria-pressed={regex}
-              title={status && !status.regex_search ? 'Regex search needs ripgrep on the server.' : 'Match a regular expression against the files'}
+              title={status && !status.regex_search ? 'Regex search needs ripgrep on the server.' : 'Match a regular expression against the files; path: and space: narrow it'}
               onClick={() => setRegex((r) => !r)}
             >
               .*
@@ -2005,8 +2130,33 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           </div>
           <div class="sidebar-scroll">
             {searching ? (
-              <SearchResults query={query} regex={regex} onOpen={openHit} />
+              <>
+                {!regex && (
+                  <button type="button" class="search-save" onClick={() => saveSearchPrompt(query)} disabled={prefs.isSearchSaved(query)}>
+                    <Icon name={prefs.isSearchSaved(query) ? 'pin' : 'plus'} size={14} />
+                    {prefs.isSearchSaved(query) ? 'Saved' : 'Save this search'}
+                  </button>
+                )}
+                <SearchResults query={query} regex={regex} onOpen={openHit} />
+              </>
             ) : (
+              <>
+                {savedList.length > 0 && (
+                  <div class="saved-searches" aria-label="saved searches">
+                    <h2 class="section-title">Searches</h2>
+                    {savedList.map((s) => (
+                      <div key={s.name} class="saved-search">
+                        <button type="button" class="saved-search-run" title={s.query} onClick={() => runSavedSearch(s.query)}>
+                          <Icon name="search" size={14} />
+                          <span class="saved-search-name">{s.name}</span>
+                        </button>
+                        <button type="button" class="icon-btn" aria-label={`Remove ${s.name}`} title={`Remove ${s.name}`} onClick={() => prefs.forgetSearch(s.name)}>
+                          <Icon name="x" size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               <nav class="tree" aria-label="tree">
                 {treeError ? (
                   <div class="empty">
@@ -2040,9 +2190,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
                       onEditDone={() => setTreeEdit(null)}
                       onContext={treeContext}
                     />
-                  </>
-                )}
+                   </>
+                 )}
               </nav>
+              </>
             )}
           </div>
           {!searching && (
@@ -2150,6 +2301,26 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         </nav>
       )}
       {palette && <Palette spec={palette} onClose={() => setPalette(null)} />}
+      {tplFlow?.kind === 'new' && (
+        <FromTemplate
+          templates={templatesIn(notes, spaceOfDir(tplFlow.dir))}
+          folder={tplFlow.dir}
+          make
+          onApply={(name, body, cursor) => applyTemplate(tplFlow.dir, name, body, cursor)}
+          onToast={say}
+          onClose={() => setTplFlow(null)}
+        />
+      )}
+      {tplFlow?.kind === 'insert' && (
+        <FromTemplate
+          templates={templatesIn(notes, spaceOf(paneNotes.current[tplFlow.pane]?.path ?? ''))}
+          folder={dirOf(paneNotes.current[tplFlow.pane]?.path ?? '')}
+          make={false}
+          onApply={(_name, body, cursor) => insertTemplate(tplFlow.pane, body, cursor)}
+          onToast={say}
+          onClose={() => setTplFlow(null)}
+        />
+      )}
       {picker && (
         <NewNotePicker
           spec={picker}
@@ -2225,6 +2396,8 @@ interface HomeProps {
   conflicts: number
   onOpen: (id: string, how?: OpenHow) => void
   onNew: () => void
+  /** New from template; null when the default space keeps none. */
+  onTemplate: (() => void) | null
   onCapture: () => void
   onDaily: () => void
   /** The tasks page. */
@@ -2242,7 +2415,7 @@ interface HomeProps {
 // The home page: the three things people come here to do, each with a
 // line saying what it is, then what they pinned and what they opened
 // last. Shortcuts are in the account menu and the palette.
-function Home({ notes, pins, spaces, loading, openTasks, conflicts, onOpen, onNew, onCapture, onDaily, onTasks, onGuide, onActivity, onConflicts, onInstall }: HomeProps) {
+function Home({ notes, pins, spaces, loading, openTasks, conflicts, onOpen, onNew, onTemplate, onCapture, onDaily, onTasks, onGuide, onActivity, onConflicts, onInstall }: HomeProps) {
   const byId = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
   const recent = prefs.recents().map((id) => byId.get(id)).filter((n): n is FlatNote => Boolean(n))
   const pinned = pins
@@ -2270,6 +2443,15 @@ function Home({ notes, pins, spaces, loading, openTasks, conflicts, onOpen, onNe
             <span class="home-action-sub">A blank page; name it and write.</span>
           </span>
         </button>
+        {onTemplate && (
+          <button type="button" class="home-action" onClick={onTemplate}>
+            <Icon name="copy" size={18} />
+            <span class="home-action-text">
+              <span class="home-action-title">From template</span>
+              <span class="home-action-sub">A note from templates/, its variables filled in.</span>
+            </span>
+          </button>
+        )}
         <button type="button" class="home-action" onClick={onCapture}>
           <Icon name="capture" size={18} />
           <span class="home-action-text">

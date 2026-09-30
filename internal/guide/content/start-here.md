@@ -60,10 +60,13 @@ A word with `#` in front of it is a tag: #guide, for example. Tags are clickable
 
 **Today** opens today's daily note and creates it if it is not there yet. **Capture** takes one line and appends it to today's note without opening it, which is the fastest way to write something down on a phone. Both are on the home screen, in the bottom bar on a phone, and in the command palette.
 
+The `templates/` folder beside this note holds templates: a meeting note and a person note to start with. "New from template" — the palette, a folder's menu, or the home screen — makes a note from one, filling in the date, the folder and anything else the template asks for. Keep a template for anything you write twice.
+
 ## Finding things
 
 - The **search** box in the sidebar searches titles and bodies. On a phone, the search page has its own tab in the bottom bar.
-- **Open a note** (the switcher) jumps to a note by name or tag; it lists what you opened recently first.
+- Search takes operators. Put one in front of a word: `tag:home` (or `#home`), `path:folder/`, `space:work`, `is:untagged`, `is:task` (an open task), `is:html`, `has:image`, `has:attachment`, `author:claude` (the last edit), `before:2026-01-01`, `after:2026-01-01`. A `-` in front excludes (`-tag:done`), and quotes make an exact phrase (`"water heater"`). They combine: `tag:home -tag:done "water heater" after:2026-01-01`. Anything else is searched as text. The box suggests tags and folders as you type an operator, and a query worth keeping is saved under a name and pinned under the box.
+- **Open a note** (the switcher) jumps to a note by name or tag; it lists what you opened recently first, and `tag:` and `path:` work in it too.
 - The **command palette** lists everything the app can do. Open it with the keyboard shortcut shown in Help, or from the menu.
 - Recently opened and pinned notes sit on the home screen. Pin a note from its menu to keep it at the top of the sidebar.
 

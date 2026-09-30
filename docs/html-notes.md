@@ -91,11 +91,19 @@ nothing else.
   untrusted: the page must read without them.
 - Do not write `data-wikilink-id` yourself; the server rewrites it.
 
-## Android (Phase 12 hand-off)
+## Android
 
-The Android client renders HTML notes in a WebView pointed at the content
-origin (`/n/{id}?token=…`), with JavaScript enabled and **no JavaScript
-bridge, no file access**. The same CSP headers apply. The app navigates
-the WebView by minting fresh view tokens, the same as the web client.
+The Android client renders HTML notes the same way the web does: a
+sandboxed WebView pointed at the content origin's `/n/{id}?token=…`,
+with JavaScript on and **no bridge back to the app, no file access**,
+and mixed content blocked. The signed URL is the only credential the
+WebView carries; the app mints a fresh one on every open and every
+save, the same as the web client. Navigation holds to the content
+origin — other links go to the system browser, and anything that is
+not an http(s) page goes nowhere. The source edits in a plain text
+screen with explicit saves, last-write-wins, with the conflict copy
+named when the server parks one. When the server cannot be reached the
+source shows as text and the note says the rendered view needs the
+server. Trust appears as a read-only badge and changes on the web.
 Nothing about the WebView may weaken the two layers above; if a feature
 seems to need that, the feature is wrong.

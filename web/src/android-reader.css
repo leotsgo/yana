@@ -1,0 +1,173 @@
+/* The Android reader's stylesheet: the web reader's tokens and rendered
+   markdown styles (web/src/app.css), extracted so the phone reads the
+   way the web does. The app stamps data-theme on the root from its own
+   theme setting; build.mjs bundles this with KaTeX's stylesheet (woff2
+   fonts only) into dist/android/reader.css. */
+
+/* KaTeX's stylesheet comes first (imports must lead): build.mjs inlines
+   it, keeping only the woff2 faces, and writes the fonts beside this. */
+@import "katex/dist/katex.min.css";
+
+/* --- tokens (app.css, verbatim) ---------------------------------------- */
+
+:root {
+  color-scheme: light;
+  --bg: #faf7f2;
+  --bg-2: #f3efe7;
+  --bg-3: #ebe6dc;
+  --ink: #1d1b18;
+  --ink-2: #5b564e;
+  --ink-3: #8d877c;
+  --line: #e2dcd0;
+  --line-2: #d3ccbe;
+  --accent: #b8691e;
+  --accent-ink: #9a5614;
+  --accent-soft: #f6e6d2;
+  --mark: #ffe6b3;
+  --danger: #9a3412;
+  --danger-soft: #f7e5dc;
+  --ok: #3d6b2e;
+
+  --code-kw: #8a3d0f;
+  --code-str: #5f6f2a;
+  --code-fn: #1f4e79;
+  --code-num: #7a4d9a;
+
+  --sans: system-ui, -apple-system, "Segoe UI", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --r-sm: 5px;
+  --r: 8px;
+
+  --page-x: 20px;
+  --measure: 760px;
+  --editor-size: 15.5px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1c1a17;
+  --bg-2: #232019;
+  --bg-3: #2c2821;
+  --ink: #ece7dd;
+  --ink-2: #b4ac9e;
+  --ink-3: #7f786c;
+  --line: #322e27;
+  --line-2: #433e35;
+  --accent: #d9893b;
+  --accent-ink: #e9a35e;
+  --accent-soft: #3a2914;
+  --mark: #5a4415;
+  --danger: #e0805e;
+  --danger-soft: #3d2118;
+  --ok: #8fbf7a;
+  --code-kw: #e08f5a;
+  --code-str: #a9c26a;
+  --code-fn: #82b1e0;
+  --code-num: #c39be0;
+}
+
+/* --- the page ----------------------------------------------------------- */
+
+* { box-sizing: border-box; }
+html { height: 100%; }
+body {
+  margin: 0;
+  font: 14px/1.5 var(--sans);
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+a { color: var(--accent-ink); text-decoration: none; }
+a:active { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--accent-soft); }
+
+.reader { max-width: var(--measure); margin: 0 auto; padding: 14px var(--page-x) 30vh; }
+.reader > :first-child { margin-top: 0; }
+
+/* --- rendered markdown (app.css, verbatim) ------------------------------ */
+
+.markdown { font-size: var(--editor-size); line-height: 1.62; max-width: var(--measure); overflow-wrap: break-word; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { line-height: 1.25; margin: 1.4em 0 0.5em; }
+.markdown h1 { font-size: 26px; margin-top: 0; }
+.markdown h2 { font-size: 20px; }
+.markdown h3 { font-size: 16.5px; }
+.markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown table, .markdown pre { margin: 0 0 0.9em; }
+.markdown blockquote { margin-left: 0; padding: 2px 14px; border-left: 3px solid var(--accent); color: var(--ink-2); }
+.markdown code { font: 0.9em var(--mono); background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
+.markdown pre { background: var(--bg-3); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px 12px; overflow-x: auto; font-size: 13px; line-height: 1.45; }
+.markdown pre code { background: none; padding: 0; font-size: inherit; }
+.markdown table { border-collapse: collapse; font-size: 14px; display: block; max-width: 100%; overflow-x: auto; }
+.markdown th, .markdown td { border: 1px solid var(--line-2); padding: 5px 9px; text-align: left; }
+.markdown th { background: var(--bg-3); }
+.markdown img { max-width: 100%; height: auto; border-radius: var(--r-sm); }
+.markdown hr { border: 0; border-top: 1px solid var(--line-2); margin: 1.5em 0; }
+.markdown input[type="checkbox"] {
+  width: 16px; height: 16px; margin: 0 7px 0 0; vertical-align: -3px; accent-color: var(--accent);
+}
+.markdown input[type="checkbox"]:not(:disabled) { cursor: pointer; }
+.markdown li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.35em; }
+.markdown li:has(> input[type="checkbox"]:checked) { color: var(--ink-3); }
+.markdown .footnotes { font-size: 13px; color: var(--ink-2); }
+
+/* Callouts (app.css, verbatim). */
+.callout {
+  --callout: var(--ink-2); --callout-soft: var(--bg-3);
+  margin: 0 0 0.9em; padding: 10px 14px 4px; border-radius: var(--r);
+  background: var(--callout-soft); border-left: 3px solid var(--callout);
+}
+.callout-note { --callout: var(--accent); --callout-soft: var(--accent-soft); }
+.callout-info { --callout: #2f6f9f; --callout-soft: #e3eef7; }
+.callout-tip { --callout: var(--ok); --callout-soft: #e6efdf; }
+.callout-question { --callout: #6b4fa0; --callout-soft: #ece6f6; }
+.callout-warning { --callout: #a86a12; --callout-soft: #f8ecd4; }
+.callout-danger { --callout: var(--danger); --callout-soft: var(--danger-soft); }
+:root[data-theme="dark"] .callout-info { --callout: #7fb3dd; --callout-soft: #1f2e3b; }
+:root[data-theme="dark"] .callout-tip { --callout-soft: #26311f; }
+:root[data-theme="dark"] .callout-question { --callout: #b39ddb; --callout-soft: #2d2540; }
+:root[data-theme="dark"] .callout-warning { --callout: #d9a13b; --callout-soft: #3a2d12; }
+.callout-title {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 6px;
+  font-weight: 600; color: var(--callout);
+}
+summary.callout-title { cursor: pointer; list-style: none; }
+summary.callout-title::-webkit-details-marker { display: none; }
+summary.callout-title::after {
+  content: ""; margin-left: auto; width: 7px; height: 7px;
+  border-right: 1.75px solid currentColor; border-bottom: 1.75px solid currentColor;
+  transform: rotate(-45deg); transition: transform 120ms;
+}
+details[open] > summary.callout-title::after { transform: rotate(45deg); }
+details.callout:not([open]) { padding-bottom: 4px; }
+details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
+.callout-icon { flex: none; }
+.callout-body > :last-child { margin-bottom: 0.6em; }
+.callout-body > p:first-child { margin-top: 0; }
+
+/* Diagrams and math (app.css, verbatim). */
+.markdown .mermaid-figure { margin: 0 0 0.9em; overflow-x: auto; }
+.markdown .mermaid-figure > svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.markdown .mermaid-error { border: 1px solid var(--danger); border-radius: var(--r-sm); padding: 8px 12px; }
+.markdown .mermaid-error .mermaid-message { margin: 0 0 6px; font-size: 13px; color: var(--danger); }
+.markdown .mermaid-error pre { margin: 0; border: 0; background: none; padding: 0; }
+.markdown .math-display { margin: 0 0 0.9em; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+.markdown .math:not(.math-done) { font-family: var(--mono); font-size: 0.9em; color: var(--ink-2); }
+.markdown .math-display:not(.math-done) { white-space: pre-wrap; }
+.markdown .katex-display { margin: 0; }
+
+/* Links the reader wires (app.css, verbatim). */
+.wikilink { color: var(--accent-ink); border-bottom: 1px dashed var(--accent); cursor: default; }
+.wikilink.resolved { border-bottom: none; cursor: pointer; }
+.wikilink.unresolved { color: var(--ink-3); border-bottom: 1px dashed var(--ink-3); cursor: pointer; }
+.wikilink.unresolved:active { color: var(--accent-ink); border-bottom-color: var(--accent); }
+.markdown a.tag { font-family: var(--mono); font-size: 0.92em; padding: 0 2px; border-radius: 3px; cursor: pointer; }
+.markdown a.tag:active { background: var(--accent-soft); }
+
+/* Code highlighting (chroma classes, app.css verbatim). */
+.chroma .k, .chroma .kd, .chroma .kn, .chroma .kr, .chroma .kt { color: var(--code-kw); }
+.chroma .s, .chroma .s1, .chroma .s2, .chroma .sb { color: var(--code-str); }
+.chroma .c, .chroma .c1, .chroma .cm { color: var(--ink-3); font-style: italic; }
+.chroma .nf, .chroma .nx { color: var(--code-fn); }
+.chroma .m, .chroma .mi, .chroma .mf { color: var(--code-num); }

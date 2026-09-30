@@ -153,6 +153,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PATCH /api/spaces/{space}", s.authed(s.handleSpaceUpdate))
 	s.mux.HandleFunc("DELETE /api/spaces/{space}", s.authed(s.handleSpaceDelete))
 	s.mux.HandleFunc("GET /api/tree", s.authed(s.handleTree))
+	s.mux.HandleFunc("GET /api/notes", s.authed(s.handleNotesList))
 	s.mux.HandleFunc("GET /api/tasks", s.authed(s.handleTasksGet))
 	s.mux.HandleFunc("PATCH /api/tasks", s.authed(s.handleTaskTick))
 	s.mux.HandleFunc("GET /api/tags", s.authed(s.handleTags))
@@ -163,12 +164,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/notes/{id}", s.authed(s.handleNote))
 	s.mux.HandleFunc("GET /api/notes/{id}/conflicts", s.authed(s.handleNoteConflicts))
 	s.mux.HandleFunc("GET /api/search", s.authed(s.handleSearch))
+	s.mux.HandleFunc("GET /api/search/regex", s.authed(s.handleRegexSearch))
 	s.mux.HandleFunc("GET /api/files/{path...}", s.authed(s.handleFile))
 	s.mux.HandleFunc("PUT /api/files/{path...}", s.authed(s.handleFileUpload))
 	s.mux.HandleFunc("DELETE /api/files/{path...}", s.authed(s.handleAssetTrash))
 	s.mux.HandleFunc("GET /api/attachments/{path...}", s.authed(s.handleAttachmentGet))
 	s.mux.HandleFunc("GET /api/assets/orphans", s.authed(s.handleAssetOrphans))
 	s.mux.HandleFunc("POST /api/notes/daily", s.authed(s.handleDailyNote))
+	s.mux.HandleFunc("POST /api/templates/{id}/expand", s.authed(s.handleTemplateExpand))
 	s.mux.HandleFunc("POST /api/guide", s.authed(s.handleGuide))
 	s.mux.HandleFunc("POST /api/render", s.authed(s.handleRender))
 	s.mux.HandleFunc("GET /api/notes/{id}/backlinks", s.authed(s.handleBacklinks))
@@ -543,30 +546,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	// Search never crosses a space boundary the caller cannot see: the
 	// result set is restricted to the caller's member spaces (or the
 	// one requested space, after a membership check).
-	var allowed []string
-	if s.open() {
-		allowed = nil // unrestricted
-	} else {
-		if space != "" {
-			if _, ok := s.spaceAuthz(w, r, space); !ok {
-				return
-			}
-			allowed = []string{space}
-		} else {
-			member, isAll, err := s.Auth.MemberSpaces(r.Context(), s.ident(r))
-			if err != nil {
-				s.fail(w, r, err)
-				return
-			}
-			if isAll {
-				allowed = nil
-			} else {
-				allowed = member
-				if len(allowed) == 0 {
-					allowed = []string{""} // matches nothing
-				}
-			}
-		}
+	allowed, ok := s.searchAllowed(w, r, space)
+	if !ok {
+		return
 	}
 	limit := 50
 	if v := q.Get("limit"); v != "" {
@@ -578,41 +560,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 	if raw := q.Get("raw"); raw != "" {
-		if len(raw) > 512 {
-			writeError(w, http.StatusBadRequest, "regex is longer than 512 characters")
-			return
-		}
-		matches, err := s.Ripgrep.SearchSpaces(r.Context(), raw, space, allowed, limit)
-		switch {
-		case errors.Is(err, search.ErrUnavailable):
-			writeError(w, http.StatusNotImplemented, err.Error())
-			return
-		case errors.Is(err, search.ErrBadPattern):
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		case errors.Is(err, context.DeadlineExceeded):
-			writeError(w, http.StatusGatewayTimeout, "regex search took too long and was stopped")
-			return
-		case err != nil:
-			s.fail(w, r, err)
-			return
-		}
-		type regexHit struct {
-			search.RegexMatch
-			ID    string `json:"id,omitempty"`
-			Title string `json:"title,omitempty"`
-		}
-		hits := make([]regexHit, 0, len(matches))
-		for _, m := range matches {
-			// The search itself already ran inside the allowed space
-			// directories; enrichment only adds ids and titles.
-			h := regexHit{RegexMatch: m}
-			if n, err := s.DB.GetNoteByPath(r.Context(), m.Path); err == nil {
-				h.ID, h.Title = n.ID, n.Title
-			}
-			hits = append(hits, h)
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"mode": "regex", "hits": hits})
+		s.serveRegex(w, r, space, allowed, raw, limit, false)
 		return
 	}
 	query := strings.TrimSpace(q.Get("q"))
@@ -624,7 +572,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "query is longer than 512 characters")
 		return
 	}
-	hits, err := s.DB.Search(r.Context(), query, space, allowed, limit)
+	parsed := search.Parse(query)
+	hits, err := s.DB.SearchQuery(r.Context(), parsed, space, allowed, limit)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -634,33 +583,217 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	// Attachments answer too, as their own result kind: a phrase inside a
 	// PDF, or the file's name, with the notes that reference the file.
+	// Operators cannot match a PDF, so only the free text runs here.
 	resp := map[string]any{"mode": "fts", "hits": hits, "attachments": []map[string]any{}}
-	if atts, err := s.DB.SearchAttachments(r.Context(), query, allowed, limit); err == nil {
-		out := make([]map[string]any, 0, len(atts))
-		for _, a := range atts {
-			row := map[string]any{
-				"path": a.RelPath, "name": a.Name, "snippet": a.Snippet, "rank": a.Rank,
+	if free := index.FreeText(parsed); free != "" {
+		if atts, err := s.DB.SearchAttachments(r.Context(), free, allowed, limit); err == nil {
+			out := make([]map[string]any, 0, len(atts))
+			for _, a := range atts {
+				row := map[string]any{
+					"path": a.RelPath, "name": a.Name, "snippet": a.Snippet, "rank": a.Rank,
+				}
+				if a.Pages != nil {
+					row["pages"] = *a.Pages
+				}
+				tail := "_assets/" + a.Name
+				if i := strings.LastIndex(a.RelPath, "_assets/"); i >= 0 {
+					tail = a.RelPath[i:]
+				}
+				refs, err := s.DB.NotesReferencing(r.Context(), tail, allowed, 5)
+				if err != nil {
+					refs = nil
+				}
+				if refs == nil {
+					refs = []index.Note{}
+				}
+				row["refs"] = refs
+				out = append(out, row)
 			}
-			if a.Pages != nil {
-				row["pages"] = *a.Pages
-			}
-			tail := "_assets/" + a.Name
-			if i := strings.LastIndex(a.RelPath, "_assets/"); i >= 0 {
-				tail = a.RelPath[i:]
-			}
-			refs, err := s.DB.NotesReferencing(r.Context(), tail, allowed, 5)
-			if err != nil {
-				refs = nil
-			}
-			if refs == nil {
-				refs = []index.Note{}
-			}
-			row["refs"] = refs
-			out = append(out, row)
+			resp["attachments"] = out
 		}
-		resp["attachments"] = out
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleRegexSearch is the regex search with operators: path: and space:
+// terms narrow where the pattern runs, everything else is the pattern.
+func (s *Server) handleRegexSearch(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	space, ok := s.spaceParam(w, r)
+	if !ok {
+		return
+	}
+	allowed, ok := s.searchAllowed(w, r, space)
+	if !ok {
+		return
+	}
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			writeError(w, http.StatusBadRequest, "limit must be a number from 1 to 200")
+			return
+		}
+		limit = n
+	}
+	raw := q.Get("raw")
+	if raw == "" {
+		raw = q.Get("q")
+	}
+	if strings.TrimSpace(raw) == "" {
+		writeError(w, http.StatusBadRequest, "raw (the regular expression) is required")
+		return
+	}
+	s.serveRegex(w, r, space, allowed, raw, limit, true)
+}
+
+// searchAllowed computes the spaces a search may cover: nil for the
+// whole tree, otherwise the caller's member spaces (or just the one
+// requested space, after a membership check).
+func (s *Server) searchAllowed(w http.ResponseWriter, r *http.Request, space string) ([]string, bool) {
+	if s.open() {
+		return nil, true
+	}
+	if space != "" {
+		if _, ok := s.spaceAuthz(w, r, space); !ok {
+			return nil, false
+		}
+		return []string{space}, true
+	}
+	member, isAll, err := s.Auth.MemberSpaces(r.Context(), s.ident(r))
+	if err != nil {
+		s.fail(w, r, err)
+		return nil, false
+	}
+	if isAll {
+		return nil, true
+	}
+	if len(member) == 0 {
+		member = []string{""} // matches nothing
+	}
+	return member, true
+}
+
+// serveRegex runs one ripgrep search and writes the response. withOps
+// says path: and space: terms are operators to extract; without it the
+// whole raw string is the pattern (the q&raw form on /api/search).
+func (s *Server) serveRegex(w http.ResponseWriter, r *http.Request, space string, allowed []string, raw string, limit int, withOps bool) {
+	if len(raw) > 512 {
+		writeError(w, http.StatusBadRequest, "regex is longer than 512 characters")
+		return
+	}
+	rgSpace := space
+	var paths []string
+	if withOps {
+		var pattern []string
+		spaces := map[string]bool{}
+		if space != "" {
+			spaces[space] = true
+		}
+		for _, t := range search.Parse(raw).Terms {
+			switch {
+			case t.Op == search.OpSpace && !t.Negated:
+				clean, err := s.Root.Clean(t.Value)
+				if err != nil || clean == "" || strings.Contains(clean, "/") {
+					writeError(w, http.StatusBadRequest, "space must be a single directory name")
+					return
+				}
+				if _, ok := s.spaceAuthz(w, r, clean); !ok {
+					return
+				}
+				spaces[clean] = true
+			case t.Op == search.OpPath && !t.Negated:
+				clean, err := s.Root.Clean(strings.Trim(t.Value, "/"))
+				if err != nil || clean == "" || clean == "." || clean == "/" {
+					writeError(w, http.StatusBadRequest, "path must be a folder in the tree")
+					return
+				}
+				// A path outside the caller's reach reads as missing,
+				// the same as a space they do not belong to.
+				if allowed != nil && !containsSpace(allowed, spaceOfRel(clean)) {
+					writeError(w, http.StatusNotFound, "no such path")
+					return
+				}
+				if len(spaces) > 0 && !spaces[spaceOfRel(clean)] {
+					// Both a space and a path were asked for; the path
+					// wins nothing if it is outside the space.
+					writeError(w, http.StatusNotFound, "no such path")
+					return
+				}
+				paths = append(paths, clean)
+			default:
+				pattern = append(pattern, t.Raw)
+			}
+		}
+		raw = strings.Join(pattern, " ")
+		if strings.TrimSpace(raw) == "" {
+			writeError(w, http.StatusBadRequest, "the pattern is empty once the path: and space: terms are removed")
+			return
+		}
+		// Several space: terms (or space plus ?space=) all run.
+		if len(spaces) == 1 {
+			for name := range spaces {
+				rgSpace = name
+			}
+		} else if len(spaces) > 1 {
+			names := make([]string, 0, len(spaces))
+			for name := range spaces {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				paths = append(paths, name)
+			}
+			rgSpace = ""
+		}
+	}
+	matches, err := s.Ripgrep.SearchSpacesPaths(r.Context(), raw, rgSpace, paths, allowed, limit)
+	switch {
+	case errors.Is(err, search.ErrUnavailable):
+		writeError(w, http.StatusNotImplemented, err.Error())
+		return
+	case errors.Is(err, search.ErrBadPattern):
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	case errors.Is(err, context.DeadlineExceeded):
+		writeError(w, http.StatusGatewayTimeout, "regex search took too long and was stopped")
+		return
+	case err != nil:
+		s.fail(w, r, err)
+		return
+	}
+	type regexHit struct {
+		search.RegexMatch
+		ID    string `json:"id,omitempty"`
+		Title string `json:"title,omitempty"`
+	}
+	hits := make([]regexHit, 0, len(matches))
+	for _, m := range matches {
+		// The search itself already ran inside the allowed space
+		// directories; enrichment only adds ids and titles.
+		h := regexHit{RegexMatch: m}
+		if n, err := s.DB.GetNoteByPath(r.Context(), m.Path); err == nil {
+			h.ID, h.Title = n.ID, n.Title
+		}
+		hits = append(hits, h)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"mode": "regex", "hits": hits})
+}
+
+func spaceOfRel(rel string) string {
+	if i := strings.IndexByte(rel, '/'); i >= 0 {
+		return rel[:i]
+	}
+	return rel
+}
+
+func containsSpace(list []string, space string) bool {
+	for _, s := range list {
+		if s == space {
+			return true
+		}
+	}
+	return false
 }
 
 // handleFile serves files from _assets directories so rendered notes can

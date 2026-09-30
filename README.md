@@ -58,10 +58,12 @@ reconnect, with no conflict dialog.
 
 **Capture.** New note starts in the folder you are looking at: type a
 name and press Enter, or Tab into another folder first, the way a shell
-completes a path. **Today** opens the daily note, made from a
-template if you keep one. **Capture** appends one line to today's note
-without opening it — from the home screen, the phone's bottom bar, or the
-share sheet.
+completes a path. A note in a space's `templates/` folder is a template:
+pick it and the variables — the date, the folder, a question you are
+asked once — fill in where they stand. **Today** opens the daily note,
+made from a template if you keep one. **Capture** appends one line to
+today's note without opening it — from the home screen, the phone's
+bottom bar, or the share sheet.
 
 **On a phone.** Install it from the browser and it is a home-screen app
 that works offline: the tree, recent notes, and every note you have
@@ -71,9 +73,13 @@ sits above the keyboard.
 
 ![Three phone screens: the home screen with New note, Capture and Today; a note being read with its task boxes; the same note in the editor with the formatting bar above the keyboard](images/screenshots/phone.png)
 
-**Finding things.** Full-text search over titles and bodies, regex search
+**Finding things.** Full-text search over titles and bodies with
+operators — `tag:`, `path:`, `space:`, `is:untagged`, `is:task`,
+`is:html`, `has:image`, `has:attachment`, `author:`, `before:`, `after:`,
+a `-` to exclude and quotes for a phrase — plus regex search
 over the files (with ripgrep), a switcher that opens a note by name or
-tag, recents and pins on the home screen, and a command palette that
+tag, recents and pins on the home screen, saved searches pinned to the
+sidebar, and a command palette that
 lists everything the app can do. A PDF dropped into a note is searched
 too — its text, extracted in the background, turns up alongside notes.
 
@@ -256,6 +262,8 @@ make build      # embed it and build ./yana
 make test       # go test ./... and the web typecheck
 make lint       # gofmt and go vet
 make docker     # build the image locally
+make android-crdt  # build the Android CRDT AAR into android/crdt/libs
+cd android && ./gradlew build  # the Android app: lint, unit tests, APKs
 ```
 
 One Go binary with the web client embedded. `cmd/yana` is the entry
@@ -263,8 +271,10 @@ point; `internal/` holds the server (`pathsafe` is the only way a string
 becomes a filesystem path, `reconcile` keeps documents, files and the
 index in step, `rt` is the realtime relay, `mcp` the agent endpoint,
 `git` the history layer, `guide` the starter notes); `web/` is the Preact
-and CodeMirror client; `spike/crdt/` is the CRDT evaluation harness the
-design started from.
+and CodeMirror client; `mobile/crdt` is the bind package behind the
+Android client's CRDT engine ([mobile/crdt/README.md](mobile/crdt/README.md));
+`android/` is the Android app ([android/README.md](android/README.md));
+`spike/crdt/` is the CRDT evaluation harness the design started from.
 
 The reconciliation tests include a 60 second oscillation check and a
 process-kill check; the relay tests include a server-restart convergence
@@ -274,14 +284,18 @@ in `spike/crdt/js`; without them those tests skip.
 
 Work happens on short-lived branches off `main`, with Conventional Commit
 messages and a pull request per change. CI runs gofmt, vet, build, tests,
-the web typecheck, and a container smoke test on every pull request;
-merges to `main` publish the image.
+the web typecheck, and a container smoke test on every pull request,
+plus the Android build when `android/` changes; merges to `main`
+publish the image.
 
 ## Roadmap
 
 Planned next, roughly in order: importers for markdown vaults and Notion
-exports; search operators; templates with variables; vim keys; and an
-Android app.
+exports; vim keys; and the rest of the
+Android app. It signs in, browses, renders HTML notes, edits through
+the realtime document, and captures from the share sheet, two tiles,
+a widget, and Today and Capture on the home screen — offline first,
+syncing when it can.
 
 ## License
 

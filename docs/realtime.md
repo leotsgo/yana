@@ -79,7 +79,12 @@ and clients resume from their state vectors.
 
 The server also pings each connection every `YANA_WS_PING_INTERVAL`; browsers
 answer protocol pings automatically and send an application `ping` when idle
-to keep intermediaries from dropping the socket.
+to keep intermediaries from dropping the socket. The Android client uses the
+same application `ping` as its outbox's confirmation: frames are read in
+order, so a `pong` proves the server applied every `upd` sent before the
+ping, and the device drops its queued updates then and only then
+(`android/app/.../data/rt/`, with the state and outbox in the replica
+database).
 
 ## Limits
 

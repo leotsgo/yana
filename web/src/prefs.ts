@@ -506,3 +506,49 @@ export function touchQuery(q: string): void {
 export function forgetQuery(q: string): void {
   write('queries', JSON.stringify(recentQueries().filter((x) => x !== q)))
 }
+
+// --- saved searches ---------------------------------------------------------
+
+/** A search kept under a name, pinned to the sidebar. A preference of
+ * this browser, like pins: the tree holds notes and folders, nothing
+ * else. */
+export interface SavedSearch {
+  name: string
+  query: string
+}
+
+const SAVED_MAX = 20
+
+export function savedSearches(): SavedSearch[] {
+  const raw = read('searches.saved')
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw) as unknown
+    if (!Array.isArray(v)) return []
+    return v.filter(
+      (x): x is SavedSearch =>
+        typeof x === 'object' && x !== null && typeof (x as SavedSearch).name === 'string' && typeof (x as SavedSearch).query === 'string',
+    )
+  } catch {
+    return []
+  }
+}
+
+/** Saves a query under a name; the same name is overwritten. */
+export function saveSearch(name: string, query: string): void {
+  const n = name.trim().slice(0, 60)
+  const q = query.trim()
+  if (!n || !q) return
+  const rest = savedSearches().filter((s) => s.name !== n)
+  write('searches.saved', JSON.stringify([{ name: n, query: q }, ...rest].slice(0, SAVED_MAX)))
+}
+
+export function forgetSearch(name: string): void {
+  write('searches.saved', JSON.stringify(savedSearches().filter((s) => s.name !== name)))
+}
+
+/** Whether this exact query is already saved under a name. */
+export function isSearchSaved(query: string): boolean {
+  const q = query.trim()
+  return q !== '' && savedSearches().some((s) => s.query === q)
+}

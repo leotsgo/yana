@@ -2,6 +2,156 @@
 
 ## Unreleased
 
+- Templates with variables (Phase 26). Any note in a space's
+  `templates/` folder is now a template, the way the daily note's
+  always was: its frontmatter is dropped on use and the new note gets
+  an id of its own, while the folder stays a normal folder — templates
+  are edited like notes, they sync and export with everything else.
+  Bodies (and file names) may carry `{{title}}`, `{{date}}`,
+  `{{date:YYYY-MM-DD}}`, `{{time}}`, `{{user}}`, `{{space}}`,
+  `{{folder}}`, `{{cursor}}` (where the caret lands) and
+  `{{prompt:Label}}`, which asks once per distinct label in a small,
+  phone-friendly form when the note is made. Unknown variables are left
+  as written and fenced code blocks are untouched, so a template can
+  document its own variables. Substitution is one pure function in
+  `internal/templates`, table-tested, that the daily note now runs
+  through too (its legacy `{YYYY}`-style tokens keep working);
+  `POST /api/templates/{id}/expand` answers with the body, the prompts,
+  the caret position and the title the template's own name suggests.
+  "New from template" sits in the command palette, in the tree's folder
+  menu (a sheet from the bottom on a phone), and on the home screen,
+  and "Insert from template" in the editor's overflow puts the expanded
+  body into an open note at the caret. The starter space now ships a
+  meeting template and a person template so the folder is there from
+  the first run. Android follows in a later phase.
+
+- Android editing affordances (Phase 12n). A markdown note reads by
+  default; Edit opens the editor with the scroll carried over from the
+  reading and Done returns to the rendered note about where the
+  editing left it, and a new note opens straight in the editor with
+  the caret at the end. Above the keyboard sits the web's phone
+  formatting bar — bold, italic, heading, list, task, quote, code,
+  link, image, tag, undo, redo — where every button is the same edit
+  the web's button makes over the same selection, committed as one
+  document operation and one undo step through a new multi-hunk
+  transaction in the CRDT bind package. Typing `[[` offers the notes
+  of the space in the switcher's order (a pick finishes the link and
+  leaves the caret inside for a `|alias`), `#` offers the tags in
+  use, and the title in the app bar renames the note the way the
+  web's title does — the heading follows through the document and the
+  file moves with its links rewritten, online now or on the next sync
+  when offline. "New from template" is not yet available on Android;
+  it arrives with the Android phases that follow Phase 26.
+
+- Android images (Phase 12h). The editor grows an image action — the
+  photo picker or the camera — that uploads through the same
+  `PUT /api/files` the web editor uses into the note's sibling
+  `_assets/` directory and inserts `![alt](_assets/name)` at the
+  cursor as one document operation, with a placeholder marker while
+  the upload runs. Names follow the web client's convention exactly
+  (the same sanitization, the same stamped `photo-` fallback), a
+  photo longer than 2048 pixels on its longest edge is downscaled to
+  it and re-encoded as JPEG 90 with its EXIF rotation applied, and
+  anything smaller goes up untouched. Offline the link is written
+  immediately and the upload joins `pending_ops` with its bytes
+  staged on disk, replaying on the next sync; a replay that lands
+  under another name fixes the note's link through the document. The
+  reading view shows a placeholder naming photos whose upload still
+  waits and re-renders when they land. The share target accepts
+  `ACTION_SEND`/`ACTION_SEND_MULTIPLE` images into a new or existing
+  note through the same path, uploading first when the network is
+  there so the links carry the names the server chose.
+
+- Android capture speed (Phase 12f). Every fast entry point — the share
+  target, two quick-settings tiles, a Glance home-screen widget,
+  launcher shortcuts, and Today and Capture on the home screen — makes
+  its note in the offline replica first and lets sync carry it to the
+  server later, so nothing waits on the network. A note composed
+  offline is born with a client-minted ULID (kept on create by sending
+  it in the frontmatter, which the server's EnsureID preserves), a
+  default path in a per-space inbox folder (`inbox/`, configurable in
+  settings beside the daily-note space), and an empty CRDT document
+  seeded locally so the editor opens instantly; the create replays
+  empty and the typed text rides the document's outbox, which avoids
+  the doubled seed text a content-carrying create would converge into.
+  Today opens or makes the daily note (`POST /api/notes/daily` online,
+  the cached pattern's path offline); Capture appends one line to
+  today's note without opening it. The share target
+  (`ACTION_SEND`, text and URLs) offers a new note in the inbox or an
+  append to a note picked from recents plus replica search, and the
+  append path is exported as a reusable intent
+  (`com.collinpendleton.yana.APPEND`, note id plus text, a timestamped
+  line) for automation apps. The tiles show over the lock screen, so
+  tile → typing needs no unlock; the note stays in the replica until
+  the network parts can run. A sync keeps notes whose offline create is
+  still queued (their server row has not arrived yet), and the replica
+  drop-missing computation no longer walks NOT IN batches, which
+  deleted every note past the first 500 of a large account. Debug
+  builds log each entry point's intent-to-editable-frame time under
+  `CapturePerf`.
+
+- The Android app's offline replica. A Room database under `android/`
+  mirrors the server's cache tables — spaces, notes, tags, note bodies,
+  the flattened folder tree, and a `pending_ops` queue for offline
+  create, append and move actions that replay on the next sync.
+  Metadata syncs on launch, on pull-to-refresh, and from a six-hourly
+  WorkManager job; a note's text is cached as it is opened; the
+  replica is wiped when the account or server changes or on sign-out.
+  The tree, note list, note reading, and search all work in airplane
+  mode. Search answers from an FTS5 trigram index declared with the
+  server's own DDL over the bundled SQLite driver, and the query
+  grammar and search SQL are line-for-line ports of the server's, so
+  the same query returns the same ordered results offline and online —
+  pinned by an instrumented test over a 200-note fixture corpus whose
+  expectations are the server engine's own output, regenerated and
+  verified by a Go test. Screens go through a `NoteRepository` instead
+  of Room or REST, and a search screen joins the shell.
+  `GET /api/notes` lists the visible notes flat with metadata and tags;
+  it is what the replica syncs from. See
+  docs/android-offline-search.md for the match semantics and the
+  recorded divergences (author:, is:task and has: are server-only
+  offline; markdown appends wait for the editor's CRDT transport).
+
+- HTML notes render on Android, under `android/`: a sandboxed WebView
+  on the content origin with the same boundary the web's iframe has —
+  JavaScript on, no bridge to the app, no file access, mixed content
+  blocked, and navigation held to the content origin with other links
+  handed to the system browser. The signed view URL is the only
+  credential the WebView carries; the app mints a fresh one on every
+  open and every save. The source edits in a plain text screen with
+  explicit last-write-wins saves that name the conflict copy the server
+  parks, and trust shows as a read-only badge that changes on the web.
+  Offline, the source shows as text and the note says the rendered view
+  needs the server. An instrumented test runs a hostile note on a
+  device: its script cannot fetch the API, read the app origin's
+  cookies, or navigate the WebView away, and a trusted note's canvas
+  animation runs.
+
+- The Android app's first build, under `android/`: Kotlin, Compose and
+  Material 3 in the Identity palette and type, light and dark, with a
+  launcher icon cut from the wordmark's slash. It connects to a server
+  by address, creates the owner account when the server has none, and
+  signs in with a password; the token pair lives in
+  EncryptedSharedPreferences and refreshes silently, across restarts.
+  The session carries the device's name, so it shows on the web's
+  Account page, and revoking it there signs the phone out on its next
+  request. It browses spaces, each space's folder tree, and notes
+  (read-only for now), and settings holds sign-out, the theme, and the
+  about page. CI builds, lints and unit-tests it on every pull request
+  that touches `android/` and attaches the debug APK.
+
+- The Android CRDT engine. `mobile/crdt` is the bind package over the
+  Go Yjs port: create, edit, and diff-apply a note's body; apply and
+  encode updates; snapshot and compact; an undo manager scoped to the
+  device's own edits, so one person's undo never reverts another's; and
+  an update observer that hands Kotlin one incremental update per
+  committed transaction, in UTF-16 offsets that map straight onto
+  text-field indices. `make android-crdt` builds the AAR into
+  `android/crdt/libs` with gomobile, the NDK, and the API floor pinned,
+  and CI builds and attaches it on every pull request that touches
+  `mobile/`. The Go tests converge with the browser reference
+  implementation on shared fixtures.
+
 - Conflict copies, surfaced and resolved. The scanner marks notes whose
   file names say `*.conflict-<ts>.(md|html)` with a `conflict_of`
   column pointing at the surviving note while it exists (migration

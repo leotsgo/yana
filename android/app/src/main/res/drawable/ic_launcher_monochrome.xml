@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The logo as a single-colour glyph: the page, its slash cut out, the
+     folded corner. The themed launcher icon, the tiles and the shortcuts
+     tint it; the full-colour foreground is the mipmap PNG. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#000000"
+        android:fillType="evenOdd"
+        android:pathData="M42,27 L66,27 Q70,27 70,31 L70,58.5 L53.5,58.5 L53.5,77 L42,77 Q38,77 38,73 L38,31 Q38,27 42,27 Z M60.71,36.29 L50.71,57.29 A3,3 0 0,1 45.29,54.71 L55.29,33.71 A3,3 0 0,1 60.71,36.29 Z" />
+    <path
+        android:fillColor="#000000"
+        android:pathData="M57.5,62.5 L70,62.5 L57.5,77 Z" />
+</vector>

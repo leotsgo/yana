@@ -1,0 +1,41 @@
+name: android-crdt
+
+on:
+  pull_request:
+    paths:
+      - mobile/**
+      - Makefile
+      - go.mod
+      - go.sum
+      - .github/workflows/android-crdt.yml
+  push:
+    branches: [main]
+    paths:
+      - mobile/**
+      - Makefile
+      - go.mod
+      - go.sum
+      - .github/workflows/android-crdt.yml
+
+jobs:
+  aar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      # The runner image ships the SDK and cmdline-tools; only the NDK
+      # is installed here, at the version the Makefile pins.
+      - run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
+      - run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;29.0.14206865"
+      - run: ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865 make android-crdt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yana-crdt-aar
+          path: android/crdt/libs/yana-crdt.aar
+          if-no-files-found: error

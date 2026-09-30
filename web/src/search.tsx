@@ -9,6 +9,9 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { api, ApiError } from './api'
 import type { AttachmentHit, RegexHit, SearchHit, Status } from './api'
 import { Icon } from './icons'
+import { OPERATORS } from './opsearch'
+import type { CompletionSource } from './opsearch'
+import { OperatorInput } from './opsinput'
 import * as prefs from './prefs'
 import { openProps } from './workspace'
 import type { OpenHow } from './workspace'
@@ -155,14 +158,18 @@ function regexMatch(raw: string, line: string): string | null {
 
 export interface SearchPageProps {
   status: Status | null
+  /** Tags, folders and spaces for the operator completions. */
+  source: CompletionSource
   onOpen: (id: string, highlight: string | null) => void
   onClose: () => void
+  /** Save the query under a name (the name prompt lives in the shell). */
+  onSave: (query: string) => void
 }
 
 // The phone's search: one screen, the box at the top with the keyboard
-// up as soon as it opens, recent queries under it until something is
-// typed, results after that.
-export function SearchPage({ status, onOpen, onClose }: SearchPageProps) {
+// up as soon as it opens, the operator list and recent queries under it
+// until something is typed, results after that.
+export function SearchPage({ status, source, onOpen, onClose, onSave }: SearchPageProps) {
   const [query, setQuery] = useState('')
   const [regex, setRegex] = useState(false)
   const [recent, setRecent] = useState(prefs.recentQueries)
@@ -175,6 +182,8 @@ export function SearchPage({ status, onOpen, onClose }: SearchPageProps) {
 
   useEffect(() => prefs.onChange(() => setRecent(prefs.recentQueries())), [])
 
+  const saved = prefs.isSearchSaved(query)
+
   return (
     <div class="search-page">
       <div class="search-page-bar">
@@ -183,18 +192,14 @@ export function SearchPage({ status, onOpen, onClose }: SearchPageProps) {
         </button>
         <div class="sidebar-search">
           <Icon name="search" class="sidebar-search-icon" />
-          <input
-            ref={input}
-            type="search"
-            class="search-input"
+          <OperatorInput
+            query={query}
+            onQuery={setQuery}
+            source={source}
             placeholder="Search notes"
-            autocomplete="off"
-            spellcheck={false}
-            enterkeyhint="search"
-            aria-label="Search notes"
-            value={query}
-            onInput={(ev) => setQuery((ev.target as HTMLInputElement).value)}
-            onKeyDown={(ev) => {
+            ariaLabel="Search notes"
+            inputRef={input}
+            onKey={(ev) => {
               if (ev.key === 'Enter') {
                 prefs.touchQuery(query)
                 ;(ev.target as HTMLInputElement).blur()
@@ -209,7 +214,7 @@ export function SearchPage({ status, onOpen, onClose }: SearchPageProps) {
             class={'regex-btn' + (regex ? ' on' : '')}
             disabled={status ? !status.regex_search : false}
             aria-pressed={regex}
-            title={status && !status.regex_search ? 'Regex search needs ripgrep on the server.' : 'Match a regular expression against the files'}
+            title={status && !status.regex_search ? 'Regex search needs ripgrep on the server.' : 'Match a regular expression against the files; path: and space: narrow it'}
             onClick={() => setRegex((r) => !r)}
           >
             .*
@@ -218,26 +223,54 @@ export function SearchPage({ status, onOpen, onClose }: SearchPageProps) {
       </div>
       <div class="search-page-body">
         {query.trim() === '' ? (
-          recent.length === 0 ? (
-            <p class="empty muted">Search looks at titles and bodies. What you search for shows up here for next time.</p>
-          ) : (
-            <div class="recent-queries" aria-label="recent searches">
-              <h2 class="section-title">Recent</h2>
-              {recent.map((q) => (
-                <div key={q} class="recent-query">
-                  <button type="button" class="recent-query-run" onClick={() => setQuery(q)}>
-                    <Icon name="clock" size={15} />
-                    <span>{q}</span>
-                  </button>
-                  <button type="button" class="icon-btn" aria-label={`Forget ${q}`} onClick={() => prefs.forgetQuery(q)}>
-                    <Icon name="x" size={15} />
-                  </button>
-                </div>
-              ))}
+          <>
+            <div class="op-empty" aria-label="search operators">
+              <h2 class="section-title">Operators</h2>
+              <p class="op-empty-lead">Search looks at titles and bodies. Put one of these in front of a word to narrow it:</p>
+              <ul class="op-empty-list">
+                {OPERATORS.map((o) => (
+                  <li key={o.op}>
+                    <code>{o.example}</code>
+                    <span>{o.hint}</span>
+                  </li>
+                ))}
+                <li>
+                  <code>-tag:done</code>
+                  <span>a minus in front excludes</span>
+                </li>
+                <li>
+                  <code>"exact phrase"</code>
+                  <span>quotes make a phrase</span>
+                </li>
+              </ul>
             </div>
-          )
+            {recent.length > 0 && (
+              <div class="recent-queries" aria-label="recent searches">
+                <h2 class="section-title">Recent</h2>
+                {recent.map((q) => (
+                  <div key={q} class="recent-query">
+                    <button type="button" class="recent-query-run" onClick={() => setQuery(q)}>
+                      <Icon name="clock" size={15} />
+                      <span>{q}</span>
+                    </button>
+                    <button type="button" class="icon-btn" aria-label={`Forget ${q}`} onClick={() => prefs.forgetQuery(q)}>
+                      <Icon name="x" size={15} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         ) : (
-          <SearchResults query={query} regex={regex} onOpen={onOpen} />
+          <>
+            {!regex && (
+              <button type="button" class="search-save" onClick={() => onSave(query)} disabled={saved}>
+                <Icon name={saved ? 'pin' : 'plus'} size={14} />
+                {saved ? 'Saved' : 'Save this search'}
+              </button>
+            )}
+            <SearchResults query={query} regex={regex} onOpen={onOpen} />
+          </>
         )}
       </div>
     </div>

@@ -44,3 +44,22 @@ func Files() []File {
 		{Rel: "_assets/yana.png", Data: read("yana.png")},
 	}
 }
+
+// TemplateFiles returns the starter templates, written into a space's
+// templates/ folder so the folder exists and the feature is visible:
+// a meeting note that asks who was there, and a person note. They are
+// written only when a space is named; at the tree root a templates/
+// folder would read as a space of its own.
+func TemplateFiles() []File {
+	read := func(name string) []byte {
+		b, err := content.ReadFile(path.Join("content", "templates", name))
+		if err != nil {
+			panic("guide: missing embedded file " + name)
+		}
+		return b
+	}
+	return []File{
+		{Rel: "templates/Meeting.md", Data: read("Meeting.md")},
+		{Rel: "templates/Person.md", Data: read("Person.md")},
+	}
+}

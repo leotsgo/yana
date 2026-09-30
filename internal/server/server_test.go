@@ -165,6 +165,48 @@ func TestTreeAndNote(t *testing.T) {
 	}
 }
 
+func TestNotesList(t *testing.T) {
+	e := newEnv(t)
+	var res struct{ Notes []NoteListEntry }
+	if code := e.get(t, "/api/notes", &res); code != 200 {
+		t.Fatalf("notes %d", code)
+	}
+	if len(res.Notes) != 4 { // hello, second, dash, loose
+		t.Fatalf("notes: %+v", res.Notes)
+	}
+	var hello *NoteListEntry
+	for i := range res.Notes {
+		if res.Notes[i].RelPath == "home/hello.md" {
+			hello = &res.Notes[i]
+		}
+	}
+	if hello == nil {
+		t.Fatalf("home/hello.md missing: %+v", res.Notes)
+	}
+	if hello.Space != "home" || hello.Kind != "md" || hello.Title != "Hello" {
+		t.Fatalf("hello: %+v", hello)
+	}
+	if hello.Created.IsZero() || hello.UpdatedAt.IsZero() {
+		t.Fatalf("timestamps must ride along: %+v", hello)
+	}
+	if len(hello.Tags) != 1 || hello.Tags[0] != "greeting" {
+		t.Fatalf("tags: %v", hello.Tags)
+	}
+
+	var scoped struct{ Notes []NoteListEntry }
+	if code := e.get(t, "/api/notes?space=work", &scoped); code != 200 {
+		t.Fatalf("scoped %d", code)
+	}
+	if len(scoped.Notes) != 1 || scoped.Notes[0].Kind != "html" || scoped.Notes[0].Tags == nil {
+		t.Fatalf("scoped: %+v", scoped.Notes)
+	}
+
+	var errResp map[string]string
+	if code := e.get(t, "/api/notes?space=../etc", &errResp); code != 400 {
+		t.Fatalf("bad space %d", code)
+	}
+}
+
 func TestSearch(t *testing.T) {
 	e := newEnv(t)
 	var res struct {

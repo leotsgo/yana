@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -87,6 +88,14 @@ func (r *Ripgrep) Search(ctx context.Context, pattern, space string, limit int) 
 // the whole root (or the one requested space), otherwise only the
 // listed spaces. Results never leave the allowed set.
 func (r *Ripgrep) SearchSpaces(ctx context.Context, pattern, space string, allowed []string, limit int) ([]RegexMatch, error) {
+	return r.SearchSpacesPaths(ctx, pattern, space, nil, allowed, limit)
+}
+
+// SearchSpacesPaths is SearchSpaces with explicit path targets (folders
+// from path: terms, root-relative). When paths are set they are what rg
+// walks — already membership-checked by the caller; allowed still bounds
+// the space and paths targets when they are used instead.
+func (r *Ripgrep) SearchSpacesPaths(ctx context.Context, pattern, space string, paths []string, allowed []string, limit int) ([]RegexMatch, error) {
 	if !r.Available() {
 		return nil, ErrUnavailable
 	}
@@ -97,7 +106,26 @@ func (r *Ripgrep) SearchSpaces(ctx context.Context, pattern, space string, allow
 	// space directories. An empty allowed list matches nothing.
 	targets := []string{"."}
 	restricted := false
-	if space != "" {
+	if len(paths) > 0 {
+		targets = make([]string, 0, len(paths))
+		for _, p := range paths {
+			t := filepath.FromSlash(p)
+			if t == "" || t == "." || strings.HasPrefix(t, "..") || strings.Contains(t, "/../") ||
+				strings.Contains(t, "\\") || filepath.IsAbs(t) {
+				return nil, nil
+			}
+			// A folder that is not there answers with no matches, the
+			// way an FTS path: term does.
+			if _, err := os.Stat(filepath.Join(r.root, t)); err != nil {
+				continue
+			}
+			targets = append(targets, t)
+		}
+		if len(targets) == 0 {
+			return nil, nil
+		}
+		restricted = true
+	} else if space != "" {
 		targets = []string{filepath.FromSlash(space)}
 		restricted = true
 	} else if allowed != nil {

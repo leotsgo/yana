@@ -10,6 +10,9 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import { fuzzy } from './fuzzy'
 import { Icon } from './icons'
+import { applyCompletion, completionsFor } from './opsearch'
+import type { CompletionSource } from './opsearch'
+import { Completions, QueryMirror } from './opsinput'
 
 export interface PaletteItem {
   id: string
@@ -26,6 +29,11 @@ export interface PaletteItem {
   section?: string
   run: () => void
 }
+
+/** How an operator-aware list matches its rows: the query is parsed, the
+ * text part fuzzy-matches as always, and the operator part decides which
+ * rows survive at all. Returns null when the query has no operators. */
+export type OperatorFilter = (query: string) => { text: string; keep: (item: PaletteItem) => boolean } | null
 
 export interface ListPalette {
   mode: 'list'
@@ -45,6 +53,10 @@ export interface ListPalette {
   match?: 'fuzzy' | 'path'
   /** A line under the list. */
   hint?: string
+  /** Operator mode: highlight operators as chips, offer completions, and
+   * match rows through the grammar instead of plain fuzzy. */
+  operators?: CompletionSource
+  operatorFilter?: OperatorFilter
 }
 
 export interface PromptPalette {
@@ -65,8 +77,19 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
   // first, a filter once something is typed.
   const [touched, setTouched] = useState(false)
   const [cursor, setCursor] = useState(0)
+  // Operator mode: the completion list under the input.
+  const [cc, setCc] = useState(-1)
+  const [ccOff, setCcOff] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
+
+  const opMode = spec.mode === 'list' && spec.operators !== undefined && spec.operatorFilter !== undefined
+  const completions = useMemo(
+    () => (opMode && spec.mode === 'list' && spec.operators ? completionsFor(query, spec.operators) : null),
+    [opMode, spec, query],
+  )
+  const ccValues = completions?.values ?? []
+  const ccOpen = opMode && !ccOff && ccValues.length > 0
 
   useEffect(() => {
     const el = input.current
@@ -77,6 +100,8 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
     setQuery(initial)
     setTouched(false)
     setCursor(0)
+    setCc(-1)
+    setCcOff(false)
     el.value = initial
     el.focus()
     if (spec.mode === 'prompt') {
@@ -86,6 +111,11 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
       el.setSelectionRange(el.value.length, el.value.length)
     }
   }, [spec])
+
+  useEffect(() => {
+    setCc(-1)
+    setCcOff(false)
+  }, [query])
 
   const pathMode = spec.mode === 'list' && spec.match === 'path'
 
@@ -118,26 +148,37 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
       return out
     }
     const q = query.trim()
+    // Operator mode: the grammar splits the query into a text part and a
+    // row filter; rows survive the filter, the text fuzzy-matches as ever.
+    let pool = spec.items
+    let text = q
+    if (opMode && spec.operatorFilter && q !== '') {
+      const parsed = spec.operatorFilter(query)
+      if (parsed) {
+        pool = pool.filter(parsed.keep)
+        text = parsed.text.trim()
+      }
+    }
     let out: PaletteItem[]
-    if (q === '') {
-      out = spec.items.slice(0, limit)
+    if (text === '') {
+      out = pool.slice(0, limit)
     } else {
       const scored: Array<{ item: PaletteItem; score: number }> = []
-      for (const item of spec.items) {
-        const a = fuzzy(q, item.label)
-        const b = item.detail ? fuzzy(q, item.detail) : null
+      for (const item of pool) {
+        const a = fuzzy(text, item.label)
+        const b = item.detail ? fuzzy(text, item.detail) : null
         const score = Math.max(a?.score ?? -Infinity, b?.score ?? -Infinity)
         if (score !== -Infinity) scored.push({ item, score })
       }
       scored.sort((x, y) => y.score - x.score)
       out = scored.slice(0, limit).map((s) => s.item)
     }
-    if (spec.onCreate && q !== '' && !out.some((r) => r.label.toLowerCase() === q.toLowerCase())) {
+    if (spec.onCreate && text !== '' && !out.some((r) => r.label.toLowerCase() === text.toLowerCase())) {
       const create = spec.onCreate
-      out.push({ id: '\0create', label: `Create "${q}"`, hint: spec.createHint ?? 'new note', run: () => create(q) })
+      out.push({ id: '\0create', label: `Create "${text}"`, hint: spec.createHint ?? 'new note', run: () => create(text) })
     }
     return out
-  }, [spec, query, touched])
+  }, [spec, query, touched, opMode])
 
   // The cursor starts on the row the query names: the exact path, else
   // the first under it, else the create row at the end.
@@ -168,10 +209,31 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
     if (!row.here) row.run()
   }
 
+  function acceptCompletion(v: string): void {
+    if (query.trim() === '') setQuery(v + ' ')
+    else setQuery(applyCompletion(query, v))
+    setCc(-1)
+  }
+
   function onKey(ev: KeyboardEvent): void {
+    if (ccOpen && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')) {
+      ev.preventDefault()
+      const n = ccValues.length
+      setCc((c) => (ev.key === 'ArrowDown' ? (c + 1) % n : (c - 1 + n) % n))
+      return
+    }
+    if (ccOpen && ev.key === 'Tab') {
+      ev.preventDefault()
+      acceptCompletion(ccValues[cc >= 0 ? cc : 0] ?? '')
+      return
+    }
     switch (ev.key) {
       case 'Escape':
         ev.preventDefault()
+        if (ccOpen) {
+          setCcOff(true)
+          return
+        }
         onClose()
         break
       case 'ArrowDown':
@@ -184,6 +246,10 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
         break
       case 'Enter':
         ev.preventDefault()
+        if (ccOpen && cc >= 0) {
+          acceptCompletion(ccValues[cc] ?? '')
+          return
+        }
         if (spec.mode === 'prompt') {
           const v = query.trim()
           if (v === '') return
@@ -196,23 +262,39 @@ export function Palette({ spec, onClose }: { spec: PaletteSpec; onClose: () => v
     }
   }
 
+  const inputEl = (
+    <input
+      ref={input}
+      class="palette-input"
+      type="text"
+      value={query}
+      placeholder={spec.placeholder}
+      autocomplete="off"
+      spellcheck={false}
+      onInput={(ev) => {
+        setQuery((ev.target as HTMLInputElement).value)
+        setTouched(true)
+      }}
+      onKeyDown={onKey}
+    />
+  )
+
   return (
     <div class="overlay" onMouseDown={(ev) => { if (ev.target === ev.currentTarget) onClose() }}>
       <div class="palette" role="dialog" aria-label={spec.placeholder}>
-        <input
-          ref={input}
-          class="palette-input"
-          type="text"
-          value={query}
-          placeholder={spec.placeholder}
-          autocomplete="off"
-          spellcheck={false}
-          onInput={(ev) => {
-            setQuery((ev.target as HTMLInputElement).value)
-            setTouched(true)
-          }}
-          onKeyDown={onKey}
-        />
+        {opMode && spec.mode === 'list' && spec.operators ? (
+          <div class="search-field palette-field">
+            <div class="search-mirror palette-mirror" aria-hidden="true">
+              <QueryMirror query={query} />
+            </div>
+            {inputEl}
+            {!ccOff && (
+              <Completions query={query} source={spec.operators} cursor={cc} onCursor={setCc} onPick={acceptCompletion} emptyList />
+            )}
+          </div>
+        ) : (
+          inputEl
+        )}
         {spec.mode === 'prompt' ? (
           <p class="palette-hint">{spec.hint}</p>
         ) : (

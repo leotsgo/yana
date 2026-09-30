@@ -15,12 +15,14 @@ One component tree, three layouts, picked by width:
 | 720 to 1023px | Tablet. The drawer stays; the top bar has room for New and Today. The tab strip sits above the note. Read, Edit and Split are all available. |
 | 1024px and up | Desktop. The sidebar is a column that collapses from the top-left button; the tab strip sits above the note; Split puts the editor beside the render; the content area splits into two panes. |
 
-The sidebar holds search (full text, or a regular expression with the `.*`
-switch when the server has ripgrep), the tree, and the links to the tag
-index, the unresolved-link report, the trash, and settings. Search
-results replace the tree while a query is typed. A space you belong to
-shows in the tree even before it holds a note, with the `+` to start one,
-and so does a folder that holds no note yet.
+The sidebar holds search (full text with operators — `tag:`, `path:`,
+`space:`, `is:`, `has:`, `author:`, `before:`, `after:`, a `-` to
+exclude, quotes for a phrase — or a regular expression with the `.*`
+switch when the server has ripgrep), the tree, the saved searches, and
+the links to the tag index, the unresolved-link report, the trash, and
+settings. Search results replace the tree while a query is typed. A
+space you belong to shows in the tree even before it holds a note, with
+the `+` to start one, and so does a folder that holds no note yet.
 
 Spaces and folders open and close from their row; the space header is
 the toggle, with the note count beside the name. Folders start closed
@@ -310,12 +312,64 @@ Folders are real directories, so the actions are file operations:
 ## Search on a phone
 
 On a phone, Search in the bottom bar (or `/`) opens a page of its own:
-the box at the top with the keyboard up, the queries typed before it
-underneath until something is typed, results after that. Recent queries
-are kept per browser (`yana.queries`, the last eight). A result opens
-the note in read mode with the matched text scrolled into view and
-marked; the mark stays while reading and clears on entering the editor.
-Wider screens keep search in the sidebar and open results the same way.
+the box at the top with the keyboard up, the operator list and the
+queries typed before it underneath until something is typed, results
+after that. Recent queries are kept per browser (`yana.queries`, the
+last eight). A result opens the note in read mode with the matched text
+scrolled into view and marked; the mark stays while reading and clears
+on entering the editor. Wider screens keep search in the sidebar and
+open results the same way.
+
+## Search operators
+
+The search box takes plain full text (titles and bodies, and the text
+inside PDFs), and a small set of operators that turn it into a tool. A
+term is an operator when it starts with one of these names and a colon;
+anything else is searched as text — an unknown operator like `foo:bar`
+is searched, never rejected. A `-` in front of a term excludes it, and
+double quotes make an exact phrase.
+
+| Term | What it matches |
+|---|---|
+| `tag:home` (or `#home`) | notes carrying that tag |
+| `path:folder/` | notes under a folder (or at a path, without the extension) |
+| `space:work` | one space |
+| `is:untagged` | notes with no tags |
+| `is:task` | notes with an open task |
+| `is:html` | HTML notes |
+| `has:image` | notes that reference an image in `_assets/` |
+| `has:attachment` | notes that reference any file in `_assets/` |
+| `author:claude` | notes whose last edit was made by that person or agent |
+| `before:2026-01-01` | modified before a day |
+| `after:2026-01-01` | modified since a day |
+| `-tag:done` | the minus excludes what follows |
+| `"water heater"` | the words together, in order |
+
+Operators combine with text and with each other:
+`tag:home -tag:done "water heater" after:2026-01-01` is every note
+tagged home, not tagged done, containing that phrase, modified since
+that day. A query of operators alone (`is:untagged path:home/`) lists
+what survives the filters, newest edit first. A date that is not
+`YYYY-MM-DD` is searched as text.
+
+The grammar is parsed in one place on the client
+(`web/src/opsearch.ts`) and one on the server (`internal/search/
+query.go`) with the same rules; the server maps the terms onto the
+index as SQL filters around the full-text match
+(`GET /api/search?q=…`). While typing, the search box and the switcher
+highlight recognised operators as chips and offer completions after
+`tag:`, `path:`, `space:`, `is:` and `has:` — the tags, folders and
+spaces that exist. The switcher applies the operators the tree can
+answer (`tag:`, `path:`, `space:`, `is:untagged`, `is:html`); the rest
+belong to the search box. The regex search (`.* `, `GET
+/api/search/regex?raw=…`) accepts only `path:` and `space:`, which
+narrow where the pattern runs; everything else in the box is the
+pattern.
+
+A query worth keeping is saved under a name (Save this search, beside
+the results) and pinned to the sidebar under the search box. Saved
+searches are a preference of the browser like pins
+(`yana.searches.saved` in `localStorage`), never files in the tree.
 
 ## Title
 
@@ -429,6 +483,23 @@ user (name, colour) and the editor binding publishes its cursor as a
 relative position. Remote carets draw in the editor with the author's name;
 the bar above the note lists who else is on it.
 
+### On Android
+
+The phone's editor is a plain text field bound to the same document
+(`android/app/src/main/java/com/collinpendleton/yana/ui/editor`). Each
+change the field reports diffs to one replacement — the delete and the
+insert commit as a single transaction, so a keystroke is one update and
+one undo step. Changes from elsewhere (the web, the filesystem, an undo)
+arrive as per-transaction replacement hunks from the bind package, and
+the selection maps through them rather than resetting. Undo groups a
+typing burst — keystrokes no more than 700 ms apart — into one step,
+and Ctrl-Z / Ctrl-Y work on a hardware keyboard as well as the buttons.
+Presence is the same awareness protocol over the same `aw` frames: the
+local cursor broadcasts as a relative position on a 50 ms throttle,
+remote cursors and selections draw over the text in the peer's colour,
+and a name chip rides above each caret. Offsets are UTF-16 code units
+end to end, the unit the field and the document share.
+
 ### Buttons and completion
 
 The same formatting buttons the phone shows above its keyboard sit in
@@ -524,7 +595,10 @@ a PDF, a spreadsheet, a document. While the upload runs the document holds a
 placeholder link, so other clients see something sensible; the server picks
 a free name (`shot.png`, `shot-2.png`, …) rather than overwriting, and the
 link uses the name it actually wrote. Uploads are bounded by
-`YANA_MAX_ASSET_SIZE` and require write access to the space.
+`YANA_MAX_ASSET_SIZE` and require write access to the space. The Android
+app's editor does the same from its image action — pick or take a photo,
+downscaled to at most 2048 pixels on its longest edge — and photos shared
+to the app go up the same path into a new or existing note.
 
 In the read view, a link into `_assets/` that is not a picture renders as a
 card: name, size, and for a PDF its page count and a button that expands an
@@ -599,10 +673,49 @@ Two settings shape it, both paths relative to the space:
 | `YANA_DAILY_PATTERN` | `journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md` | Where the note lives |
 | `YANA_DAILY_TEMPLATE` | `templates/daily.md` | A note whose body seeds a new daily note |
 
-`{YYYY}`, `{MM}`, `{DD}` and `{date}` (`YYYY-MM-DD`) expand in both. When
-the template note does not exist the new note starts as a heading with the
-date. The template's own frontmatter is dropped; the daily note gets an id
-of its own like any other file.
+`{YYYY}`, `{MM}`, `{DD}` and `{date}` (`YYYY-MM-DD`) expand in both, and
+the `{{...}}` variables below work in the template body too. When the
+template note does not exist the new note starts as a heading with the
+date. The template's own frontmatter is dropped; the daily note gets an
+id of its own like any other file.
+
+## Templates
+
+Any note in a space's `templates/` folder is a template — the daily
+note's `templates/daily.md` is one. The folder is a normal folder:
+templates are edited like notes, they sync, and they export. The starter
+space keeps two, a meeting note and a person note, so the folder is there
+to drop more into.
+
+A template's body may carry variables in double braces. On use the
+template's frontmatter is dropped, the variables are substituted, and the
+new note gets an id of its own:
+
+| Variable | Becomes |
+|---|---|
+| `{{title}}` | The new note's title |
+| `{{date}}` | Today, `YYYY-MM-DD` |
+| `{{date:YYYY-MM-DD}}` | Today in a pattern of `YYYY`, `YY`, `MM`, `DD`, `HH` and `mm` |
+| `{{time}}` | The time of creation, `HH:MM` |
+| `{{user}}` | The account creating the note |
+| `{{space}}` | The space the note lands in |
+| `{{folder}}` | The folder the note lands in, relative to the space |
+| `{{cursor}}` | Nothing — this is where the caret lands |
+| `{{prompt:Label}}` | Asked once, as a field in a small form, when the note is made |
+
+Unknown variables are left as written, and nothing inside a fenced code
+block is touched, so a template can show its own variables in an example.
+`{{prompt:Label}}` asks once per distinct label; the answers fill every
+occurrence. The template's own file name may carry variables too: a
+template called `Meeting {{date}}.md` suggests the title "Meeting
+2026-09-29".
+
+"New from template" sits in the command palette, in the tree's folder
+menu (long-press on a phone, where the menu is a sheet from the bottom),
+and on the home screen; it makes a note in that folder. From the editor's
+overflow, "Insert from template" puts the expanded body into the open
+note at the caret, which a `{{cursor}}` in the template places inside the
+inserted text.
 
 ## Endpoints added for the editor
 
@@ -614,6 +727,7 @@ of its own like any other file.
 | `GET /api/assets/orphans` | Assets no note in their space references, for the Data page |
 | `GET /api/notes/{id}/asset-view?asset=` | Mints the content-origin URL an attachment card's inline viewer loads |
 | `POST /api/notes/daily` | `{space, date}` → today's note, created from the template if missing |
+| `POST /api/templates/{id}/expand` | `{title, folder, answers}` → a template's body with its variables substituted, plus the prompts it asks, where `{{cursor}}` landed, and the title its name suggests; the note itself is made with `POST /api/notes` |
 | `POST /api/guide` | `{space}` → the starter note in that space, written first when missing (`201`), found otherwise (`200`); editors and up |
 | `POST /api/render` | `{markdown}` → `{html}` for the read view and the preview |
 | `GET /api/tags` | Every tag with its note count, across the spaces the account can see |
@@ -625,6 +739,8 @@ of its own like any other file.
 | `GET /api/notes/{id}/conflicts` | The conflict copies behind one note, for its chip |
 | `GET /api/conflicts/{id}/diff` | A unified diff between one copy and its survivor |
 | `POST /api/conflicts/{id}/resolve` | `{action: mine, theirs, or both}` settles one copy |
+| `GET /api/search/regex?raw=` | The regex search over the files; `path:` and `space:` terms in `raw` narrow where it runs |
+| `GET /api/notes` | Every visible note as a flat list with metadata and tags (`?space=` to take one space); what the Android replica syncs from |
 
 `GET /api/tree` lists empty directories as well as the notes, each
 note row carries its `tags`, and a conflict copy nests under the note

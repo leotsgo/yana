@@ -9,3 +9,6 @@ testdata/fuzz/
 /notes/
 web/dist/*
 !web/dist/.gitkeep
+android/crdt/libs/
+android/app/src/main/assets/reader/
+android/local.properties

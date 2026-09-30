@@ -108,7 +108,13 @@ func (e *gitEnv) fileBody() string {
 
 func (e *gitEnv) eventually(t *testing.T, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	// The chain under test (fsnotify -> debounce -> reconcile -> scan ->
+	// index) settles in well under a second on an idle machine, but a CI
+	// runner executing every package's tests concurrently can delay timer
+	// and goroutine scheduling far past that. 5s was tight enough to flake
+	// under that contention (observed failing at 5.34s in CI); give it
+	// more headroom rather than racing the scheduler.
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return

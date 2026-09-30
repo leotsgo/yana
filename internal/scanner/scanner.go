@@ -18,6 +18,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -54,6 +55,12 @@ type Scanner struct {
 	db   *index.DB
 	opts Options
 	log  *slog.Logger
+	// mu serialises the read-decide-write around id assignment in
+	// indexFile and reassign. The full scan and the watcher's per-file
+	// reindex run concurrently over the same tree; without the lock two
+	// of them can both find a file without an id, write two different
+	// ids into it, and leave the index row flipping between them.
+	mu sync.Mutex
 	// reassigned collects files rewritten with a fresh id mid-walk so the
 	// same scan can index them under it.
 	reassigned []string
@@ -531,7 +538,13 @@ var errDeferred = errors.New("file is still being written; try again later")
 // IsDeferred reports whether err means the file was too young to index.
 func IsDeferred(err error) bool { return errors.Is(err, errDeferred) }
 
+// indexFile reads one note file and returns its index row, writing an id
+// into the file when it has none. The read and the id write happen under
+// the scanner lock so a concurrent reindex of the same file sees the id
+// this call wrote instead of assigning a second one.
 func (s *Scanner) indexFile(ctx context.Context, abs, rel, space, kind string, info fs.FileInfo, seenIDs map[string]string) (indexed, bool, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	content, err := os.ReadFile(abs)
 	if err != nil {
 		return indexed{}, false, false, err
@@ -634,9 +647,13 @@ func (s *Scanner) indexFile(ctx context.Context, abs, rel, space, kind string, i
 
 // ReassignID gives the file at rel a fresh id on disk. The watcher uses it
 // when a copy of a known note appears at a second path.
-func (s *Scanner) ReassignID(rel string) error { return s.reassign(rel) }
+func (s *Scanner) ReassignID(rel string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reassign(rel)
+}
 
-// reassign gives the file at rel a fresh id on disk.
+// reassign gives the file at rel a fresh id on disk. The caller holds mu.
 func (s *Scanner) reassign(rel string) error {
 	abs, _, err := s.root.Resolve(rel)
 	if err != nil {

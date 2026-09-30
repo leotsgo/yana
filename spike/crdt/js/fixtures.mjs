@@ -3,6 +3,8 @@
 //   node fixtures.mjs encode <out.bin>            write a JS-authored update
 //   node fixtures.mjs apply <in.bin>...           apply Go-authored updates in order, print text
 //   node fixtures.mjs roundtrip <in.bin> <out.bin> apply a Go update, edit, write the delta back
+//   node fixtures.mjs position <in.bin> <i> [assoc] print the relative position at index i as JSON
+//   node fixtures.mjs resolve <in.bin> <pos.json> resolve a JSON relative position, print the index
 import * as Y from 'yjs'
 import { readFileSync, writeFileSync } from 'node:fs'
 
@@ -32,7 +34,17 @@ if (cmd === 'encode') {
   doc.transact(() => { text.insert(text.length, ' +js') })
   writeFileSync(args[1], Y.encodeStateAsUpdate(doc, before))
   process.stdout.write(text.toString())
+} else if (cmd === 'position') {
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, new Uint8Array(readFileSync(args[0])))
+  const rp = Y.createRelativePositionFromTypeIndex(doc.getText('body'), Number(args[1]), Number(args[2] ?? 0))
+  process.stdout.write(JSON.stringify(Y.relativePositionToJSON(rp)))
+} else if (cmd === 'resolve') {
+  const doc = new Y.Doc()
+  Y.applyUpdate(doc, new Uint8Array(readFileSync(args[0])))
+  const pos = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(JSON.parse(readFileSync(args[1], 'utf8'))), doc)
+  process.stdout.write(String(pos == null ? -1 : pos.index))
 } else {
-  console.error('usage: fixtures.mjs encode|apply|roundtrip ...')
+  console.error('usage: fixtures.mjs encode|apply|roundtrip|position|resolve ...')
   process.exit(2)
 }

@@ -321,6 +321,13 @@ um.undo() // 'world'
 These are properties of the libraries, recorded so Phases 2, 3, and 12 do not
 rediscover them.
 
+- **reearth/ygo: capture-timeout undo grouping loses the first edit of a
+  group.** Merging stack items reads a clock missing from the item's
+  before-state as absent rather than zero (v1.50.0), so when a group
+  starts at the tracked client's clock 0 — the first edits on a fresh
+  document — undoing the group skips that first transaction's content.
+  One stack item per transaction (`WithCaptureTimeout(-1)`) is unaffected
+  and is what the scoped-undo sample and `mobile/crdt` use.
 - **reearth/ygo: the document lock is not re-entrant.** `Transact` holds the
   write lock for the whole closure. Do not call `ToString`, `Len`, `GetText`,
   `OnUpdate`, `ApplyUpdate`, or a nested `Transact` on the same document from

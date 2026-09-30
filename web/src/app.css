@@ -956,6 +956,22 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .newnote-ghost-name { color: var(--ink-3); pointer-events: auto; cursor: pointer; }
 .newnote-touch .palette-row { min-height: 44px; }
 
+/* The template picker and its prompt form. */
+.tpl-head {
+  display: flex; align-items: center; gap: 8px; padding: 12px 18px;
+  border-bottom: 1px solid var(--line); color: var(--ink-2);
+}
+.tpl-head-name { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpl-head-folder { margin-left: auto; font: 11.5px var(--mono); color: var(--ink-3); white-space: nowrap; }
+.tpl-form { display: flex; flex-direction: column; gap: 10px; padding: 14px 18px; overflow-y: auto; }
+.tpl-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+.tpl-field .input { height: 38px; font-size: 15px; }
+.tpl-foot {
+  display: flex; align-items: center; gap: 10px; padding: 10px 18px 12px;
+  border-top: 1px solid var(--line);
+}
+.tpl-says { flex: 1; min-width: 0; font: 12.5px var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+
 /* --- menu -------------------------------------------------------------- */
 
 .menu-layer { position: fixed; inset: 0; z-index: 25; pointer-events: none; }
@@ -1363,3 +1379,83 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .shell.phone .task-box { width: 20px; height: 20px; }
 .shell.phone .task-heading { display: none; }
 .shell.phone .task-group-path { display: none; }
+
+/* --- search operators: chips, completions, saved searches -------------- */
+
+/* The input and its mirror: the mirror renders the same glyphs with the
+ * recognised operators highlighted, the input's own text is transparent
+ * so only the caret shows. Chips add no width, so the caret stays put. */
+.search-field { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
+.search-field .search-input { color: transparent; caret-color: var(--ink); }
+.search-mirror {
+  position: absolute; inset: 0; display: flex; align-items: center; overflow: hidden;
+  white-space: pre; pointer-events: none; color: var(--ink);
+}
+.op-chip {
+  background: var(--accent-soft); color: var(--accent-ink);
+  border-radius: 4px; box-decoration-break: clone; -webkit-box-decoration-break: clone;
+}
+.op-chip.neg { background: var(--danger-soft); color: var(--danger); }
+.op-chip.open { background: var(--bg-3); color: var(--ink-2); }
+.op-chip .op-name { font-weight: 600; }
+.op-phrase { color: var(--ink-2); }
+.op-sep { color: var(--ink); }
+
+/* The completion list under the box, and the operator list it shows
+ * when the box is empty. */
+.sidebar-search { position: relative; }
+.op-completions {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r);
+  box-shadow: var(--shadow-2); padding: 4px; max-height: min(46vh, 380px); overflow-y: auto;
+}
+.op-completions-head {
+  padding: 6px 8px 4px; font: 600 10.5px var(--mono); letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+.op-completion {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 7px 8px;
+  font: 13px var(--sans); color: var(--ink); background: none; border: 0; border-radius: var(--r-sm);
+  cursor: pointer; text-align: left;
+}
+.op-completion:hover, .op-completion.active { background: var(--hover); }
+.op-completion-value { font: 12.5px var(--mono); color: var(--accent-ink); white-space: nowrap; }
+.op-completion-hint { flex: 1; min-width: 0; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The switcher (palette) in operator mode: the same mirror over the
+ * palette's own input. */
+.palette-field { position: relative; flex: none; display: flex; border-bottom: 1px solid var(--line); }
+.palette-field .palette-input { flex: 1; min-width: 0; border-bottom: 0; color: transparent; caret-color: var(--ink); }
+.palette-mirror { padding: 0 18px; font: 16px var(--sans); }
+.palette-field .op-completions { top: 100%; }
+
+/* Saving a search, and the saved list pinned under the box. */
+.search-save {
+  display: inline-flex; align-items: center; gap: 6px; margin: 4px 10px 2px; height: 26px; padding: 0 10px;
+  font-size: 12.5px; color: var(--ink-2); background: none; border: 1px dashed var(--line-2);
+  border-radius: var(--r-sm); cursor: pointer;
+}
+.search-save:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-3); }
+.search-save:disabled { opacity: 0.55; cursor: default; }
+.saved-searches { padding: 6px 10px 2px; }
+.saved-searches .section-title { padding: 0 4px; }
+.saved-search { display: flex; align-items: center; gap: 4px; }
+.saved-search-run {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
+  font-size: 13px; color: var(--ink-2); background: none; border: 0; border-radius: var(--r-sm);
+  cursor: pointer; text-align: left;
+}
+.saved-search-run .icon { color: var(--ink-3); }
+.saved-search-run span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-search-run:hover { background: var(--hover); color: var(--ink); }
+
+/* The phone search page's empty state: the operator list. */
+.op-empty { padding: 14px 16px 4px; }
+.op-empty-lead { margin: 0 0 10px; font-size: 14px; color: var(--ink-2); }
+.op-empty-list { list-style: none; margin: 0; padding: 0; }
+.op-empty-list li { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; }
+.op-empty-list code { flex: none; min-width: 110px; font: 12.5px var(--mono); color: var(--accent-ink); }
+.op-empty-list span { font-size: 13px; color: var(--ink-2); }
+
+.shell.phone .search-mirror { font-size: 16px; }
+.shell.phone .op-completion { min-height: 44px; }

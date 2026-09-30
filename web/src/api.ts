@@ -77,6 +77,15 @@ export interface Note {
 
 export type Role = 'owner' | 'editor' | 'viewer'
 
+/** A template with its variables substituted. cursor counts runes from
+ * the start of body; -1 when the template carries no {{cursor}}. */
+export interface TemplateExpanded {
+  body: string
+  cursor: number
+  prompts: string[]
+  suggest: string
+}
+
 /** A public link: one note, read-only, at an unguessable URL on the
  * content origin, with no account. */
 export interface PublicLink {
@@ -494,9 +503,11 @@ export const api = {
     get<{ mode: 'fts'; hits: SearchHit[]; attachments: AttachmentHit[] }>(
       `/api/search?q=${encodeURIComponent(q)}` + (space ? `&space=${encodeURIComponent(space)}` : ''),
     ),
+  /** The regex search: the pattern against the files, with path: and
+   * space: terms narrowing where it runs. */
   regex: (raw: string, space?: string) =>
     get<{ mode: 'regex'; hits: RegexHit[] }>(
-      `/api/search?raw=${encodeURIComponent(raw)}` + (space ? `&space=${encodeURIComponent(space)}` : ''),
+      `/api/search/regex?raw=${encodeURIComponent(raw)}` + (space ? `&space=${encodeURIComponent(space)}` : ''),
     ),
   status: () => get<Status>('/api/status'),
   backlinks: (id: string) =>
@@ -574,6 +585,10 @@ export const api = {
   revokeAgent: (id: string) => post<{ ok: boolean }>(`/api/agents/${encodeURIComponent(id)}`, {}, 'DELETE'),
   daily: (space: string, date: string) =>
     post<{ id: string; path: string; created: boolean }>('/api/notes/daily', { space, date }),
+  /** Substitute a template note's variables: the prompts it asks, the
+   * body, where the caret lands, and what its name suggests as a title. */
+  expandTemplate: (id: string, input: { title?: string; folder?: string; answers?: Record<string, string> } = {}) =>
+    post<TemplateExpanded>(`/api/templates/${encodeURIComponent(id)}/expand`, input),
   /** The starter note: made in the space when it is not there, found otherwise. */
   guide: (space: string) => post<{ id?: string; path: string; created: boolean }>('/api/guide', { space }),
   render: (markdown: string) => post<{ html: string }>('/api/render', { markdown }),

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The session is bound to a Keystore key that does not travel; backing
+     it up would restore a file nothing can open. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="yana_session.xml" />
+</full-backup-content>
