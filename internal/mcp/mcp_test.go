@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -202,7 +203,7 @@ func TestInitializeAndToolList(t *testing.T) {
 	if err := json.Unmarshal(raw, &list); err != nil {
 		t.Fatalf("tools/list result is not the expected shape: %v (%s)", err, raw)
 	}
-	want := []string{"list_spaces", "list_tree", "read_note", "write_note", "append_note", "search_notes", "move_note"}
+	want := []string{"list_spaces", "list_tree", "read_note", "write_note", "append_note", "search_notes", "move_note", "upload_asset"}
 	if len(list.Tools) != len(want) {
 		t.Fatalf("expected %d tools, got %d", len(want), len(list.Tools))
 	}
@@ -682,5 +683,52 @@ func TestRateLimit(t *testing.T) {
 	}
 	if !call(3) {
 		t.Fatal("third write was not rate limited")
+	}
+}
+
+func TestUploadAsset(t *testing.T) {
+	f := newFixture(t)
+	png := base64.StdEncoding.EncodeToString([]byte("\x89PNG fake"))
+	up := func(args map[string]any) (map[string]any, string, bool) {
+		txt, isErr := f.call(t, "upload_asset", args)
+		var res map[string]any
+		_ = json.Unmarshal([]byte(txt), &res)
+		return res, txt, isErr
+	}
+	args := map[string]any{"space": "homelab", "note": "servers/pve.md", "filename": "rack diagram.png", "data": png}
+	res, txt, isErr := up(args)
+	if isErr {
+		t.Fatalf("upload failed: %s", txt)
+	}
+	if res["path"] != "homelab/servers/_assets/rack-diagram.png" || res["markdown"] != "![rack diagram](_assets/rack-diagram.png)" {
+		t.Fatalf("bad result: %s", txt)
+	}
+	got, err := os.ReadFile(filepath.Join(f.dir, "homelab/servers/_assets/rack-diagram.png"))
+	if err != nil || string(got) != "\x89PNG fake" {
+		t.Fatalf("file not written: %v %q", err, got)
+	}
+
+	// Same name again gets a suffix; a data: URL decodes too.
+	args["data"] = "data:image/png;base64," + png
+	if res, txt, _ = up(args); res["path"] != "homelab/servers/_assets/rack-diagram-2.png" {
+		t.Fatalf("expected suffixed name: %s", txt)
+	}
+
+	// Non-images link without the bang.
+	args["filename"] = "manual.pdf"
+	if res, txt, _ = up(args); res["markdown"] != "[manual.pdf](_assets/manual.pdf)" {
+		t.Fatalf("bad pdf link: %s", txt)
+	}
+
+	for _, bad := range []map[string]any{
+		{"space": "secret", "note": "a.md", "filename": "x.png", "data": png},
+		{"space": "homelab", "note": "a.md", "filename": "../x.png", "data": png},
+		{"space": "homelab", "note": "a.md", "filename": "x.md", "data": png},
+		{"space": "homelab", "note": "a.md", "filename": "x.png", "data": "not base64!"},
+		{"space": "homelab", "note": "../secret/a.md", "filename": "x.png", "data": png},
+	} {
+		if _, txt, isErr := up(bad); !isErr {
+			t.Fatalf("accepted %v: %s", bad, txt)
+		}
 	}
 }

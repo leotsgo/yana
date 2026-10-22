@@ -1,15 +1,17 @@
 // The tool surface: list_spaces, list_tree, read_note, write_note,
-// append_note, search_notes, move_note. Tool results are plain text or
+// append_note, search_notes, move_note, upload_asset. Tool results are plain text or
 // JSON strings; a tool that fails answers isError=true with the reason,
 // which the agent reads and can act on, rather than a protocol error.
 package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -131,6 +133,19 @@ func toolList() []map[string]any {
 				},
 				"note", "new_path"),
 		},
+		{
+			"name":        "upload_asset",
+			"description": "Upload a file (typically an image) into the _assets directory beside a note. Returns the stored path and a markdown link, relative to the note, to put in its content with write_note or append_note. A name already in use gets a numeric suffix.",
+			"inputSchema": req(
+				map[string]any{
+					"space":       str("space name"),
+					"note":        str("path of the note the file belongs to (space/folders/note.md); the note need not exist yet"),
+					"filename":    str("file name, e.g. diagram.png"),
+					"data":        str("the file content, base64-encoded (a data: URL is accepted too)"),
+					"agent_label": str("optional author label; defaults to this token's label"),
+				},
+				"space", "note", "filename", "data"),
+		},
 	}
 }
 
@@ -170,6 +185,8 @@ func (h *Handler) callTool(ctx context.Context, agent auth.AgentIdentity, name s
 		return h.toolSearch(ctx, agent, arg("query"), arg("space"), a["limit"])
 	case "move_note":
 		return h.toolMoveNote(ctx, agent, arg("note"), arg("new_path"))
+	case "upload_asset":
+		return h.toolUploadAsset(ctx, agent, author, arg("space"), arg("note"), arg("filename"), arg("data"))
 	}
 	return nil // unreachable: dispatch refuses unknown names
 }
@@ -177,7 +194,7 @@ func (h *Handler) callTool(ctx context.Context, agent auth.AgentIdentity, name s
 // knownTool reports whether name is on the surface.
 func knownTool(name string) bool {
 	switch name {
-	case "list_spaces", "list_tree", "read_note", "write_note", "append_note", "search_notes", "move_note":
+	case "list_spaces", "list_tree", "read_note", "write_note", "append_note", "search_notes", "move_note", "upload_asset":
 		return true
 	}
 	return false
@@ -646,6 +663,78 @@ func (h *Handler) toolMoveNote(ctx context.Context, agent auth.AgentIdentity, re
 	return textResult(map[string]any{
 		"id": n.ID, "path": mr.NewPath, "rewritten": mr.Rewritten, "broken": mr.Broken,
 	})
+}
+
+func (h *Handler) toolUploadAsset(ctx context.Context, agent auth.AgentIdentity, author, space, note, filename, data string) *toolResult {
+	sp, res := h.spaceScope(agent, space)
+	if res != nil {
+		return res
+	}
+	if !scopeOf(agent).mayWrite(sp) {
+		return errResult("this token cannot write to space %q", sp)
+	}
+	notePath, res := h.withinSpace(sp, note)
+	if res != nil {
+		return res
+	}
+	if scanner.IsAsset(notePath) {
+		return errResult("note must be a note path, not one under _assets")
+	}
+	name := strings.Join(strings.Fields(strings.TrimSpace(filename)), "-")
+	if name == "" || strings.ContainsAny(name, `/\`) {
+		return errResult("filename must be a plain file name")
+	}
+	if scanner.KindOf(name) != "" {
+		return errResult("notes are written with write_note, not uploaded")
+	}
+	if strings.HasPrefix(data, "data:") {
+		data = data[strings.IndexByte(data, ',')+1:]
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(data))
+	if err != nil {
+		return errResult("data is not valid base64")
+	}
+	if len(raw) == 0 {
+		return errResult("the file is empty")
+	}
+	if limit := h.Root.Limits().MaxAssetSize; int64(len(raw)) > limit {
+		return errResult("file is over the asset size limit (%d bytes)", limit)
+	}
+	if h.Limit != nil && !h.Limit.Allow(author) {
+		return errResult("the agent write rate is exceeded; slow down and retry")
+	}
+	clean, err := h.Root.Clean(path.Dir(notePath) + "/_assets/" + name)
+	if err != nil {
+		return errResult("that file name is not allowed")
+	}
+	final, ok := h.Root.FreeName(clean)
+	if !ok {
+		return errResult("could not find a free name for the file")
+	}
+	abs, _, err := h.Root.Resolve(final)
+	if err != nil {
+		return errResult("that path is not allowed")
+	}
+	if err := fsutil.MkdirInherit(filepath.Dir(abs)); err != nil {
+		return errResult("the _assets folder could not be created")
+	}
+	if err := fsutil.WriteFileAtomic(abs, raw, 0o644); err != nil {
+		return errResult("the file could not be written")
+	}
+	if h.Scanner != nil {
+		if err := h.Scanner.ScanAsset(ctx, final); err != nil {
+			h.Log.Warn("uploaded asset is not indexed yet", "path", final, "err", err)
+		}
+	}
+	base := path.Base(final)
+	link := fmt.Sprintf("[%s](_assets/%s)", base, base)
+	switch strings.ToLower(path.Ext(base)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif":
+		alt := strings.NewReplacer("-", " ", "_", " ").Replace(strings.TrimSuffix(base, path.Ext(base)))
+		link = fmt.Sprintf("![%s](_assets/%s)", alt, base)
+	}
+	h.Log.Info("asset uploaded", "path", final, "bytes", len(raw), "author", author)
+	return textResult(map[string]any{"path": final, "name": base, "size": len(raw), "markdown": link})
 }
 
 var errDenied = errors.New("no write access to this space")

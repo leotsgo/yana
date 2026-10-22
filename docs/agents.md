@@ -116,6 +116,7 @@ Point an MCP client at the server with the token as a bearer header:
 | `append_note(note, content, agent_label?)` | append to an existing note |
 | `search_notes(query, space?, limit?)` | full-text search within the token's scope |
 | `move_note(note, new_path)` | move or rename, rewriting inbound links |
+| `upload_asset(space, note, filename, data, agent_label?)` | store a base64 file (e.g. an image) in the note's `_assets/`; returns the markdown link to put in the note |
 
 `agent_label` defaults to the token's label. It lets one token name the
 job in front of it, and it is what lands in the note's history and git:

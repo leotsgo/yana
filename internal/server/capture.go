@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -108,21 +107,10 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Pick a free name: name.png, name-2.png, name-3.png, ...
-	dir, base := path.Split(clean)
-	ext := path.Ext(base)
-	stem := strings.TrimSuffix(base, ext)
-	final := clean
-	for i := 2; ; i++ {
-		if _, err := os.Lstat(filepath.Join(s.Root.Dir(), filepath.FromSlash(final))); errors.Is(err, fs.ErrNotExist) {
-			if err := s.Root.CheckCollision(final); err == nil {
-				break
-			}
-		}
-		if i > 1000 {
-			writeError(w, http.StatusConflict, "could not find a free name for the file")
-			return
-		}
-		final = dir + fmt.Sprintf("%s-%d%s", stem, i, ext)
+	final, ok := s.Root.FreeName(clean)
+	if !ok {
+		writeError(w, http.StatusConflict, "could not find a free name for the file")
+		return
 	}
 	abs, _, err = s.Root.Resolve(final)
 	if err != nil {

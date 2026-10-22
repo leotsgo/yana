@@ -259,6 +259,25 @@ func (r *Root) CheckCollision(rel string) error {
 	return nil
 }
 
+// FreeName returns rel, or the first of name-2.ext, name-3.ext, ... that
+// neither exists nor collides by case. ok=false when a thousand tries all
+// fail.
+func (r *Root) FreeName(rel string) (final string, ok bool) {
+	dir, base := path.Split(rel)
+	ext := path.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	final = rel
+	for i := 2; i <= 1001; i++ {
+		if _, err := os.Lstat(filepath.Join(r.abs, filepath.FromSlash(final))); errors.Is(err, os.ErrNotExist) {
+			if r.CheckCollision(final) == nil {
+				return final, true
+			}
+		}
+		final = dir + fmt.Sprintf("%s-%d%s", stem, i, ext)
+	}
+	return "", false
+}
+
 func foldName(s string) string {
 	return strings.ToLower(norm.NFC.String(s))
 }
