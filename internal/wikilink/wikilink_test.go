@@ -142,3 +142,54 @@ func TestHasExtension(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveDrawing(t *testing.T) {
+	r := NewResolver("s", []NoteRef{
+		{ID: "d1", RelPath: "s/Board.excalidraw.md"},
+		{ID: "m1", RelPath: "s/Foo.md"},
+		{ID: "d2", RelPath: "s/Foo.excalidraw.md"},
+		{ID: "d3", RelPath: "s/sub/Deep.excalidraw.md"},
+	})
+	cases := []struct {
+		raw, from string
+		want      string
+		rule      Rule
+	}{
+		// Written from the space root, the relative step is the one that matches.
+		{"Board", "s/n.md", "d1", RuleRelative},
+		{"Foo", "s/n.md", "m1", RuleRelative},
+		{"Foo.excalidraw", "s/n.md", "d2", RuleRelative},
+		{"sub/Deep", "s/n.md", "d3", RuleRelative},
+		{"Deep", "s/n.md", "d3", RuleFilename},
+		// Written from a subdirectory, the root and filename steps are reached.
+		{"Board", "s/x/n.md", "d1", RuleRoot},
+		{"sub/Deep", "s/x/n.md", "d3", RuleRoot},
+		{"Foo", "s/x/n.md", "m1", RuleRoot},
+	}
+	for _, tc := range cases {
+		got := r.Resolve(tc.raw, tc.from)
+		if !got.OK || got.ToID != tc.want || got.Rule != tc.rule {
+			t.Errorf("Resolve(%q from %s) = %+v, want %s via %s", tc.raw, tc.from, got, tc.want, tc.rule)
+		}
+	}
+	if got := r.Resolve("Board.md", "s/n.md"); got.OK {
+		t.Errorf("a target with a note extension must not fall back to a drawing: %+v", got)
+	}
+}
+
+func TestRewriteTargetDrawing(t *testing.T) {
+	const to = "s/new/Plan.excalidraw.md"
+	for _, tc := range []struct {
+		rule Rule
+		keep bool
+		want string
+	}{
+		{RuleFilename, false, "Plan"},
+		{RuleRoot, false, "new/Plan"},
+		{RuleFilename, true, "Plan.excalidraw.md"},
+	} {
+		if got := RewriteTarget(tc.rule, "s/n.md", to, tc.keep); got != tc.want {
+			t.Errorf("RewriteTarget(%q, keep=%v) = %q, want %q", tc.rule, tc.keep, got, tc.want)
+		}
+	}
+}

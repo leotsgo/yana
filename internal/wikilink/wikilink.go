@@ -4,12 +4,16 @@
 //
 // The order is fixed: exact relative path from the linking note, exact path
 // from the space root, unique filename match anywhere in the space, unique
-// alias match anywhere in the space, then unresolved.
+// alias match anywhere in the space, then unresolved. A bare target runs the
+// first three steps for name.md, and only if that finds nothing again for
+// name.excalidraw.md, so a note wins over a drawing of the same name.
 package wikilink
 
 import (
 	"path"
 	"strings"
+
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 )
 
 // Rule says which step of the resolution order matched.
@@ -81,25 +85,12 @@ func (r *Resolver) Resolve(raw, fromRel string) Resolution {
 	if raw == "" || strings.ContainsAny(raw, "[]\n\r") {
 		return Resolution{}
 	}
-	// 1. Exact relative path from the linking note's directory.
-	if p, ok := r.pathWithin(raw, path.Dir(fromRel)); ok {
-		if id, ok := r.byPath[p]; ok {
-			return Resolution{ToID: id, Rule: RuleRelative, OK: true}
-		}
+	if res, ok := r.byPathOrName(raw, fromRel); ok {
+		return res
 	}
-	// 2. Exact path from the space root.
-	if p, ok := r.pathWithin(raw, r.space); ok {
-		if id, ok := r.byPath[p]; ok {
-			return Resolution{ToID: id, Rule: RuleRoot, OK: true}
-		}
-	}
-	// 3. Unique filename match anywhere in the space. Only a bare filename
-	// falls through to this step: a target that spells out a path was a
-	// path reference and must not surprise-resolve by basename.
-	if !strings.Contains(raw, "/") {
-		cands := r.byBase[withExtension(raw)]
-		if len(cands) == 1 {
-			return Resolution{ToID: cands[0], Rule: RuleFilename, OK: true}
+	if !HasExtension(raw) {
+		if res, ok := r.byPathOrName(raw+drawing.Ext, fromRel); ok {
+			return res
 		}
 	}
 	// 4. Unique alias match anywhere in the space. An alias is a name a
@@ -112,6 +103,32 @@ func (r *Resolver) Resolve(raw, fromRel string) Resolution {
 		}
 	}
 	return Resolution{}
+}
+
+// byPathOrName runs the first three steps of the resolution order.
+func (r *Resolver) byPathOrName(raw, fromRel string) (Resolution, bool) {
+	// 1. Exact relative path from the linking note's directory.
+	if p, ok := r.pathWithin(raw, path.Dir(fromRel)); ok {
+		if id, ok := r.byPath[p]; ok {
+			return Resolution{ToID: id, Rule: RuleRelative, OK: true}, true
+		}
+	}
+	// 2. Exact path from the space root.
+	if p, ok := r.pathWithin(raw, r.space); ok {
+		if id, ok := r.byPath[p]; ok {
+			return Resolution{ToID: id, Rule: RuleRoot, OK: true}, true
+		}
+	}
+	// 3. Unique filename match anywhere in the space. Only a bare filename
+	// falls through to this step: a target that spells out a path was a
+	// path reference and must not surprise-resolve by basename.
+	if !strings.Contains(raw, "/") {
+		cands := r.byBase[withExtension(raw)]
+		if len(cands) == 1 {
+			return Resolution{ToID: cands[0], Rule: RuleFilename, OK: true}, true
+		}
+	}
+	return Resolution{}, false
 }
 
 // pathWithin joins base (a directory relative to the notes root) and raw,
@@ -164,7 +181,8 @@ func HasExtension(raw string) bool {
 func RewriteTarget(rule Rule, fromRel, newRel string, keepExtension bool) string {
 	target := newRel
 	if !keepExtension {
-		target = strings.TrimSuffix(target, path.Ext(newRel))
+		_, ext := drawing.SplitExt(newRel)
+		target = strings.TrimSuffix(target, ext)
 	}
 	switch rule {
 	case RuleRelative:
