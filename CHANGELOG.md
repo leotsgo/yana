@@ -9,7 +9,7 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
-## 0.4.0 — 2026-11-04
+## 0.3.3 — 2026-11-04
 
 - Reveal the open note can be turned off (Settings, Appearance,
   Sidebar). On, as before, a note opened from a link, search, the
