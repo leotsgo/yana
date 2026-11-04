@@ -82,11 +82,10 @@ can be sorted out.
 ## Backlinks
 
 Every note carries a panel of notes linking to it, each with the line the
-link sits on. The same list closes the read view, under the note's last
-note's last line: one collapsible group per linking note, each link's
-line in a card with the link marked. It is left out when nothing links
-here.
-`GET /api/notes/{id}/backlinks` returns the same list.
+link sits on. The same links close the read view as "Linked mentions",
+under the note's last line: one collapsible group per linking note, each
+link's line in a card with the link marked. It is left out when nothing
+links here. `GET /api/notes/{id}/backlinks` returns the same list.
 
 ## Moving and renaming folders
 
