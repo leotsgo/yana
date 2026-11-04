@@ -471,9 +471,10 @@ one the next note opens in. A note you just created always opens in the
 editor with the caret ready, without changing the preference. A phone
 never opens in split; it reads.
 
-The text column is centered in the page by default, reading and editing
-alike, with the title above it lined up to the same edge. Center the text
-in Appearance turns that off and puts the column against the left edge.
+The body's text column is centered in the page by default, reading and
+editing alike; the header above it (folder, title, tags) stays against
+the left edge. Center the text in Appearance turns that off and puts the
+column against the left edge too.
 
 Presence chips in the toolbar list the other people who have the note
 open, one chip per person, in any mode. Your own account in another tab

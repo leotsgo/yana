@@ -9,6 +9,11 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+## 0.3.1 — 2026-11-04
+
+- Center the text centers only the note's body. The header (folder,
+  title, tags) is back against the left edge.
+
 ## 0.3.0 — 2026-11-04
 
 - Centered text. The note's column sits in the middle of the page,
