@@ -1,8 +1,9 @@
 // The graph payload, fetched once and shared by every graph on screen. While
 // one is subscribed, and for a minute after, the spaces in the payload are
-// watched over the relay. A change refetches it (debounced) and hands every
-// subscriber the new one; with nobody subscribed it only marks the payload
-// stale, and the next subscribe refetches.
+// watched over the relay. A change refetches it (debounced) and, when the
+// payload differs, hands every subscriber the new one; with nobody
+// subscribed it only marks the payload stale, and the next subscribe
+// refetches. Sign-out drops it all (resetGraphData).
 
 import { api } from './api'
 import type { GraphPayload } from './graph/model'
@@ -21,6 +22,8 @@ let watch: SpaceWatch | null = null
 let timer: number | undefined
 let linger: number | undefined
 let stale = false // the cache may be behind: refetch on the next subscribe
+let json = '' // the cached payload as JSON, to tell a refetch that changed nothing
+let gen = 0 // bumped by resetGraphData: a fetch from before it is dropped
 
 function watchSpaces(g: GraphPayload): void {
   if (!watch) return
@@ -34,9 +37,15 @@ function refetch(): void {
     stale = true
     return
   }
+  const at = gen
   api
     .graph()
     .then((g) => {
+      if (at !== gen) return
+      // Most changes are typing that touches no link: nothing to redraw.
+      const text = JSON.stringify(g)
+      if (text === json) return
+      json = text
       cache = Promise.resolve(g)
       watchSpaces(g)
       for (const fn of subs) fn(g)
@@ -51,7 +60,11 @@ export function graphData(): Promise<GraphPayload> {
   if (!cache) {
     const p = api.graph()
     cache = p
-    p.then(watchSpaces, () => {
+    p.then((g) => {
+      if (cache !== p) return
+      json = JSON.stringify(g)
+      watchSpaces(g)
+    }, () => {
       if (cache === p) cache = undefined // let the next open retry
     })
   }
@@ -85,4 +98,17 @@ export function onGraphData(fn: (g: GraphPayload) => void): () => void {
       stale ||= cache !== undefined
     }, LINGER_MS)
   }
+}
+
+/** Forget the payload and stop watching: the next account must not see the
+ * last one's graph. Called on sign-out, however it happens. */
+export function resetGraphData(): void {
+  gen++
+  cache = undefined
+  json = ''
+  stale = false
+  window.clearTimeout(timer)
+  window.clearTimeout(linger)
+  watch?.destroy()
+  watch = null
 }

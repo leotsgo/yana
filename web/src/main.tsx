@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 
 import { App } from './app'
 import * as auth from './auth'
+import { resetGraphData } from './graph-data'
 import * as prefs from './prefs'
 import { initPwa } from './pwa'
 import './app.css'
@@ -86,7 +87,9 @@ function Root() {
         />
       )
     case 'app':
-      return <App key={epoch} onSignOut={() => { setPhase('loading'); setEpoch((e) => e + 1) }} />
+      // Sign-out and an expired session both land here: drop what the last
+      // account loaded before the next one signs in.
+      return <App key={epoch} onSignOut={() => { resetGraphData(); setPhase('loading'); setEpoch((e) => e + 1) }} />
   }
 }
 

@@ -338,12 +338,13 @@ an embed counts like a link. A force layout spreads the dots and settles
 in a few seconds: notes that link to each other gather, a note with
 many links is a bigger dot with spokes, and notes with no links at all
 drift into a loose ring at the rim. Labels show when you zoom in, and
-always for the dot under the pointer and its neighbours. The layout runs
-in a worker and the drawing is WebGL; a browser without WebGL2 says so
-instead. With reduced motion asked for, the layout settles before it is
+always for the dot under the pointer and as many of its neighbours as
+fit. The layout runs in a worker and the drawing is WebGL; a browser
+without WebGL2 says so instead. With reduced motion asked for, the layout settles before it is
 drawn. The graph and its code load only when the page opens, and the
-page follows edits in your spaces: a change refetches the graph and the
-dots already placed stay where they are.
+page follows edits in your spaces: a change refetches the graph, and if
+the notes, links or tags changed it redraws with the dots already placed
+where they were. Signing out forgets the graph.
 
 The Filters button opens the panel at the top right (open by default on
 a desktop, closed on a phone):
@@ -372,7 +373,8 @@ tag's page; an unresolved link's dot only lights up.
 `/graph?note=<id>&depth=<1-3>` is a note's local graph: the note and
 the notes within that many links of it, either way, under the heading
 "Local graph — <title>" with a Depth slider. The filters apply after
-the walk.
+the walk. The note is drawn in the accent colour and always labelled,
+with nothing dimmed until you hover or tap a dot.
 
 A note's details have the local graph too, under **Graph** between
 Linked from and History, on a desktop and in the phone's details sheet.

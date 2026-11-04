@@ -54,14 +54,20 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
   host.append(canvas, labels)
 
   let r: Renderer
+  let worker: Worker
   try {
     r = new Renderer(canvas, labels)
+    try {
+      worker = new Worker(o.workerURL, { type: 'module' })
+    } catch (err) {
+      r.destroy()
+      throw err
+    }
   } catch (err) {
     canvas.remove()
     labels.remove()
     throw err
   }
-  const worker = new Worker(o.workerURL, { type: 'module' })
 
   let view: View = { nodes: [], links: new Int32Array(0) }
   let keys: string[] = []
@@ -86,9 +92,11 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
     if (paused && (m.t === 'init' || m.t === 'forces')) worker.postMessage({ t: 'pause' } satisfies ToWorker)
   }
 
+  /** The hovered or tapped node lights up and dims the rest; with none, the
+   * center (local graph) is only marked, so a deep walk stays readable. */
   function applyFocus() {
-    const f = focus ?? (centerIdx >= 0 ? centerIdx : null)
-    r.setFocus(f, f === null ? [] : adj[f]!)
+    if (focus !== null) r.setFocus(focus, adj[focus]!)
+    else r.setFocus(centerIdx >= 0 ? centerIdx : null, [], false)
     redraw()
   }
 
@@ -307,6 +315,22 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
   const dark = window.matchMedia('(prefers-color-scheme: dark)')
   dark.addEventListener('change', paint)
 
+  // Android drops the GL context of a backgrounded PWA: ask for it back, and
+  // rebuild the renderer on the restored one.
+  const onLost = (ev: Event) => ev.preventDefault()
+  const onRestored = () => {
+    try {
+      const camera = r.camera
+      r = new Renderer(canvas, labels)
+      r.camera = camera
+      paint()
+    } catch (err) {
+      o.onError?.(err)
+    }
+  }
+  canvas.addEventListener('webglcontextlost', onLost)
+  canvas.addEventListener('webglcontextrestored', onRestored)
+
   let inView = true
   const syncPause = () => {
     const p = !inView || document.hidden
@@ -341,6 +365,8 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
       dark.removeEventListener('change', paint)
       document.removeEventListener('visibilitychange', syncPause)
       cancelAnimationFrame(frame)
+      canvas.removeEventListener('webglcontextlost', onLost)
+      canvas.removeEventListener('webglcontextrestored', onRestored)
       r.destroy()
       canvas.remove()
       labels.remove()

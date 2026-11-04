@@ -52,13 +52,12 @@ function group(n: GraphNote, by: ColorBy): string {
 /** Walk links both ways from `start`, up to `depth` hops. */
 function walk(g: GraphPayload, start: number, depth: number): Set<number> {
   const seen = new Set([start])
-  let frontier = [start]
-  for (let d = 0; d < depth && frontier.length; d++) {
-    const next: number[] = []
+  let frontier = new Set([start])
+  for (let d = 0; d < depth && frontier.size; d++) {
+    const next = new Set<number>()
     for (const [a, b] of g.links) {
-      for (const [x, y] of [[a, b], [b, a]] as const) {
-        if (frontier.includes(x) && !seen.has(y)) { seen.add(y); next.push(y) }
-      }
+      if (frontier.has(a) && !seen.has(b)) { seen.add(b); next.add(b) }
+      if (frontier.has(b) && !seen.has(a)) { seen.add(a); next.add(a) }
     }
     frontier = next
   }

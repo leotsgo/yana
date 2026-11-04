@@ -176,6 +176,8 @@ export class Renderer {
   private litEdges = 0
   private state = new Uint8Array(0)
   private focus: number | null = null
+  /** The focus dims everything outside it; false while it is only marked. */
+  private dimmed = false
   private neighbours: number[] = []
   /** Node indices, highest degree first, for picking labels. */
   private byDegree = new Int32Array(0)
@@ -253,6 +255,7 @@ export class Renderer {
     this.labelled = new Uint32Array(n)
     this.byDegree = Int32Array.from(view.nodes.keys()).sort((a, b) => view.nodes[b]!.degree - view.nodes[a]!.degree)
     this.focus = null
+    this.dimmed = false
     this.neighbours = []
 
     const gl = this.gl
@@ -280,12 +283,15 @@ export class Renderer {
     this.uploadPositions()
   }
 
-  /** Highlight `focus` and its neighbours; null clears. */
-  setFocus(focus: number | null, neighbours: number[]): void {
+  /** Highlight `focus` and its neighbours, dimming the rest; null clears.
+   * With `dim` false the focus is only marked (accent, always labelled) and
+   * the rest draws as usual. */
+  setFocus(focus: number | null, neighbours: number[], dim = true): void {
     this.focus = focus
+    this.dimmed = focus !== null && dim
     // Highest degree first: they get the labels when not all of them fit.
     const nodes = this.view.nodes
-    this.neighbours = focus === null ? [] : [...neighbours].sort((a, b) => nodes[b]!.degree - nodes[a]!.degree)
+    this.neighbours = this.dimmed ? [...neighbours].sort((a, b) => nodes[b]!.degree - nodes[a]!.degree) : []
     this.state.fill(PLAIN)
     if (focus !== null) {
       for (const j of this.neighbours) this.state[j] = NEIGHBOUR
@@ -316,7 +322,7 @@ export class Renderer {
     gl.clear(gl.COLOR_BUFFER_BIT)
 
     const edgeCount = this.edgeVerts.length >> 1
-    const dimmed = this.focus !== null
+    const dimmed = this.dimmed
     gl.useProgram(this.edgeProg)
     gl.uniform2f(this.edgeU.cam!, x, y)
     gl.uniform1f(this.edgeU.k!, k)
@@ -370,7 +376,7 @@ export class Renderer {
   /** Copy `colors` into drawColors, dimming what is outside the focus. */
   private uploadColors() {
     const c = this.colors, out = this.drawColors, f = this.theme.focus
-    const dimmed = this.focus !== null
+    const dimmed = this.dimmed
     for (let i = 0; i < out.length >> 2; i++) {
       const s = this.state[i]
       for (let j = 0; j < 4; j++) out[4 * i + j] = s === FOCUS ? f[j]! : c[4 * i + j] ?? 1
@@ -389,7 +395,7 @@ export class Renderer {
     for (let i = 0; i < links.length; i += 2) {
       const a = links[i]!, b = links[i + 1]!
       if (inst[3 * a + 2] === 0 || inst[3 * b + 2] === 0) continue
-      const isLit = state[a] === FOCUS || state[b] === FOCUS
+      const isLit = this.dimmed && (state[a] === FOCUS || state[b] === FOCUS)
       const o = isLit ? last - 4 * lit++ : 4 * plain++
       out[o] = inst[3 * a]!
       out[o + 1] = inst[3 * a + 1]!
@@ -421,7 +427,7 @@ export class Renderer {
     this.cells.fill(0)
     this.frame++
 
-    const dim = this.focus !== null ? DIM * 2 : 1
+    const dim = this.dimmed ? DIM * 2 : 1
     if (this.focus !== null) {
       ctx.globalAlpha = 1
       this.label(this.focus, true)
