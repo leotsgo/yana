@@ -361,13 +361,13 @@ a desktop, closed on a phone):
   layout, which moves as you drag them.
 
 On a desktop, hover a dot to light it and its neighbours; click it to
-open the note (Ctrl or Cmd, or the middle button, opens it in a new
-tab); drag it and its neighbours follow; drag the background to pan and
-use the wheel to zoom around the pointer. On a phone, one finger pans,
-two fingers pinch to zoom and dragging a dot pulls it; the first tap on
-a dot lights it and shows its name, a second tap opens it, and a tap on
-the background clears. A tag dot opens the tag's page; an unresolved
-link's dot only lights up.
+open the note (Ctrl or Cmd, or the middle button, opens it in a new tab
+behind the current one); drag it and its neighbours follow; drag the
+background to pan and use the wheel to zoom around the pointer. On a
+phone, one finger pans, two fingers pinch to zoom and dragging a dot
+pulls it; the first tap on a dot lights it and shows its name, a second
+tap opens it, and a tap on the background clears. A tag dot opens the
+tag's page; an unresolved link's dot only lights up.
 
 `/graph?note=<id>&depth=<1-3>` is a note's local graph: the note and
 the notes within that many links of it, either way, under the heading

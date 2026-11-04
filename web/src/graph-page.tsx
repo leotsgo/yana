@@ -110,7 +110,7 @@ export function GraphPage({ note, depth: initialDepth, phone, onOpen, onTag }: G
             reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
             onOpen: (n, newTab) => {
               if (n.kind === 'tag') open.current.onTag(n.id)
-              else open.current.onOpen(n.id, newTab ? 'tab' : undefined)
+              else open.current.onOpen(n.id, newTab ? 'background' : undefined)
             },
             onError: () => setError(LOAD_ERROR),
           })
