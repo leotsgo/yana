@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/auth"
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/fsutil"
 	"github.com/madeofpendletonwool/yana/internal/index"
@@ -95,7 +96,7 @@ func toolList() []map[string]any {
 			"inputSchema": req(
 				map[string]any{
 					"space":       str("space name"),
-					"path":        str("note path inside the space, ending in .md or .html"),
+					"path":        str("note path inside the space, ending in .md or .html (drawings, .excalidraw.md, are read-only here)"),
 					"content":     str("the full note content"),
 					"agent_label": str("optional author label; defaults to this token's label"),
 				},
@@ -431,6 +432,9 @@ func (h *Handler) toolReadNote(ctx context.Context, agent auth.AgentIdentity, re
 	if err != nil {
 		return errResult("the note's content could not be read")
 	}
+	if isDrawing(n) {
+		content = drawingSummary(content)
+	}
 	tags, _ := h.DB.Tags(ctx, n.ID)
 	if tags == nil {
 		tags = []string{}
@@ -440,6 +444,24 @@ func (h *Handler) toolReadNote(ctx context.Context, agent auth.AgentIdentity, re
 		"kind": n.Kind, "created": n.Created, "updated": n.UpdatedAt,
 		"tags": tags, "content": content,
 	})
+}
+
+func isDrawing(n index.Note) bool { return n.Kind == drawing.Kind || drawing.Is(n.RelPath) }
+
+const errDrawingTool = "drawings are edited in the yana web app, not through this tool"
+
+// drawingSummary is what an agent reads of a drawing: its text and links,
+// never the scene JSON.
+func drawingSummary(body string) string {
+	sc, _, err := drawing.Parse([]byte(body))
+	if err != nil {
+		return "Excalidraw drawing (could not be read)."
+	}
+	out := "Excalidraw drawing.\n\nText:\n" + sc.Text() + "\n\nLinks:"
+	for _, l := range sc.Links() {
+		out += "\n- [[" + l + "]]"
+	}
+	return out
 }
 
 // noteText returns the note's current text: the document when the
@@ -475,8 +497,11 @@ func (h *Handler) toolWriteNote(ctx context.Context, agent auth.AgentIdentity, a
 	if res != nil {
 		return res
 	}
+	if drawing.Is(clean) {
+		return errResult(errDrawingTool)
+	}
 	if scanner.KindOf(clean) == "" {
-		return errResult("the path must end in .md, .markdown, .html, or .htm")
+		return errResult("the path must end in .md, .markdown, .html, or .htm (not .excalidraw.md)")
 	}
 	if scanner.IsAsset(clean) {
 		return errResult("the path sits under _assets; notes live outside it")
@@ -551,6 +576,9 @@ func (h *Handler) toolAppendNote(ctx context.Context, agent auth.AgentIdentity, 
 	}
 	if !scopeOf(agent).mayWrite(n.Space) {
 		return errResult("this token cannot write to space %q", n.Space)
+	}
+	if isDrawing(n) {
+		return errResult(errDrawingTool)
 	}
 	if int64(len(content)) > h.Root.Limits().MaxNoteSize {
 		return errResult("content is over the note size limit (%d bytes)", h.Root.Limits().MaxNoteSize)

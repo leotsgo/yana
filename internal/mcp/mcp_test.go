@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/auth"
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
@@ -730,5 +731,54 @@ func TestUploadAsset(t *testing.T) {
 		if _, txt, isErr := up(bad); !isErr {
 			t.Fatalf("accepted %v: %s", bad, txt)
 		}
+	}
+}
+
+const drawingRefused = "drawings are edited in the yana web app, not through this tool"
+
+const testScene = `{"type":"excalidraw","version":2,"source":"yana","elements":[` +
+	`{"type":"text","text":"Router","originalText":"Router","link":"[[Target]]"},` +
+	`{"type":"rectangle","link":null}],"appState":{},"files":{}}`
+
+func TestMCPReadDrawing(t *testing.T) {
+	f := newFixture(t)
+	f.dropNote(t, "homelab/Map.excalidraw.md", string(drawing.Encode([]byte(testScene))))
+	f.dropNote(t, "homelab/Bad.excalidraw.md", "not a scene\n")
+
+	txt, isErr := f.call(t, "read_note", map[string]any{"note": "homelab/Map.excalidraw.md"})
+	if isErr {
+		t.Fatalf("read failed: %s", txt)
+	}
+	if !strings.Contains(txt, "Router") || !strings.Contains(txt, "- [[Target]]") || strings.Contains(txt, `"elements"`) {
+		t.Fatalf("drawing read wrong: %s", txt)
+	}
+	txt, isErr = f.call(t, "read_note", map[string]any{"note": "homelab/Bad.excalidraw.md"})
+	if isErr || !strings.Contains(txt, "Excalidraw drawing (could not be read).") {
+		t.Fatalf("unreadable drawing: %v %s", isErr, txt)
+	}
+}
+
+func TestMCPWriteDrawingRefused(t *testing.T) {
+	f := newFixture(t)
+	txt, isErr := f.call(t, "write_note", map[string]any{"space": "homelab", "path": "New.excalidraw.md", "content": "x"})
+	if !isErr || !strings.Contains(txt, drawingRefused) {
+		t.Fatalf("write accepted: %v %s", isErr, txt)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "homelab", "New.excalidraw.md")); err == nil {
+		t.Fatal("file was created")
+	}
+}
+
+func TestMCPAppendDrawingRefused(t *testing.T) {
+	f := newFixture(t)
+	f.dropNote(t, "homelab/Map.excalidraw.md", string(drawing.Encode([]byte(testScene))))
+	abs := filepath.Join(f.dir, "homelab", "Map.excalidraw.md")
+	before, _ := os.ReadFile(abs)
+	txt, isErr := f.call(t, "append_note", map[string]any{"note": "homelab/Map.excalidraw.md", "content": "more"})
+	if !isErr || !strings.Contains(txt, drawingRefused) {
+		t.Fatalf("append accepted: %v %s", isErr, txt)
+	}
+	if after, _ := os.ReadFile(abs); !bytes.Equal(before, after) {
+		t.Fatal("drawing file changed")
 	}
 }
