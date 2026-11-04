@@ -173,11 +173,12 @@ func TestDrawingSaveKeepsUnreadable(t *testing.T) {
 		t.Fatalf("save %d %v", code, out)
 	}
 	kept, _ := os.ReadFile(filepath.Join(e.dir, filepath.FromSlash(conflict)))
-	if string(kept) != string(old) {
+	// The scanner may have given the copy an id of its own; the body is the old file's.
+	if string(frontmatter.Parse(kept).Body) != string(old) {
 		t.Fatalf("conflict copy: %q", kept)
 	}
 	raw, _ := os.ReadFile(p)
-	if string(raw) != string(drawing.Encode([]byte(textScene))) {
+	if string(frontmatter.Parse(raw).Body) != string(drawing.Encode([]byte(textScene))) {
 		t.Fatalf("file: %q", raw)
 	}
 }
