@@ -19,6 +19,7 @@ import type { MoveResult, Note } from './api'
 import { PageBacklinks } from './backlinks'
 import * as cache from './cache'
 import { fmtBytes, fmtDate } from './dom'
+import { DrawingNote } from './drawing'
 import { Editor } from './editor'
 import { FormatBar } from './format'
 import type { Completions } from './editor'
@@ -464,6 +465,28 @@ export function NotePage(props: NotePageProps) {
             details={details}
             onToggleDetails={() => setDetails((d) => !d)}
           />
+          {detailsPane}
+        </div>
+        {shareDialog}
+        {conflictDialog}
+      </article>
+    )
+  }
+
+  if (note.kind === 'drawing') {
+    return (
+      <article class={'page drawing-page' + (details ? ' with-details' : '')}>
+        {header}
+        <div class="page-body">
+          <DrawingNote key={note.id} note={note} onOpen={onOpen} onToast={onToast}>
+            <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Path, backlinks and history" aria-pressed={details}>
+              <Icon name="panel-right" />
+              {!phone && 'Details'}
+            </button>
+            <button type="button" class="icon-btn" title="More" aria-label="More actions" onClick={(ev) => openOverflow(ev.currentTarget as HTMLElement)}>
+              <Icon name="more" size={18} />
+            </button>
+          </DrawingNote>
           {detailsPane}
         </div>
         {shareDialog}

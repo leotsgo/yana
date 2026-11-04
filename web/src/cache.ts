@@ -4,13 +4,16 @@
 // The cache is a copy of what the API already sent; it never serves as
 // the source of truth, and edits do not pass through it (they live in
 // each note's CRDT document, persisted by y-indexeddb in sync.ts).
+// The one exception is drafts: a drawing's scene not yet confirmed by the
+// server, kept until a save lands (drawing.tsx).
 
 import type { Note, SpaceTree, Status } from './api'
 
 const DB_NAME = 'yana-cache'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const NOTES = 'notes' // key: note id, value: { note, at }
 const KV = 'kv' // key: 'tree' | 'status' | 'user'
+const DRAFTS = 'drafts' // key: note id, value: Draft
 const NOTES_MAX = 20
 
 let dbPromise: Promise<IDBDatabase | null> | null = null
@@ -26,6 +29,7 @@ function db(): Promise<IDBDatabase | null> {
       const d = req.result
       if (!d.objectStoreNames.contains(NOTES)) d.createObjectStore(NOTES)
       if (!d.objectStoreNames.contains(KV)) d.createObjectStore(KV)
+      if (!d.objectStoreNames.contains(DRAFTS)) d.createObjectStore(DRAFTS)
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => resolve(null)
@@ -79,6 +83,28 @@ export async function allNotes(): Promise<Array<{ note: Note; at: number }>> {
 export async function getNote(id: string): Promise<Note | null> {
   const got = await tx<{ note: Note; at: number } | undefined>(NOTES, 'readonly', (s) => s.get(id))
   return got?.note ?? null
+}
+
+// --- drawing drafts ------------------------------------------------------
+
+/** A drawing's scene the server has not confirmed, with the hash it was edited from. */
+export interface Draft {
+  scene: string
+  baseHash: string
+  at: number
+}
+
+export async function putDraft(id: string, d: Draft): Promise<void> {
+  await tx(DRAFTS, 'readwrite', (s) => s.put(d, id))
+}
+
+export async function getDraft(id: string): Promise<Draft | null> {
+  const got = await tx<Draft | undefined>(DRAFTS, 'readonly', (s) => s.get(id))
+  return got ?? null
+}
+
+export async function deleteDraft(id: string): Promise<void> {
+  await tx(DRAFTS, 'readwrite', (s) => s.delete(id))
 }
 
 // --- key/value -------------------------------------------------------------

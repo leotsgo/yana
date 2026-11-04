@@ -18,7 +18,7 @@ export const TAB_DRAG = 'text/yana-tab'
 /** What the strip shows for a tab's note. */
 export interface TabInfo {
   title: string
-  kind?: 'md' | 'html'
+  kind?: 'md' | 'html' | 'drawing'
   public?: boolean
   /** The note is not in the tree any more: deleted, or out of reach. */
   gone: boolean

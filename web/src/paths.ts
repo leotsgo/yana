@@ -59,7 +59,8 @@ export interface TitlePath {
  * segment names it, the segments before it place it. */
 export function resolveTitle(notePath: string, currentTitle: string, raw: string): TitlePath {
   const base = notePath.slice(notePath.lastIndexOf('/') + 1)
-  const dot = base.lastIndexOf('.')
+  // A drawing keeps its two-part suffix, or a rename would make it a note.
+  const dot = /\.excalidraw\.md$/i.test(base) ? base.length - '.excalidraw.md'.length : base.lastIndexOf('.')
   const ext = dot > 0 ? base.slice(dot) : ''
   const cur = dirOf(notePath)
   const text = raw.replace(/\s+/g, ' ').trim()

@@ -286,6 +286,7 @@ export function Tree(props: TreeProps) {
         <span class="tree-title">{n.title || n.name}</span>
         {n.public && <Icon name="globe" class="tree-public" size={12} />}
         {n.kind === 'html' && <span class="tree-kind">html</span>}
+        {n.kind === 'drawing' && <span class="tree-kind">draw</span>}
         {moreButton(target, `Actions for ${n.title || n.name}`)}
       </a>
     )
@@ -583,7 +584,7 @@ export interface FlatNote {
   tags: string[]
   /** Names from the note's frontmatter aliases list. */
   aliases: string[]
-  kind?: 'md' | 'html'
+  kind?: 'md' | 'html' | 'drawing'
   public?: boolean
   /** The note's file name says it is a conflict copy. */
   conflict?: boolean

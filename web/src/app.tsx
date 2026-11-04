@@ -1029,6 +1029,21 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     })
   }
 
+  // A drawing is named first, then made with an empty scene and opened.
+  function newDrawingPrompt(dir: string): void {
+    setPalette({
+      mode: 'prompt',
+      placeholder: 'Name for the new drawing',
+      initial: '',
+      hint: `A drawing in ${dir || 'the root'}, saved as an .excalidraw.md file.`,
+      onSubmit: (v) => {
+        const name = v.trim().replace(/^\/+|\/+$/g, '').replace(/(\.excalidraw)?(\.md)?$/i, '')
+        if (!name) return
+        void createNote(`${dir ? dir + '/' : ''}${name}.excalidraw.md`, false, 'tab', true, drawingSeed)
+      },
+    })
+  }
+
   const dirMovedToast = (from: string, res: { path: string; moved: number; rewritten: number; broken: number }) => {
     const n = res.rewritten
     const what = `${res.moved} note${res.moved === 1 ? '' : 's'}`
@@ -1171,6 +1186,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       items = [
         { id: 'new', label: 'New note here', icon: 'file-plus', run: () => newNote(n.path) },
         { id: 'folder', label: 'New folder inside', icon: 'folder-plus', run: () => newFolderPrompt(n.path) },
+        { id: 'drawing', label: 'New drawing here', icon: 'palette', run: () => newDrawingPrompt(n.path) },
         ...(templates ? [{ id: 'new-template', label: 'New from template here', icon: 'copy' as const, run: () => openTemplates(n.path) }] : []),
         { id: 'pin', label: pinned ? 'Unpin' : 'Pin to the top', icon: pinned ? 'pin-off' : 'pin', run: () => pinDir(n) },
         { id: 'activity', label: 'Activity here', icon: 'history', run: () => openActivity(spaceOf(n.path), n.path.slice(spaceOf(n.path).length + 1)) },
@@ -1196,6 +1212,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       const inside = foldersIn(target.name)
       items = [
         { id: 'new', label: 'New note here', icon: 'file-plus', run: () => newNote(target.name) },
+        { id: 'drawing', label: 'New drawing here', icon: 'palette', run: () => newDrawingPrompt(target.name) },
         ...(target.name
           ? [
               { id: 'folder', label: 'New folder', icon: 'folder-plus' as const, run: () => newFolderPrompt(target.name) },
@@ -1603,6 +1620,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       { id: 'search', label: 'Search notes', hint: label(keys.search), run: focusSearch },
       { id: 'activity', label: 'What changed', detail: 'who changed which notes, when', run: () => openActivity() },
       { id: 'new-folder', label: 'New folder', detail: `in ${defaultDir() || 'the root'}`, run: () => newFolderPrompt(defaultDir()) },
+      { id: 'new-drawing', label: 'New drawing', detail: `in ${defaultDir() || 'the root'}`, run: () => newDrawingPrompt(defaultDir()) },
     )
     if (!narrow) {
       items.push({ id: 'sidebar', label: collapsed ? 'Show the sidebar' : 'Hide the sidebar', run: toggleSidebar })
@@ -2571,6 +2589,10 @@ function LinksReport({ onOpen }: { onOpen: (id: string) => void }) {
   }, [onOpen])
   return <div class="page-scroll" ref={host} />
 }
+
+// What a new drawing's file holds: the empty scene in its fence.
+const EMPTY_SCENE = '{"type":"excalidraw","version":2,"source":"yana","elements":[],"appState":{},"files":{}}'
+const drawingSeed = '```excalidraw\n' + EMPTY_SCENE + '\n```\n'
 
 function escapeHTML(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

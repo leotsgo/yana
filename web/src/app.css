@@ -1166,6 +1166,15 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .trust-toggle.on .icon { color: inherit; }
 .html-source-fallback { flex: 1; overflow: auto; padding: 12px var(--page-x); }
 
+/* --- drawings ---------------------------------------------------------- */
+
+/* Excalidraw fills its container, so the canvas gets the body's height
+   as a box of its own. */
+.drawing-note { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.drawing-canvas { position: relative; flex: 1; min-height: 0; }
+.drawing-host { position: absolute; inset: 0; }
+.drawing-unreadable { margin: 0; padding: 18px var(--page-x); color: var(--ink-2); }
+
 /* --- bottom bar (phone) ------------------------------------------------ */
 
 .bottombar {

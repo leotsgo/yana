@@ -16,7 +16,7 @@ import { Icon } from './icons'
 // a diverged file, a restore beside a newer note.
 const localConflicts = new Map<string, number>()
 
-const conflictNameRe = /\.conflict-\d{8}[-T]\d{6}(-\d+)?\.(md|markdown|html|htm)$/i
+const conflictNameRe = /\.conflict-\d{8}[-T]\d{6}(-\d+)?(\.excalidraw)?\.(md|markdown|html|htm)$/i
 
 /** Whether a path carries a conflict copy's name. */
 export function isConflictName(path: string): boolean {

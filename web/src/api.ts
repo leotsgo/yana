@@ -9,7 +9,7 @@ export interface TreeNode {
   path: string
   id?: string
   title?: string
-  kind?: 'md' | 'html'
+  kind?: 'md' | 'html' | 'drawing'
   order?: number
   /** The note's inline #tags, folded to lower case. */
   tags?: string[]
@@ -67,7 +67,7 @@ export interface Note {
   path: string
   title: string
   preview: string
-  kind: 'md' | 'html'
+  kind: 'md' | 'html' | 'drawing'
   size: number
   mtime: string
   created: string
@@ -83,6 +83,9 @@ export interface Note {
   html?: string
   markdown?: string
   source?: string
+  /** A drawing's scene JSON; scene_error instead when the body could not be read. */
+  scene?: string
+  scene_error?: string
   /** The note this copy is a conflict of; empty when the original is gone. */
   conflict_of?: string
   /** How many conflict copies point at this note, for the title-bar chip. */

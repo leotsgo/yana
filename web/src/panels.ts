@@ -20,7 +20,7 @@ export type LinkMenu = (id: string, anchor: HTMLElement, at: { x: number; y: num
 // target joined onto the linking note's directory, falling back to the
 // space root when that escapes the space (a root-style target like
 // docs/foo spelled from a nested note).
-function createPathFor(note: Note, raw: string): string {
+export function createPathFor(note: Note, raw: string): string {
   let rel = raw
   if (!/\.(md|markdown|html|htm)$/i.test(rel)) rel += '.md'
   if (note.space) {
