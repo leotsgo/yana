@@ -33,6 +33,12 @@ const TITLE: Record<SaveState, string> = {
   error: 'The server refused the save; the drawing is kept on this device.',
 }
 
+// Per drawing, across mounts of its page: the save on its way, and the
+// last scene and hash the server confirmed. A page opened again while the
+// one before is still saving waits for that save and starts from it.
+const inflight = new Map<string, Promise<void>>()
+const confirmed = new Map<string, { scene: string; hash: string }>()
+
 export interface DrawingNoteProps {
   note: Note
   onOpen: OpenNote
@@ -88,10 +94,16 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
       }
       busy = true
       show('saving')
+      let release = () => {}
+      const done = new Promise<void>((r) => (release = r))
+      inflight.set(id, done)
+      let again = false
       try {
         const res = await api.saveSource(id, scene, base)
         base = res.hash
         saved = scene
+        confirmed.set(id, { scene, hash: base })
+        forgetEmbed(id)
         void cache.putNote({ ...latest.current.note, scene, content_hash: base })
         if (res.conflict_copy) {
           markLocalConflict(res.conflict_copy)
@@ -104,20 +116,30 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
         } else if (pending !== null) {
           // Drawn on while this save was out: the draft now builds on it.
           void cache.putDraft(id, { scene: pending, baseHash: base, at: Date.now() })
-          schedule()
+          again = true
         }
       } catch (err) {
         // The draft stays either way. A refusal (too large, not a scene)
-        // is said; a network failure waits for the connection.
+        // is said; a network failure is tried again in a while and when
+        // the connection returns. A closed page leaves it to the draft.
         if (err instanceof ApiError && err.status < 500) {
           show('error')
           toast(err.message)
         } else {
           show('offline')
+          if (alive) timer = window.setTimeout(() => void save(), 10_000)
         }
       } finally {
         busy = false
+        if (inflight.get(id) === done) inflight.delete(id)
       }
+      // A closed page saves the rest at once, before release, so a page
+      // opened meanwhile waits for it too; no timer outlives the page.
+      if (again) {
+        if (alive) schedule()
+        else void save()
+      }
+      release()
     }
 
     const onChange = (scene: string) => {
@@ -158,6 +180,26 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
     }
 
     const open = async () => {
+      // The note this page was given may predate a save the page before
+      // it made: wait for that save, then take the server's copy.
+      for (let p = inflight.get(id); p; p = inflight.get(id)) await p
+      const last = confirmed.get(id)
+      if (last && last.hash !== base) {
+        try {
+          const fresh = await api.note(id)
+          if (fresh.scene === undefined || fresh.scene_error) {
+            if (alive) setNotice('This drawing could not be read. It is left as it is.')
+            return
+          }
+          saved = fresh.scene
+          base = fresh.content_hash
+          links = fresh.links
+        } catch {
+          saved = last.scene
+          base = last.hash
+        }
+      }
+      if (!alive) return
       let scene = saved
       // A draft is a scene no save confirmed: save it before anything else,
       // from the hash it was edited from, so a file that moved on since is
@@ -259,26 +301,54 @@ export function renderDrawingEmbeds(root: HTMLElement, onOpen: OpenNote): void {
     if (block.dataset['drawn']) continue
     block.dataset['drawn'] = '1'
     const id = block.dataset['id'] ?? ''
-    // ponytail: fetched again on every render (each live re-render while
-    // typing in split); keep the SVG per id and content_hash if that shows.
-    api
-      .note(id)
-      .then(async (n) => {
-        if (n.scene === undefined || n.scene_error) return
-        const svg = await (await loadDrawing()).renderSvg(n.scene, isDark())
-        block.prepend(svg)
-        block.classList.add('drawn')
-        block.title = `Open ${n.title}`
-        block.addEventListener('click', (ev) => {
-          // The link inside opens it already.
-          if ((ev.target as Element).closest('a')) return
-          onOpen(id, howFrom(ev))
-        })
+    const put = (svg: SVGSVGElement | null) => {
+      if (!svg) return
+      block.prepend(svg.cloneNode(true))
+      block.classList.add('drawn')
+      block.title = 'Open the drawing'
+      block.addEventListener('click', (ev) => {
+        // The link inside opens it already.
+        if ((ev.target as Element).closest('a')) return
+        onOpen(id, howFrom(ev))
       })
-      .catch(() => {
-        // Offline the first time, or not a scene after all: the link stays.
-      })
+    }
+    const e = embedSvg(id, isDark())
+    // Drawn before: in at once, so a live re-render does not jump.
+    if (e.svg !== undefined) put(e.svg)
+    else e.ready.then(put, () => {})
   }
+}
+
+// One SVG per drawing and theme, cloned into each render. A save from
+// this tab drops it; a drawing that cannot be drawn is null (the link
+// stays), and a failed fetch is forgotten so the next render tries again.
+// ponytail: a save from another device shows after a reload; drop the
+// entry on the relay's change notice if that matters.
+const embeds = new Map<string, { ready: Promise<SVGSVGElement | null>; svg?: SVGSVGElement | null }>()
+
+function embedSvg(id: string, dark: boolean) {
+  const key = `${id}:${dark}`
+  let e = embeds.get(key)
+  if (!e) {
+    const entry: { ready: Promise<SVGSVGElement | null>; svg?: SVGSVGElement | null } = {
+      ready: api.note(id).then(async (n) => {
+        if (n.scene === undefined || n.scene_error) return null
+        return (await loadDrawing()).renderSvg(n.scene, dark)
+      }),
+    }
+    entry.ready.then(
+      (svg) => (entry.svg = svg),
+      () => embeds.delete(key),
+    )
+    embeds.set(key, entry)
+    e = entry
+  }
+  return e
+}
+
+function forgetEmbed(id: string): void {
+  embeds.delete(`${id}:true`)
+  embeds.delete(`${id}:false`)
 }
 
 // Two scenes with the same elements but for their version stamps.

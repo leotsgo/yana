@@ -31,7 +31,16 @@ function db(): Promise<IDBDatabase | null> {
       if (!d.objectStoreNames.contains(KV)) d.createObjectStore(KV)
       if (!d.objectStoreNames.contains(DRAFTS)) d.createObjectStore(DRAFTS)
     }
-    req.onsuccess = () => resolve(req.result)
+    req.onsuccess = () => {
+      // A newer version opened in another tab: step aside so its upgrade
+      // runs, and open again on the next call (which then finds it newer
+      // and goes without the cache, as when blocked).
+      req.result.onversionchange = () => {
+        req.result.close()
+        dbPromise = null
+      }
+      resolve(req.result)
+    }
     req.onerror = () => resolve(null)
     req.onblocked = () => resolve(null)
   })
