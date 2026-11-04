@@ -1174,6 +1174,12 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .drawing-canvas { position: relative; flex: 1; min-height: 0; }
 .drawing-host { position: absolute; inset: 0; }
 .drawing-unreadable { margin: 0; padding: 18px var(--page-x); color: var(--ink-2); }
+.markdown .drawing-embed { margin: 0 0 0.9em; }
+.markdown .drawing-embed.drawn { cursor: pointer; }
+.markdown .drawing-embed > svg {
+  display: block; max-width: 100%; height: auto; margin-bottom: 4px;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+}
 
 /* --- bottom bar (phone) ------------------------------------------------ */
 

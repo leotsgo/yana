@@ -19,7 +19,7 @@ import type { MoveResult, Note } from './api'
 import { PageBacklinks } from './backlinks'
 import * as cache from './cache'
 import { fmtBytes, fmtDate } from './dom'
-import { DrawingNote } from './drawing'
+import { DrawingNote, renderDrawingEmbeds } from './drawing'
 import { Editor } from './editor'
 import { FormatBar } from './format'
 import type { Completions } from './editor'
@@ -855,6 +855,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, hi
     wireTags(el, onTag)
     wireAttachments(el, note, phone)
     renderRich(el)
+    renderDrawingEmbeds(el, onOpen)
     if (highlight && markText(el, highlight, !scrolled.current)) scrolled.current = true
     if (taskLine !== null && markTaskLine(el, taskLine, !scrolled.current)) scrolled.current = true
   }

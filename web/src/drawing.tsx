@@ -247,6 +247,40 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
   )
 }
 
+/**
+ * Draws the drawings embedded in a rendered note: the server leaves a
+ * .drawing-embed block holding a link, and the image goes before the
+ * link. A click on the block opens the drawing. The editor bundle is only
+ * fetched when the note has such a block; a drawing that cannot be drawn
+ * keeps the plain link.
+ */
+export function renderDrawingEmbeds(root: HTMLElement, onOpen: OpenNote): void {
+  for (const block of root.querySelectorAll<HTMLElement>('.drawing-embed[data-id]')) {
+    if (block.dataset['drawn']) continue
+    block.dataset['drawn'] = '1'
+    const id = block.dataset['id'] ?? ''
+    // ponytail: fetched again on every render (each live re-render while
+    // typing in split); keep the SVG per id and content_hash if that shows.
+    api
+      .note(id)
+      .then(async (n) => {
+        if (n.scene === undefined || n.scene_error) return
+        const svg = await (await loadDrawing()).renderSvg(n.scene, isDark())
+        block.prepend(svg)
+        block.classList.add('drawn')
+        block.title = `Open ${n.title}`
+        block.addEventListener('click', (ev) => {
+          // The link inside opens it already.
+          if ((ev.target as Element).closest('a')) return
+          onOpen(id, howFrom(ev))
+        })
+      })
+      .catch(() => {
+        // Offline the first time, or not a scene after all: the link stays.
+      })
+  }
+}
+
 // Two scenes with the same elements but for their version stamps.
 // Excalidraw can bump versions with nothing changed (text re-measured
 // once its fonts load, right after mount); that is not worth a save.
