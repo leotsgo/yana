@@ -59,14 +59,17 @@ func SplitExt(name string) (stem, ext string) {
 
 // Block returns the JSON inside the first ```excalidraw fence of body, which
 // has its frontmatter already stripped. It returns ErrNoScene if there is none.
-func Block(body []byte) ([]byte, error) {
+func Block(body []byte) ([]byte, error) { return fence(body, "excalidraw") }
+
+// fence returns the lines inside the first ```info fence of body, or ErrNoScene.
+func fence(body []byte, info string) ([]byte, error) {
 	var out [][]byte
 	open := false
 	for _, line := range bytes.Split(body, []byte("\n")) {
 		l := bytes.TrimRight(line, " \t\r")
 		switch {
 		case !open:
-			open = string(l) == "```excalidraw"
+			open = string(l) == "```"+info
 		case string(l) == "```":
 			return bytes.Join(out, []byte("\n")), nil
 		default:
