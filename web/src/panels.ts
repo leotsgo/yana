@@ -7,6 +7,7 @@ import { api, ApiError, join } from './api'
 import type { Backlink, HistoryEntry, Note } from './api'
 import { assetURL } from './auth'
 import { h, clear, fmtDate } from './dom'
+import * as prefs from './prefs'
 import { wireOpen } from './workspace'
 import type { OpenHow } from './workspace'
 
@@ -19,11 +20,15 @@ export type LinkMenu = (id: string, anchor: HTMLElement, at: { x: number; y: num
 // The create affordance needs a path for the note it will make: the raw
 // target joined onto the linking note's directory, falling back to the
 // space root when that escapes the space (a root-style target like
-// docs/foo spelled from a nested note).
+// docs/foo spelled from a nested note). A bare name goes to the folder
+// picked for new notes when that folder is in the note's space; the link
+// still resolves, by file name.
 export function createPathFor(note: Note, raw: string): string {
   let rel = raw
   if (!/\.(md|markdown|html|htm)$/i.test(rel)) rel += '.md'
   if (note.space) {
+    const folder = prefs.newNoteFolder()
+    if (!rel.includes('/') && (folder === note.space || folder.startsWith(note.space + '/'))) return folder + '/' + rel
     const joined = join(note.base, rel)
     if (joined.startsWith(note.space + '/')) return joined
     return note.space + '/' + rel

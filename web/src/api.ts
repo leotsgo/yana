@@ -601,8 +601,10 @@ export const api = {
   createAgent: (label: string, spaces: string[], canWrite: boolean) =>
     post<AgentKey & { token: string }>('/api/agents', { label, spaces, can_write: canWrite }),
   revokeAgent: (id: string) => post<{ ok: boolean }>(`/api/agents/${encodeURIComponent(id)}`, {}, 'DELETE'),
-  daily: (space: string, date: string) =>
-    post<{ id: string; path: string; created: boolean }>('/api/notes/daily', { space, date }),
+  /** Today's note, made when missing. A folder inside the space takes the
+   * place of the daily pattern's leading folders ('' is the top). */
+  daily: (space: string, date: string, folder?: string) =>
+    post<{ id: string; path: string; created: boolean }>('/api/notes/daily', { space, date, folder }),
   /** Substitute a template note's variables: the prompts it asks, the
    * body, where the caret lands, and what its name suggests as a title. */
   expandTemplate: (id: string, input: { title?: string; folder?: string; answers?: Record<string, string> } = {}) =>

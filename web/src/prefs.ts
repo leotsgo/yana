@@ -233,6 +233,26 @@ export function setDailySpace(space: string): void {
   write('daily', space || null)
 }
 
+/** The folder new notes land in when nothing names a place, as a full
+ * path with its space first; empty leaves it to newNoteStart. */
+export function newNoteFolder(): string {
+  return read('space.folder') ?? ''
+}
+
+export function setNewNoteFolder(path: string): void {
+  write('space.folder', path || null)
+}
+
+/** The folder the daily note goes to, as a full path with its space
+ * first; empty keeps the server's daily pattern. */
+export function dailyFolder(): string {
+  return read('daily.folder') ?? ''
+}
+
+export function setDailyFolder(path: string): void {
+  write('daily.folder', path || null)
+}
+
 // --- layout --------------------------------------------------------------
 
 /** The mode a note opens in. Read is the default; split only applies

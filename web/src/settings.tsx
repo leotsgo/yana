@@ -14,11 +14,14 @@ import type { Account, AgentKey, ConflictEntry, DeletedNote, GitRemote, GitRemot
 import * as auth from './auth'
 import type { ConfirmSpec } from './confirm'
 import { ConflictDialog, fmtAge } from './conflict'
+import { dailyPath } from './defaults'
 import { fmtBytes, fmtDate, isSet } from './dom'
 import { Icon } from './icons'
 import type { IconName } from './icons'
 import type { Layout } from './layout'
 import * as prefs from './prefs'
+import { today } from './sharelib'
+import { spaceOfDir } from './templates'
 import { exportTheme, parseTheme, swatch } from './themes'
 import type { Mode, ThemeDef } from './themes'
 
@@ -44,6 +47,8 @@ export interface SettingsProps {
   status: Status | null
   spaces: SpaceInfo[] | null
   notes: Array<{ id: string; path: string; title: string }>
+  /** Every folder in the tree, by path, spaces included. */
+  folders: string[]
   onSection: (s: Section | null) => void
   onToast: (msg: string) => void
   confirm: (spec: ConfirmSpec) => void
@@ -60,6 +65,7 @@ export interface Ctx {
   status: Status | null
   spaces: SpaceInfo[] | null
   notes: SettingsProps['notes']
+  folders: string[]
   say: (msg: string) => void
   confirm: (spec: ConfirmSpec) => void
   onChanged: () => void
@@ -79,6 +85,7 @@ export function SettingsPage(props: SettingsProps) {
     status: props.status,
     spaces: props.spaces,
     notes: props.notes,
+    folders: props.folders,
     say: props.onToast,
     confirm: props.confirm,
     onChanged: props.onChanged,
@@ -240,6 +247,25 @@ function Choice<T extends string>({ label, value, options, onChange }: ChoicePro
         ))}
       </div>
     </div>
+  )
+}
+
+/** A folder of one space, its top first. A stored folder the tree no
+ * longer has stays on offer; the next note made there makes it again. */
+function FolderSelect({ id, space, value, folders, none, onChange }: { id: string; space: string; value: string; folders: string[]; none: string; onChange: (v: string) => void }) {
+  const inside = folders.filter((f) => f.startsWith(space + '/'))
+  const gone = value !== '' && value !== space && !inside.includes(value)
+  return (
+    <select id={id} class="select" value={value} onChange={(ev) => onChange((ev.target as HTMLSelectElement).value)}>
+      <option value="">{none}</option>
+      <option value={space}>the top of {space}</option>
+      {inside.map((f) => (
+        <option key={f} value={f}>
+          {f.slice(space.length + 1)}
+        </option>
+      ))}
+      {gone && <option value={value}>{value.slice(space.length + 1)} (made on first use)</option>}
+    </select>
   )
 }
 
@@ -665,6 +691,24 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
   const [defSpace, setDefSpace] = useState(prefs.defaultSpace)
   const [dailySpace, setDailySpace] = useState(prefs.dailySpace)
   const [start, setStart] = useState(prefs.newNoteStart)
+  const [newFolder, setNewFolder] = useState(prefs.newNoteFolder)
+  const [dailyFolder, setDailyFolder] = useState(prefs.dailyFolder)
+  // A folder belongs to one space; picking another space lets it go.
+  const keepNewFolder = (space: string) => {
+    if (newFolder && spaceOfDir(newFolder) !== space) {
+      prefs.setNewNoteFolder('')
+      setNewFolder('')
+    }
+  }
+  const keepDailyFolder = (space: string) => {
+    if (dailyFolder && spaceOfDir(dailyFolder) !== space) {
+      prefs.setDailyFolder('')
+      setDailyFolder('')
+    }
+  }
+  // The space the daily folder is picked in: its own, else new notes'.
+  const dailyIn = dailySpace || defSpace
+  const pattern = ctx.status?.daily.pattern
 
   const reload = useCallback(async () => {
     try {
@@ -766,24 +810,6 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
       </Block>
       <Block title="Defaults" lead="Where new notes and the daily note go. Kept in this browser.">
         <div class="pref-row">
-          <label class="pref-label" for="pref-start">
-            New notes start
-          </label>
-          <select
-            id="pref-start"
-            class="select"
-            value={start}
-            onChange={(ev) => {
-              const v = (ev.target as HTMLSelectElement).value === 'last' ? 'last' : 'beside'
-              prefs.setNewNoteStart(v)
-              setStart(v)
-            }}
-          >
-            <option value="beside">beside the open note, else the last folder</option>
-            <option value="last">always in the last folder</option>
-          </select>
-        </div>
-        <div class="pref-row">
           <label class="pref-label" for="pref-space">
             Space for new notes
           </label>
@@ -795,9 +821,50 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
             onChange={(v) => {
               prefs.setDefaultSpace(v)
               setDefSpace(v)
+              keepNewFolder(v)
+              if (!dailySpace) keepDailyFolder(v)
             }}
           />
         </div>
+        {defSpace && (
+          <div class="pref-row">
+            <label class="pref-label" for="pref-folder">
+              Folder for new notes
+              <span class="pref-hint">New, the palette and new links put a note here. The tree's + and New note here keep their folder.</span>
+            </label>
+            <FolderSelect
+              id="pref-folder"
+              space={defSpace}
+              value={newFolder}
+              folders={ctx.folders}
+              none="none, see where new notes start"
+              onChange={(v) => {
+                prefs.setNewNoteFolder(v)
+                setNewFolder(v)
+              }}
+            />
+          </div>
+        )}
+        {!newFolder && (
+          <div class="pref-row">
+            <label class="pref-label" for="pref-start">
+              New notes start
+            </label>
+            <select
+              id="pref-start"
+              class="select"
+              value={start}
+              onChange={(ev) => {
+                const v = (ev.target as HTMLSelectElement).value === 'last' ? 'last' : 'beside'
+                prefs.setNewNoteStart(v)
+                setStart(v)
+              }}
+            >
+              <option value="beside">beside the open note, else the last folder</option>
+              <option value="last">always in the last folder</option>
+            </select>
+          </div>
+        )}
         <div class="pref-row">
           <label class="pref-label" for="pref-daily">
             Daily note
@@ -810,9 +877,33 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
             onChange={(v) => {
               prefs.setDailySpace(v)
               setDailySpace(v)
+              keepDailyFolder(v || defSpace)
             }}
           />
         </div>
+        {dailyIn && (
+          <div class="pref-row">
+            <label class="pref-label" for="pref-daily-folder">
+              Folder for the daily note
+              {pattern && (
+                <span class="pref-hint">
+                  Today: {dailyIn}/{dailyPath(pattern, dailyFolder ? dailyFolder.slice(dailyIn.length + 1) : undefined, today())}
+                </span>
+              )}
+            </label>
+            <FolderSelect
+              id="pref-daily-folder"
+              space={dailyIn}
+              value={dailyFolder}
+              folders={ctx.folders}
+              none="as the server's pattern says"
+              onChange={(v) => {
+                prefs.setDailyFolder(v)
+                setDailyFolder(v)
+              }}
+            />
+          </div>
+        )}
       </Block>
     </>
   )

@@ -190,6 +190,44 @@ func TestDailyNoteWithoutTemplate(t *testing.T) {
 	}
 }
 
+func TestDailyNoteInFolder(t *testing.T) {
+	for _, c := range [][3]string{
+		{"journal/{YYYY}/{MM}/{date}.md", "1 daily", "1 daily/{YYYY}/{MM}/{date}.md"},
+		{"a/b/{date}.md", "x/y", "x/y/{date}.md"},
+		{"{date}.md", "daily", "daily/{date}.md"},
+		{"journal/today.md", "d", "d/today.md"},
+		{"journal/{YYYY}/{date}.md", "", "{YYYY}/{date}.md"},
+	} {
+		if got := inFolder(c[0], c[1]); got != c[2] {
+			t.Errorf("inFolder(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
+		}
+	}
+
+	e := newLinksEnv(t, false, nil)
+	var res struct {
+		Path string `json:"path"`
+	}
+	in := map[string]string{"space": "main", "date": "2026-09-15", "folder": "5 zettelkasten/daily"}
+	if code := e.post(t, "/api/notes/daily", in, &res); code != 201 {
+		t.Fatalf("daily in folder = %d", code)
+	}
+	if res.Path != "main/5 zettelkasten/daily/2026/09/2026-09-15.md" {
+		t.Fatalf("daily in folder path = %q", res.Path)
+	}
+	top := map[string]string{"space": "main", "date": "2026-09-16", "folder": ""}
+	if code := e.post(t, "/api/notes/daily", top, &res); code != 201 || res.Path != "main/2026/09/2026-09-16.md" {
+		t.Fatalf("daily at the top = %d %q", code, res.Path)
+	}
+	for _, bad := range []map[string]string{
+		{"space": "main", "date": "2026-09-15", "folder": "../other"},
+		{"space": "", "date": "2026-09-15", "folder": "daily"},
+	} {
+		if code := e.post(t, "/api/notes/daily", bad, nil); code != 400 {
+			t.Fatalf("daily folder %v = %d, want 400", bad, code)
+		}
+	}
+}
+
 func TestRenderEndpoint(t *testing.T) {
 	e := newLinksEnv(t, false, nil)
 	var res struct {

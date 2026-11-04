@@ -70,7 +70,7 @@ check out (a missing colour, one that is not hex) is left out. Drawings and diag
 light or dark, not the theme's colours. The Appearance page also sets the
 text size (small, normal, large), the line width (narrow, normal, wide),
 whether the text is centered, the mode notes open in, the hide-syntax switch, and the sidebar density.
-Those, the theme picked for each mode, the sidebar state, what the tree has open, the open tabs, the display name, the default spaces and the
+Those, the theme picked for each mode, the sidebar state, what the tree has open, the open tabs, the display name, the default spaces and folders and the
 recently opened notes are kept per browser in `localStorage` under
 `yana.*`; nothing else is stored there. Everything in `prefs.ts` reads
 the same keys, so a preference set in settings is what the shell and the
@@ -159,7 +159,7 @@ one section at a time on a phone:
 - **People** (owner only) — the accounts: add, remove, reset a password.
 - **Spaces and sharing** — create, rename and remove spaces; each space's
   members and roles for its owners, your own role otherwise; the space
-  new notes and the daily note go into, and where the new-note picker
+  and folder new notes and the daily note go into, and where the new-note picker
   starts.
 - **Agents** (owner only) — keys for the MCP endpoint, with the URL and
   a copy button. See [agents.md](agents.md).
@@ -231,6 +231,18 @@ pane — the picker starts in the folder a note was last made in
 → Spaces → "New notes start" picks between "beside the open note, else
 the last folder" (the default) and "always in the last folder". The Move
 picker shows the same recent folders at the top.
+
+Settings → Spaces → "Folder for new notes" (offered once a space for new
+notes is picked) fixes the place instead: the picker always starts there,
+whatever note is open, and so do New from template, the palette's New
+folder and New drawing, a name typed into the palette that matches no
+note, and a click on a link to a missing note written as a bare name
+(`[[idea]]`, when the folder is in the linking note's space; it still
+resolves, by file name). The `+` in the tree and "New note here" keep
+their folder. It is stored per browser (`yana.space.folder`, the full
+path with the space first), like the default spaces, so a phone needs it
+set again. A folder deleted since is made again by the next note in it;
+one whose space is gone, or a different space picked, drops the setting.
 
 In a folder whose notes follow a pattern, the picker suggests the next
 name as grey text after the caret, while nothing is typed after the
@@ -822,6 +834,17 @@ Two settings shape it, both paths relative to the space:
 | `YANA_DAILY_PATTERN` | `journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md` | Where the note lives |
 | `YANA_DAILY_TEMPLATE` | `templates/daily.md` | A note whose body seeds a new daily note |
 
+Settings → Spaces → "Folder for the daily note" moves it, per browser
+(`yana.daily.folder`): the folders at the front of the pattern that carry
+no date token give way to the folder picked, and the dated part stays.
+With the default pattern and `1 daily`, today's note is
+`1 daily/2026/11/2026-11-04.md`; with a pattern of `journal/{date}.md` it
+is `1 daily/2026-11-04.md`. "The top of" the space drops the leading
+folders altogether. The line under the setting shows today's path. The
+folder also fixes the space, whatever note is open; Capture and the
+share target append to the same note. A folder that is not there is
+made, the way the pattern's dated folders always are.
+
 `{YYYY}`, `{MM}`, `{DD}` and `{date}` (`YYYY-MM-DD`) expand in both, and
 the `{{...}}` variables below work in the template body too. When the
 template note does not exist the new note starts as a heading with the
@@ -875,7 +898,7 @@ inserted text.
 | `GET /api/attachments/{path}` | One attachment's metadata: name, size, and a PDF's page count |
 | `GET /api/assets/orphans` | Assets no note in their space references, for the Data page |
 | `GET /api/notes/{id}/asset-view?asset=` | Mints the content-origin URL an attachment card's inline viewer loads |
-| `POST /api/notes/daily` | `{space, date}` → today's note, created from the template if missing |
+| `POST /api/notes/daily` | `{space, date, folder?}` → today's note, created from the template if missing; `folder` (inside the space, `""` for its top) replaces the pattern's leading folders |
 | `POST /api/templates/{id}/expand` | `{title, folder, answers}` → a template's body with its variables substituted, plus the prompts it asks, where `{{cursor}}` landed, and the title its name suggests; the note itself is made with `POST /api/notes` |
 | `POST /api/guide` | `{space}` → the starter note in that space, written first when missing (`201`), found otherwise (`200`); editors and up |
 | `POST /api/render` | `{markdown}` → `{html}` for the read view and the preview |

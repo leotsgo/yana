@@ -176,6 +176,25 @@ func folderOfDaily(pattern, space string, day time.Time) string {
 	return dir
 }
 
+// inFolder moves a daily pattern into a folder a person chose: the
+// leading folders that carry no date token give way to it, the dated
+// part stays. journal/{YYYY}/{MM}/{date}.md in "daily" becomes
+// daily/{YYYY}/{MM}/{date}.md; {date}.md becomes daily/{date}.md; an
+// empty folder is the top of the space. The web client's dailyPath
+// (web/src/defaults.ts) mirrors this for the settings preview.
+func inFolder(pattern, folder string) string {
+	parts := strings.Split(pattern, "/")
+	i := 0
+	for i < len(parts)-1 && !strings.Contains(parts[i], "{") {
+		i++
+	}
+	rest := strings.Join(parts[i:], "/")
+	if folder == "" {
+		return rest
+	}
+	return folder + "/" + rest
+}
+
 // handleDailyNote opens today's note: it answers with the existing one
 // when the file is there and creates it from the template otherwise. The
 // client sends its local date so "today" is the user's, not the
@@ -184,6 +203,10 @@ func (s *Server) handleDailyNote(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Space string `json:"space"`
 		Date  string `json:"date"`
+		// Folder, inside the space, takes the place of the pattern's
+		// leading folders; "" is the top of the space, and leaving it
+		// out keeps the pattern as configured.
+		Folder *string `json:"folder"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "body must be JSON with space and date fields")
@@ -203,6 +226,14 @@ func (s *Server) handleDailyNote(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	cfg := s.daily()
+	if body.Folder != nil {
+		f, err := s.Root.Clean(strings.Trim(strings.TrimSpace(*body.Folder), "/"))
+		if err != nil || space == "" {
+			writeError(w, http.StatusBadRequest, "folder must be a path inside a space")
+			return
+		}
+		cfg.Pattern = inFolder(cfg.Pattern, f)
+	}
 	rel := expandDaily(cfg.Pattern, day)
 	if space != "" {
 		rel = space + "/" + rel

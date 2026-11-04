@@ -24,6 +24,7 @@ import * as cache from './cache'
 import { Confirm } from './confirm'
 import type { ConfirmSpec } from './confirm'
 import { isLocalConflict } from './conflict'
+import { pinned } from './defaults'
 import { isEditable, isMac, keys, label, matches, tabDigit } from './hotkeys'
 import { Icon, type IconName } from './icons'
 import { useVisualViewport } from './keyboard'
@@ -667,18 +668,33 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     return spaces?.[0]?.name ?? ''
   }
 
-  /** The folder a new note lands in when none is named: beside the open
-   * note, else the top of the default space. */
+  /** The folder picked in the settings for new notes; empty when none. */
+  function newFolder(): string {
+    return pinned(prefs.newNoteFolder(), (spaces ?? []).map((s) => s.name))
+  }
+
+  /** The folder a new note lands in when none is named: the one picked
+   * in the settings, else beside the open note, else the top of the
+   * default space. */
   function defaultDir(): string {
+    const fixed = newFolder()
+    if (fixed) return fixed
     if (current.current) return dirOf(current.current.path)
     return defaultSpace()
   }
 
-  /** The daily note's space: the preference, else the same as new notes. */
-  function dailySpace(): string {
+  /** Where the daily note goes: the folder picked in the settings, its
+   * space with it; else the preferred space, else the same as new notes,
+   * with the folder the server's pattern names. */
+  function dailyTarget(): { space: string; folder?: string } {
+    const fixed = pinned(prefs.dailyFolder(), (spaces ?? []).map((s) => s.name))
+    if (fixed) {
+      const space = spaceOfDir(fixed)
+      return { space, folder: fixed.slice(space.length + 1) }
+    }
     const pref = prefs.dailySpace()
-    if (pref && spaces?.some((s) => s.name === pref)) return pref
-    return defaultSpace()
+    if (pref && spaces?.some((s) => s.name === pref)) return { space: pref }
+    return { space: defaultSpace() }
   }
 
   // A new note opens in the editor: with its title selected, or, named
@@ -734,10 +750,13 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     void createNote(d ? `${d}/${name}` : name, true, how)
   }
 
-  /** Where the new-note picker starts: beside the open note, else the
-   * folder a note was last made in on this device, else the top of the
-   * default space. The setting can put the last folder first. */
+  /** Where the new-note picker starts: the folder picked in the settings;
+   * else beside the open note, else the folder a note was last made in on
+   * this device, else the top of the default space. The setting can put
+   * the last folder first. */
   function pickerStart(): string {
+    const fixed = newFolder()
+    if (fixed) return fixed
     // A last folder since deleted gives way to the newest recent one.
     const known = (p: string) => p !== '' && dirs.some((d) => d.path === p)
     const last = [prefs.lastFolder(), ...prefs.recentFolders()].find(known) ?? ''
@@ -809,14 +828,15 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
 
   const openDaily = useCallback(async () => {
     const date = today()
+    const at = dailyTarget()
     try {
-      const res = await api.daily(dailySpace(), date)
+      const res = await api.daily(at.space, date, at.folder)
       if (res.created) void loadTree()
       const tab = navigate(res.id, 'tab', res.created ? { mode: 'edit' } : {})
       if (tab && res.created) setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1 }))
     } catch (err) {
       if (cache.networkDown(err)) {
-        void outbox.enqueue({ kind: 'daily', space: dailySpace(), date })
+        void outbox.enqueue({ kind: 'daily', space: at.space, date, folder: at.folder })
         say("Offline. Today's note opens when the connection returns.")
       } else {
         say(err instanceof ApiError ? err.message : 'Could not open the daily note.')
@@ -830,9 +850,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const capture = useCallback(
     async (text: string) => {
       const block = composeShareBlock('', text, '')
-      const space = dailySpace()
+      const { space, folder } = dailyTarget()
       try {
-        const res = await api.daily(space, today())
+        const res = await api.daily(space, today(), folder)
         if (res.created) void loadTree()
         const { offline, undo } = await appendToNote(res.id, block)
         say(offline ? 'Added on this device. It merges when the server is back.' : "Added to today's note.", {
@@ -845,7 +865,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         })
       } catch (err) {
         if (cache.networkDown(err)) {
-          outbox.enqueueShare(space, '', text, '')
+          outbox.enqueueShare(space, '', text, '', folder)
           say("Offline. The line lands in today's note when the connection returns.")
         } else {
           say(err instanceof Error ? err.message : 'Could not add the line.')
@@ -1537,7 +1557,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         }
       },
       onCreate: (q) => {
-        const sp = defaultSpace()
+        const sp = newFolder() || defaultSpace()
         void createNote(q.includes('/') || !sp ? q : `${sp}/${q}`)
       },
     })
@@ -2054,7 +2074,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
           />
         )}
         {r.kind === 'share' && (
-          <SharePage notes={notes} dailySpace={dailySpace()} onOpen={navigate} onToast={(m) => say(m)} search={new URL(path, location.origin).search} />
+          <SharePage notes={notes} dailySpace={dailyTarget().space} dailyFolder={dailyTarget().folder} onOpen={navigate} onToast={(m) => say(m)} search={new URL(path, location.origin).search} />
         )}
         {r.kind === 'settings' && (
           <SettingsPage
@@ -2063,6 +2083,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
             status={status}
             spaces={spaceList}
             notes={notes}
+            folders={dirs.map((d) => d.path)}
             onSection={(s) => openSettings(s)}
             onToast={(m) => say(m)}
             confirm={setConfirmSpec}

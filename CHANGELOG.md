@@ -9,6 +9,8 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- Settings → Spaces picks the folder new notes go to and the folder for
+  the daily note, kept in the browser beside the default spaces.
 - Dragging a note in the graph is smooth again: the note stays under the
   pointer every frame, and the layout no longer slows to half its pace
   while you drag.

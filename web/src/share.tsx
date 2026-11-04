@@ -26,13 +26,15 @@ export interface SharePageProps {
   notes: ShareNote[]
   /** The space today's daily note goes to, from the settings. */
   dailySpace: string
+  /** The folder inside it, when one is picked in the settings. */
+  dailyFolder?: string
   onOpen: (id: string) => void
   onToast: (msg: string) => void
   /** The query the share arrived with (title, text, url). */
   search: string
 }
 
-export function SharePage({ notes, dailySpace, onOpen, onToast, search }: SharePageProps) {
+export function SharePage({ notes, dailySpace, dailyFolder, onOpen, onToast, search }: SharePageProps) {
   const params = new URLSearchParams(search)
   const [title, setTitle] = useState(params.get('title') ?? '')
   const [text, setText] = useState(params.get('text') ?? '')
@@ -54,12 +56,12 @@ export function SharePage({ notes, dailySpace, onOpen, onToast, search }: ShareP
     setBusy(true)
     setError(null)
     try {
-      const res = await api.daily(dailySpace, today())
+      const res = await api.daily(dailySpace, today(), dailyFolder)
       await appendToNote(res.id, block)
       setDone({ path: res.path, id: res.id })
     } catch (err) {
       if (cache.networkDown(err)) {
-        enqueueShare(dailySpace, title, text, url)
+        enqueueShare(dailySpace, title, text, url, dailyFolder)
         setQueued(true)
       } else {
         setError(err instanceof Error ? err.message : 'Could not add the share.')

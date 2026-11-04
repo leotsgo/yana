@@ -10,9 +10,9 @@ import { appendToNote, composeShareBlock, today } from './sharelib'
 
 export type OutboxEntry =
   | { kind: 'create'; path: string; content?: string }
-  | { kind: 'daily'; space: string; date: string }
+  | { kind: 'daily'; space: string; date: string; folder?: string }
   | { kind: 'upload'; path: string; name: string; blob: Blob }
-  | { kind: 'share'; space: string; date: string; title: string; text: string; url: string }
+  | { kind: 'share'; space: string; date: string; title: string; text: string; url: string; folder?: string }
 
 const DB_NAME = 'yana-outbox'
 const DB_VERSION = 1
@@ -76,8 +76,8 @@ export async function enqueue(entry: OutboxEntry): Promise<void> {
 }
 
 /** Queue today's daily note as the share target. */
-export function enqueueShare(space: string, title: string, text: string, url: string): void {
-  void enqueue({ kind: 'share', space, date: today(), title, text, url })
+export function enqueueShare(space: string, title: string, text: string, url: string, folder?: string): void {
+  void enqueue({ kind: 'share', space, date: today(), title, text, url, folder })
 }
 
 async function readAll(): Promise<Array<{ key: IDBValidKey; entry: OutboxEntry }>> {
@@ -162,7 +162,7 @@ async function send(entry: OutboxEntry): Promise<'sent' | 'network' | string> {
         await api.createNote(entry.path, entry.content)
         return 'sent'
       case 'daily':
-        await api.daily(entry.space, entry.date)
+        await api.daily(entry.space, entry.date, entry.folder)
         return 'sent'
       case 'upload': {
         const res = await api.upload(entry.path, entry.blob)
@@ -172,7 +172,7 @@ async function send(entry: OutboxEntry): Promise<'sent' | 'network' | string> {
         return 'sent'
       }
       case 'share': {
-        const res = await api.daily(entry.space, entry.date)
+        const res = await api.daily(entry.space, entry.date, entry.folder)
         await appendToNote(res.id, composeShareBlock(entry.title, entry.text, entry.url))
         return 'sent'
       }
