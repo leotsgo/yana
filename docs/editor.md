@@ -374,8 +374,18 @@ the notes within that many links of it, either way, under the heading
 "Local graph — <title>" with a Depth slider. The filters apply after
 the walk.
 
-The filters, the forces, the depth and whether the panel is open are a
-preference of the browser: one JSON value under `yana.graph`.
+A note's details have the local graph too, under **Graph** between
+Linked from and History, on a desktop and in the phone's details sheet.
+It shows the note and the notes within the Depth slider's reach (1 to
+3), notes only: no tag or unresolved-link dots. It is closed until you
+open it, and nothing loads until then, neither the graph's code nor
+`/api/graph`; once loaded, another note's graph needs no new fetch.
+Click or tap a dot as on the graph page. **Open as tab** opens the same
+note and depth at `/graph?note=<id>&depth=<n>`, with the filters.
+
+The filters, the forces, the depth, whether the panel is open and
+whether the details' Graph is open are a preference of the browser: one
+JSON value under `yana.graph`.
 
 ## Tree actions
 

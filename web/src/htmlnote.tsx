@@ -148,7 +148,7 @@ export function HtmlNote({ note, onOpen, onToast, onMore, details, onToggleDetai
           <Icon name={trusted ? 'shield-off' : 'shield'} />
           Trust
         </button>
-        <button type="button" class={'btn' + (details ? ' on' : '')} onClick={onToggleDetails} title="Path, backlinks and history" aria-pressed={details}>
+        <button type="button" class={'btn' + (details ? ' on' : '')} onClick={onToggleDetails} title="Path, backlinks, graph and history" aria-pressed={details}>
           <Icon name="panel-right" />
         </button>
         <button type="button" class="icon-btn" title="More" aria-label="More actions" onClick={(ev) => onMore(ev.currentTarget as HTMLElement)}>

@@ -15,7 +15,12 @@ export interface MountOptions {
   onOpen(node: ViewNode, newTab: boolean): void   // never called for ghosts
   onError?(err: unknown): void // the worker failed to load or crashed
 }
-export interface GraphHandle { update(view: View): void; setForces(f: Forces): void; destroy(): void }
+export interface GraphHandle {
+  /** A new view; with a new center the camera frames it afresh. */
+  update(view: View, center?: string): void
+  setForces(f: Forces): void
+  destroy(): void
+}
 
 const K_MIN = 0.05
 const K_MAX = 8
@@ -62,6 +67,7 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
   let keys: string[] = []
   let pos: Float32Array = new Float32Array(0)
   let adj: number[][] = []
+  let center = o.center
   let centerIdx = -1
   let forces = o.forces
   let focus: number | null = null // hovered (mouse) or tapped (touch) node
@@ -106,7 +112,7 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
     fitted = false // frame the new set as it settles, unless the person moved the camera
     view = next
     adj = adjacency(next)
-    centerIdx = o.center === undefined ? -1 : nextKeys.indexOf(o.center)
+    centerIdx = center === undefined ? -1 : nextKeys.indexOf(center)
     const f = focusKey === undefined ? -1 : nextKeys.indexOf(focusKey)
     focus = f >= 0 ? f : null
     paint()
@@ -318,7 +324,11 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
   init(o.view)
 
   return {
-    update: init,
+    update(next, c) {
+      if (c !== center) moved = false // another note's neighbourhood: frame it
+      center = c
+      init(next)
+    },
     setForces(f) {
       forces = f
       send({ t: 'forces', forces: f })

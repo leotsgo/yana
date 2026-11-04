@@ -1954,6 +1954,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         onShared={() => void loadTree()}
         onMoved={onMoved}
         onTag={openTag}
+        onGraph={(id, depth) => openGraph(id, depth)}
         pinned={pinList.some((p) => p.kind === 'note' && p.id === tab.id)}
         onPin={() => {
           const n = mine()

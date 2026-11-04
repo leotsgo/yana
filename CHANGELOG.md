@@ -16,7 +16,8 @@ under Unreleased until the next tag; see
   it, drag, pan and zoom. A panel filters by text, shows orphans,
   unresolved links and tags, colours by space or folder and tunes the
   forces, all remembered per browser. `/graph?note=<id>` is a note's
-  local graph. The page follows edits live.
+  local graph, also in the note's details under Graph, with a depth
+  slider and Open as tab. The page follows edits live.
 - The details sheet on a tablet or phone takes taps again: its backdrop
   had covered it, so a tap closed it.
 - A page opened from the address bar (a reload, a bookmark) shows that

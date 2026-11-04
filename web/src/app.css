@@ -839,6 +839,19 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .graph-range { display: grid; gap: 2px; font-size: 12.5px; color: var(--ink-2); }
 .graph-range input { width: 100%; margin: 0; accent-color: var(--accent); }
 
+/* The local graph: a collapsible panel in a note's details. */
+.local-graph > summary { display: flex; align-items: center; cursor: pointer; list-style: none; }
+.local-graph > summary::-webkit-details-marker { display: none; }
+.local-graph > summary::after {
+  content: ""; margin-left: auto; width: 6px; height: 6px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg); transition: transform 120ms;
+}
+.local-graph[open] > summary::after { transform: rotate(45deg); }
+.local-graph-view { position: relative; height: 260px; margin-top: 10px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); }
+.local-graph-tools { display: flex; align-items: flex-end; gap: 12px; margin-top: 8px; }
+.local-graph-tools .graph-range { flex: 1; }
+
 /* --- search page (phone) ---------------------------------------------- */
 
 .search-page { display: flex; flex-direction: column; flex: 1; min-height: 0; }

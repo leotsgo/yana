@@ -24,6 +24,7 @@ import { Editor } from './editor'
 import { FormatBar } from './format'
 import type { Completions } from './editor'
 import { isEditable } from './hotkeys'
+import { LocalGraph } from './local-graph'
 import { HtmlNote } from './htmlnote'
 import { Icon } from './icons'
 import { ConflictDialog, isConflictName } from './conflict'
@@ -88,6 +89,8 @@ export interface NotePageProps {
   onMoved: (res: MoveResult) => void
   /** Open the page for a tag. */
   onTag: (tag: string) => void
+  /** Open a note's local graph as a page tab. */
+  onGraph: (id: string, depth: number) => void
   pinned: boolean
   onPin: () => void
   /** Text to scroll into view once the note renders (a search hit). */
@@ -103,7 +106,7 @@ export interface NotePageProps {
 }
 
 export function NotePage(props: NotePageProps) {
-  const { id, layout, focused, mode, onMode, live, onEditing, onOpen, onLinkMenu, onNote, onToast, onMenu, fresh, freshNamed = false, freshCaret, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, pinned, onPin, highlight, taskLine, lookup, templates, onTemplateInsert, scroll, onScroll } = props
+  const { id, layout, focused, mode, onMode, live, onEditing, onOpen, onLinkMenu, onNote, onToast, onMenu, fresh, freshNamed = false, freshCaret, freshSeq, onDelete, onRename, onMove, hasDir, onExport, onShared, onMoved, onTag, onGraph, pinned, onPin, highlight, taskLine, lookup, templates, onTemplateInsert, scroll, onScroll } = props
   const [note, setNote] = useState<Note | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sync, setSync] = useState<SyncClient | null>(null)
@@ -448,7 +451,7 @@ export function NotePage(props: NotePageProps) {
     />
   )
   const detailsPane = details && (
-    <Details note={note} onOpen={onOpen} overlay={layout !== 'desktop'} onClose={() => setDetails(false)} onRename={onRename} />
+    <Details note={note} onOpen={onOpen} onGraph={onGraph} overlay={layout !== 'desktop'} onClose={() => setDetails(false)} onRename={onRename} />
   )
 
   if (note.kind === 'html') {
@@ -478,7 +481,7 @@ export function NotePage(props: NotePageProps) {
         {header}
         <div class="page-body">
           <DrawingNote key={note.id} note={note} onOpen={onOpen} onToast={onToast}>
-            <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Path, backlinks and history" aria-pressed={details}>
+            <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Path, backlinks, graph and history" aria-pressed={details}>
               <Icon name="panel-right" />
               {!phone && 'Details'}
             </button>
@@ -559,7 +562,7 @@ export function NotePage(props: NotePageProps) {
             {modeBtn('split', 'columns', 'Split', 'Editor and preview side by side')}
           </div>
         )}
-        <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Path, backlinks and history" aria-pressed={details}>
+        <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Path, backlinks, graph and history" aria-pressed={details}>
           <Icon name="panel-right" />
           {!phone && 'Details'}
         </button>
@@ -1011,19 +1014,20 @@ function wireTasks(el: HTMLElement, sync: SyncClient, rerender: () => void): voi
 interface DetailsProps {
   note: Note
   onOpen: OpenNote
+  onGraph: (id: string, depth: number) => void
   overlay: boolean
   onClose: () => void
   /** The path is a button: rename or move by path. */
   onRename: () => void
 }
 
-function Details({ note, onOpen, overlay, onClose, onRename }: DetailsProps) {
-  const host = useRef<HTMLDivElement>(null)
+function Details({ note, onOpen, onGraph, overlay, onClose, onRename }: DetailsProps) {
+  const backlinks = useRef<HTMLDivElement>(null)
+  const history = useRef<HTMLDivElement>(null)
   const me = useMemo(() => note, [note])
   useEffect(() => {
-    const el = host.current
-    if (!el) return
-    el.replaceChildren(backlinksPanel(me, onOpen), historyPanel(me, onOpen))
+    backlinks.current?.replaceChildren(backlinksPanel(me, onOpen))
+    history.current?.replaceChildren(historyPanel(me, onOpen))
   }, [me, onOpen])
 
   const body = (
@@ -1062,7 +1066,9 @@ function Details({ note, onOpen, overlay, onClose, onRename }: DetailsProps) {
           </>
         )}
       </dl>
-      <div ref={host} />
+      <div ref={backlinks} />
+      <LocalGraph note={note} onOpen={onOpen} onOpenTab={onGraph} />
+      <div ref={history} />
     </aside>
   )
 

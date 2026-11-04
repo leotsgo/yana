@@ -1,6 +1,7 @@
 // The graph payload, fetched once and shared by every graph on screen. While
-// one is subscribed, the spaces in the payload are watched over the relay and
-// a change refetches it (debounced), handing every subscriber the new one.
+// one is subscribed, and for a minute after, the spaces in the payload are
+// watched over the relay and a change refetches it (debounced), handing
+// every subscriber the new one.
 
 import { api } from './api'
 import type { GraphPayload } from './graph/model'
@@ -9,11 +10,15 @@ import { SpaceWatch } from './watch'
 /** How long a change signal waits before the refetch, so a run of typing
  * arrives as one. */
 const REFETCH_MS = 1500
+/** How long the watch outlives its last subscriber: the details panel closes
+ * on every note switch, and reopening it on the next note should not refetch. */
+const LINGER_MS = 60_000
 
 let cache: Promise<GraphPayload> | undefined
 const subs = new Set<(g: GraphPayload) => void>()
 let watch: SpaceWatch | null = null
 let timer: number | undefined
+let linger: number | undefined
 let stale = false // nobody watched for a while: refetch on the next subscribe
 
 function watchSpaces(g: GraphPayload): void {
@@ -50,6 +55,7 @@ export function graphData(): Promise<GraphPayload> {
 /** Calls fn with each refetched payload; returns the unsubscribe. */
 export function onGraphData(fn: (g: GraphPayload) => void): () => void {
   subs.add(fn)
+  window.clearTimeout(linger)
   if (!watch) {
     watch = new SpaceWatch('user:graph', () => {
       window.clearTimeout(timer)
@@ -63,9 +69,13 @@ export function onGraphData(fn: (g: GraphPayload) => void): () => void {
   return () => {
     subs.delete(fn)
     if (subs.size || !watch) return
-    window.clearTimeout(timer)
-    watch.destroy()
-    watch = null
-    stale = cache !== undefined
+    window.clearTimeout(linger)
+    linger = window.setTimeout(() => {
+      if (subs.size || !watch) return
+      window.clearTimeout(timer)
+      watch.destroy()
+      watch = null
+      stale = cache !== undefined
+    }, LINGER_MS)
   }
 }
