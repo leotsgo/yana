@@ -3,14 +3,27 @@
 // order and replayed one by one when the server answers again. Edits to
 // an open note do not pass through this; they are CRDT updates that
 // persist per note and merge on reconnect.
+//
+// A markdown note made offline (New, or Today when today's note is not
+// on the device) is made here and now: a ULID like the server's, a cache
+// entry, and its first text in its device document, so it opens and
+// takes typing like any other note. Its entry carries the id; the replay
+// creates the file under that id with an empty body, and the text,
+// heading included, reaches the server only through the document — one
+// path, so nothing lands twice. The editor's subscription is refused
+// until then and asks again (sync.ts).
 
 import { api, ApiError } from './api'
+import type { Note } from './api'
 import * as cache from './cache'
+import { dailySeed, numbered, offlineBlock } from './localnote'
+import type { LocalNote } from './localnote'
 import { appendToNote, composeShareBlock, today } from './sharelib'
+import { dropOnDevice, readOnDevice, seedOnDevice } from './sync'
 
 export type OutboxEntry =
-  | { kind: 'create'; path: string; content?: string }
-  | { kind: 'daily'; space: string; date: string; folder?: string }
+  | { kind: 'create'; path: string; content?: string; id?: string }
+  | { kind: 'daily'; space: string; date: string; folder?: string; id?: string; path?: string }
   | { kind: 'upload'; path: string; name: string; blob: Blob }
   | { kind: 'share'; space: string; date: string; title: string; text: string; url: string; folder?: string }
 
@@ -25,9 +38,11 @@ export interface OutboxState {
   sending: boolean
   /** The last replay result worth a line in the UI, cleared on read. */
   message: string | null
+  /** Notes made on this device that the server has not seen yet. */
+  local: LocalNote[]
 }
 
-let state: OutboxState = { pending: 0, sending: false, message: null }
+let state: OutboxState = { pending: 0, sending: false, message: null, local: [] }
 const listeners = new Set<() => void>()
 
 function set(patch: Partial<OutboxState>): void {
@@ -72,7 +87,68 @@ export async function enqueue(entry: OutboxEntry): Promise<void> {
     t.oncomplete = () => resolve()
     t.onerror = () => resolve()
   })
-  set({ pending: state.pending + 1 })
+  set({ pending: state.pending + 1, local: [...state.local, ...localOf([entry])] })
+}
+
+function localOf(entries: OutboxEntry[]): LocalNote[] {
+  const out: LocalNote[] = []
+  for (const e of entries) {
+    if (e.kind === 'create' && e.id) out.push({ id: e.id, path: e.path })
+    if (e.kind === 'daily' && e.id && e.path) out.push({ id: e.id, path: e.path })
+  }
+  return out
+}
+
+/** Makes a markdown note on this device: the entry that will create it
+ * (carrying its id and path), its cache entry, and its first text in
+ * the device copy of its document. */
+export async function makeLocal(entry: OutboxEntry & { id: string }, path: string, body: string): Promise<void> {
+  const slash = path.lastIndexOf('/')
+  const now = new Date().toISOString()
+  const note: Note = {
+    id: entry.id, space: slash > 0 ? path.slice(0, path.indexOf('/')) : '', path,
+    title: path.slice(slash + 1).replace(/\.(md|markdown)$/i, ''),
+    preview: '', kind: 'md', size: 0, mtime: now, created: now, tags: [], base: slash > 0 ? path.slice(0, slash) : '', links: [],
+    trusted: false, content_hash: '', role: 'editor', public: false, html: '', local: true,
+  }
+  await seedOnDevice(entry.id, body)
+  await cache.putNote(note)
+  await enqueue(entry)
+}
+
+/** Renames a note made offline before it is sent: its queued create
+ * takes the new path. False when it is not waiting (sent already). */
+export async function moveLocal(id: string, path: string): Promise<boolean> {
+  const d = await db()
+  if (!d) return false
+  const found = await new Promise<boolean>((resolve) => {
+    const t = d.transaction(QUEUE, 'readwrite')
+    let hit = false
+    const req = t.objectStore(QUEUE).openCursor()
+    req.onsuccess = () => {
+      const cursor = req.result
+      if (!cursor) return
+      const e = cursor.value as OutboxEntry
+      if (e.kind === 'create' && e.id === id) {
+        hit = true
+        cursor.update({ ...e, path })
+      } else cursor.continue()
+    }
+    t.oncomplete = () => resolve(hit)
+    t.onerror = () => resolve(false)
+  })
+  if (found) set({ local: state.local.map((l) => (l.id === id ? { id, path } : l)) })
+  return found
+}
+
+const moved = new Set<(from: string, to: string) => void>()
+
+/** Runs fn when a note made here turns out to be another one on the
+ * server (today's note, made on another device meanwhile): tabs on the
+ * first should show the second. */
+export function onMoved(fn: (from: string, to: string) => void): () => void {
+  moved.add(fn)
+  return () => moved.delete(fn)
 }
 
 /** Queue today's daily note as the share target. */
@@ -139,6 +215,7 @@ export async function drain(): Promise<void> {
     const all = await readAll()
     set({
       pending: all.length,
+      local: localOf(all.map((a) => a.entry)),
       sending: false,
       message:
         messages.length > 0
@@ -159,11 +236,16 @@ async function send(entry: OutboxEntry): Promise<'sent' | 'network' | string> {
   try {
     switch (entry.kind) {
       case 'create':
+        if (entry.id) return await createLocal(entry.id, entry.path)
         await api.createNote(entry.path, entry.content)
         return 'sent'
-      case 'daily':
-        await api.daily(entry.space, entry.date, entry.folder)
-        return 'sent'
+      case 'daily': {
+        // A note made here goes up empty under its id; its text follows
+        // through its document.
+        const res = await api.daily(entry.space, entry.date, entry.folder, entry.id, entry.id ? '' : undefined)
+        if (!entry.id || res.id === entry.id) return 'sent'
+        return await mergeDaily(entry.id, res.id, entry.date)
+      }
       case 'upload': {
         const res = await api.upload(entry.path, entry.blob)
         if (res.name !== entry.name) {
@@ -185,4 +267,51 @@ async function send(entry: OutboxEntry): Promise<'sent' | 'network' | string> {
     if (err instanceof ApiError) return `Could not replay a queued change: ${err.message}`
     return 'Could not replay a queued change.'
   }
+}
+
+/** Creates a note made offline under its id. A name taken meanwhile
+ * gets a number, as a new note does online; an id already there means
+ * an earlier replay made it and its answer was lost. */
+async function createLocal(id: string, path: string): Promise<string> {
+  for (let n = 2, p = path; ; p = numbered(path, n++)) {
+    try {
+      await api.createNote(p, '', id)
+      return p === path ? 'sent' : `${path} was taken; the note made offline is ${p}.`
+    } catch (err) {
+      if (!(err instanceof ApiError) || (err.status !== 409 && err.status !== 400) || n >= 100) throw err
+      if (err.status === 409 && (await exists(id))) return 'sent'
+    }
+  }
+}
+
+async function exists(id: string): Promise<boolean> {
+  try {
+    await api.note(id)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Today's note was made on another device while this one made its own:
+ * the tabs move to the server's note, what was written here goes onto
+ * its end under a rule, and the note made here is forgotten. */
+async function mergeDaily(local: string, server: string, date: string): Promise<'network' | string> {
+  for (const fn of moved) fn(local, server)
+  // The editor lets go of the note made here; its last keystrokes reach
+  // the device copy first.
+  await new Promise((r) => window.setTimeout(r, 400))
+  const block = offlineBlock(await readOnDevice(local), dailySeed(date))
+  if (block) {
+    try {
+      await appendToNote(server, block)
+    } catch {
+      return 'network' // the device copy stays; the next replay tries again
+    }
+  }
+  await cache.deleteNote(local)
+  await dropOnDevice(local)
+  return block
+    ? "Today's note was also made on another device; what you wrote offline was added to its end."
+    : "Today's note was also made on another device; it is the one open now."
 }

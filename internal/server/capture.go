@@ -207,9 +207,20 @@ func (s *Server) handleDailyNote(w http.ResponseWriter, r *http.Request) {
 		// leading folders; "" is the top of the space, and leaving it
 		// out keeps the pattern as configured.
 		Folder *string `json:"folder"`
+		// ID names the note when it has to be made (see clientNoteID);
+		// an existing note at the path is answered whatever it says.
+		ID string `json:"id"`
+		// Content, when present, is the new note's body in place of the
+		// template: a client that made the note offline sends "" and
+		// brings the text through the note's CRDT document instead.
+		Content *string `json:"content"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "body must be JSON with space and date fields")
+		return
+	}
+	if body.ID != "" && !validULID(body.ID) {
+		writeError(w, http.StatusBadRequest, "id must be a 26-character upper-case ULID")
 		return
 	}
 	day, err := time.Parse("2006-01-02", body.Date)
@@ -276,8 +287,13 @@ func (s *Server) handleDailyNote(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "a note with a name equal after case folding exists here")
 		return
 	}
+	if !s.clientNoteID(w, r, body.ID) {
+		return
+	}
 	seed := "# " + day.Format("2006-01-02") + "\n\n"
-	if cfg.Template != "" {
+	if body.Content != nil {
+		seed = *body.Content
+	} else if cfg.Template != "" {
 		tpl := expandDaily(cfg.Template, day)
 		if space != "" {
 			tpl = space + "/" + tpl
@@ -296,8 +312,15 @@ func (s *Server) handleDailyNote(w http.ResponseWriter, r *http.Request) {
 			seed = expandDaily(res.Body, day)
 		}
 	}
-	id := scanner.NewID(time.Now())
-	content, _, _ := frontmatter.EnsureID([]byte(seed), id, time.Now())
+	id := body.ID
+	if id == "" {
+		id = scanner.NewID(time.Now())
+	}
+	content, meta, _ := frontmatter.EnsureID([]byte(seed), id, time.Now())
+	if meta.ID != id && body.ID != "" {
+		writeError(w, http.StatusBadRequest, "the content's frontmatter names another id")
+		return
+	}
 	if err := fsutil.MkdirInherit(filepath.Dir(abs)); err != nil {
 		s.fail(w, r, err)
 		return

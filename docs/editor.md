@@ -848,6 +848,14 @@ space from settings, else the open note's space, else the default space
 from settings, else the first one in the tree — and the server answers
 with the existing note or creates it.
 
+Offline, Today opens today's note from the device when it is there, and
+otherwise makes it on the device (the date as its heading, not the
+template) and opens it for typing; New does the same for a markdown
+note. Either is sent when the connection returns, under the id it was
+made with. If another device made today's note meanwhile, what was
+written here is added to the end of that one under a `---` line. See
+[pwa.md](pwa.md#offline).
+
 Two settings shape it, both paths relative to the space:
 
 | Setting | Default | Meaning |
@@ -919,7 +927,7 @@ inserted text.
 | `GET /api/attachments/{path}` | One attachment's metadata: name, size, and a PDF's page count |
 | `GET /api/assets/orphans` | Assets no note in their space references, for the Data page |
 | `GET /api/notes/{id}/asset-view?asset=` | Mints the content-origin URL an attachment card's inline viewer loads |
-| `POST /api/notes/daily` | `{space, date, folder?}` → today's note, created from the template if missing; `folder` (inside the space, `""` for its top) replaces the pattern's leading folders |
+| `POST /api/notes/daily` | `{space, date, folder?, id?, content?}` → today's note, created from the template if missing; `folder` (inside the space, `""` for its top) replaces the pattern's leading folders; `id` (a ULID no note holds: 400 when malformed, 409 when in use) names a new note, and `content` replaces the template — an existing note at the path is answered either way |
 | `POST /api/templates/{id}/expand` | `{title, folder, answers}` → a template's body with its variables substituted, plus the prompts it asks, where `{{cursor}}` landed, and the title its name suggests; the note itself is made with `POST /api/notes` |
 | `POST /api/guide` | `{space}` → the starter note in that space, written first when missing (`201`), found otherwise (`200`); editors and up |
 | `POST /api/render` | `{markdown}` → `{html}` for the read view and the preview |

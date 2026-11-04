@@ -37,6 +37,7 @@ import { headLines, resolveTitle } from './paths'
 import { ShareLinkDialog } from './publiclink'
 import { renderRich } from './rich-load'
 import { wireAttachments } from './attach'
+import * as outbox from './outbox'
 import type { OpenMode } from './prefs'
 import * as sessions from './sessions'
 import { SyncClient, presence } from './sync'
@@ -167,9 +168,12 @@ export function NotePage(props: NotePageProps) {
         return n
       })
       .catch(async (err: unknown) => {
-        if (!alive || !cache.networkDown(err)) throw err
+        // A note made offline is unknown to the server until the outbox
+        // replays it; the device copy stands in for it until then.
+        const unknown = err instanceof ApiError && err.status === 404
+        if (!alive || !(cache.networkDown(err) || unknown)) throw err
         const cached = await cache.getNote(id)
-        if (!cached) throw err
+        if (!cached || (unknown && !cached.local)) throw err
         return cached
       })
       .then((n) => {
@@ -346,6 +350,16 @@ export function NotePage(props: NotePageProps) {
     }
     if (to === note.path) {
       apply({ ...note, title })
+      return
+    }
+    if (note.local) {
+      // Not on the server yet: the queued create takes the new name.
+      void outbox.moveLocal(note.id, to).then((ok) => {
+        if (!ok) return onToast('The note is being sent; rename it again in a moment.')
+        const n = { ...note, title, path: to, base: dirOf(to) }
+        void cache.putNote(n)
+        apply(n)
+      })
       return
     }
     expectMove.current = to

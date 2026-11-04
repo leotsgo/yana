@@ -27,6 +27,8 @@ export interface TreeNode {
   created?: string
   modified?: string
   children?: TreeNode[]
+  /** Made on this device while offline; the server has not seen it yet. */
+  local?: boolean
 }
 
 export interface SpaceTree {
@@ -92,6 +94,8 @@ export interface Note {
   conflict_of?: string
   /** How many conflict copies point at this note, for the title-bar chip. */
   conflict_count?: number
+  /** Made on this device while offline; the server has not seen it yet. */
+  local?: boolean
 }
 
 export type Role = 'owner' | 'editor' | 'viewer'
@@ -535,8 +539,9 @@ export const api = {
     get<{ unresolved: UnresolvedLink[]; alias_conflicts: AliasConflict[] }>(
       '/api/links/unresolved' + (space ? `?space=${encodeURIComponent(space)}` : ''),
     ),
-  createNote: (path: string, content?: string) =>
-    post<{ id: string; path: string }>('/api/notes', { path, content }),
+  /** A new note; id, when given, is one this device picked offline. */
+  createNote: (path: string, content?: string, id?: string) =>
+    post<{ id: string; path: string }>('/api/notes', { path, content, id }),
   moveNote: (id: string, path: string) =>
     post<{ note: Note; rewritten: number; broken: number }>(`/api/notes/${encodeURIComponent(id)}/move`, { path }),
   deleteNote: (id: string) =>
@@ -603,9 +608,10 @@ export const api = {
     post<AgentKey & { token: string }>('/api/agents', { label, spaces, can_write: canWrite }),
   revokeAgent: (id: string) => post<{ ok: boolean }>(`/api/agents/${encodeURIComponent(id)}`, {}, 'DELETE'),
   /** Today's note, made when missing. A folder inside the space takes the
-   * place of the daily pattern's leading folders ('' is the top). */
-  daily: (space: string, date: string, folder?: string) =>
-    post<{ id: string; path: string; created: boolean }>('/api/notes/daily', { space, date, folder }),
+   * place of the daily pattern's leading folders ('' is the top). A note
+   * made offline brings its id, and content '' in place of the template. */
+  daily: (space: string, date: string, folder?: string, id?: string, content?: string) =>
+    post<{ id: string; path: string; created: boolean }>('/api/notes/daily', { space, date, folder, id, content }),
   /** Substitute a template note's variables: the prompts it asks, the
    * body, where the caret lands, and what its name suggests as a title. */
   expandTemplate: (id: string, input: { title?: string; folder?: string; answers?: Record<string, string> } = {}) =>

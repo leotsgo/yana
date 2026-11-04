@@ -467,6 +467,14 @@ export function setTitles(titles: Map<string, string>): void {
   if (changed) commit({ ...state, panes })
 }
 
+/** Points every tab on one note at another, in place: a note made
+ * offline that the server knows by another id. */
+export function renameNote(from: string, to: string): void {
+  if (!state.panes.some((p) => p.tabs.some((t) => t.id === from))) return
+  const panes = state.panes.map((p) => ({ ...p, tabs: p.tabs.map((t) => (t.id === from ? { ...t, id: to } : t)) }))
+  commit({ ...state, panes })
+}
+
 // --- storage ---------------------------------------------------------------
 
 let saveTimer: number | undefined

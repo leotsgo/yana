@@ -9,6 +9,9 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- Offline, Today and New open a note you can write in straight away:
+  today's note from the device when it is there, otherwise one made on
+  the device and sent, under the same id, when the connection returns.
 - Settings → Spaces → Defaults picks the space and folder new notes go
   to and those of the daily note, kept with the notes in
   `.yana/defaults.json` so every device and account follows them; the

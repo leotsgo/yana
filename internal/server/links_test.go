@@ -198,6 +198,42 @@ func TestCreateNote(t *testing.T) {
 	}
 }
 
+// A note made offline keeps the id the client gave it; a malformed id
+// is refused, and so is one another note already holds.
+func TestCreateNoteWithClientID(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	const id = "01KA0Z5X2M9P7R3T5V6W8Y0Z1A"
+	var res struct {
+		ID string `json:"id"`
+	}
+	if code := e.post(t, "/api/notes", map[string]string{"path": "main/offline.md", "content": "", "id": id}, &res); code != 201 {
+		t.Fatalf("create with id = %d", code)
+	}
+	if res.ID != id {
+		t.Fatalf("id = %q, want %q", res.ID, id)
+	}
+	raw, _ := os.ReadFile(filepath.Join(e.dir, "main", "offline.md"))
+	if !strings.Contains(string(raw), "id: "+id) {
+		t.Fatalf("file = %q", raw)
+	}
+	for _, bad := range []string{"01ka0z5x2m9p7r3t5v6w8y0z1b", "01KA0Z5X2M9P7R3T5V6W8Y0Z1", "81KA0Z5X2M9P7R3T5V6W8Y0Z1A", "01KA0Z5X2M9P7R3T5V6W8Y0Z1U", "../../etc/passwd"} {
+		if code := e.post(t, "/api/notes", map[string]string{"path": "main/bad.md", "id": bad}, nil); code != 400 {
+			t.Fatalf("malformed id %q = %d", bad, code)
+		}
+	}
+	if code := e.post(t, "/api/notes", map[string]string{"path": "main/again.md", "id": id}, nil); code != 409 {
+		t.Fatalf("taken id = %d", code)
+	}
+	if code := e.post(t, "/api/notes", map[string]string{"path": "main/fm.md", "id": "01KA0Z5X2M9P7R3T5V6W8Y0Z1B", "content": "---\nid: 01KA0Z5X2M9P7R3T5V6W8Y0Z1C\n---\nx\n"}, nil); code != 400 {
+		t.Fatalf("content naming another id = %d", code)
+	}
+	for _, p := range []string{"bad.md", "again.md", "fm.md"} {
+		if _, err := os.Stat(filepath.Join(e.dir, "main", p)); err == nil {
+			t.Fatalf("a refused create left %s", p)
+		}
+	}
+}
+
 func TestCreateNoteDenied(t *testing.T) {
 	e := newLinksEnv(t, false, func(r *http.Request, space string) error {
 		if space == "main" {

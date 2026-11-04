@@ -176,6 +176,45 @@ func TestDailyNote(t *testing.T) {
 	}
 }
 
+// Today's note made offline: the client's id and an empty body in place
+// of the template. Replayed when the note exists already, the existing
+// one is answered and the id goes unused.
+func TestDailyNoteWithClientID(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	const id = "01KA0Z5X2M9P7R3T5V6W8Y0Z2A"
+	var res struct {
+		ID      string `json:"id"`
+		Path    string `json:"path"`
+		Created bool   `json:"created"`
+	}
+	if code := e.post(t, "/api/notes/daily", map[string]string{"space": "main", "date": "2026-11-04", "id": id, "content": ""}, &res); code != 201 {
+		t.Fatalf("daily with id = %d", code)
+	}
+	if res.ID != id || !res.Created {
+		t.Fatalf("response = %+v", res)
+	}
+	raw, _ := os.ReadFile(filepath.Join(e.dir, filepath.FromSlash(res.Path)))
+	if !strings.Contains(string(raw), "id: "+id) || strings.Contains(string(raw), "# 2026-11-04") {
+		t.Fatalf("file = %q, want the id and no seed", raw)
+	}
+	var again struct {
+		ID      string `json:"id"`
+		Created bool   `json:"created"`
+	}
+	if code := e.post(t, "/api/notes/daily", map[string]string{"space": "main", "date": "2026-11-04", "id": "01KA0Z5X2M9P7R3T5V6W8Y0Z2B"}, &again); code != 200 {
+		t.Fatalf("daily again = %d", code)
+	}
+	if again.ID != id || again.Created {
+		t.Fatalf("the existing note should answer: %+v", again)
+	}
+	if code := e.post(t, "/api/notes/daily", map[string]string{"space": "main", "date": "2026-11-04", "id": "nope"}, nil); code != 400 {
+		t.Fatalf("malformed id = %d", code)
+	}
+	if code := e.post(t, "/api/notes/daily", map[string]string{"space": "main", "date": "2026-11-05", "id": id}, nil); code != 409 {
+		t.Fatalf("id in use = %d", code)
+	}
+}
+
 func TestDailyNoteWithoutTemplate(t *testing.T) {
 	e := newLinksEnv(t, false, nil)
 	var res struct {

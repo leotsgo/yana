@@ -66,6 +66,32 @@ Offline, N queued, or Sending. Entries the server refuses (a path that
 now exists) are dropped with a message rather than retried forever;
 entries that fail because there is no session wait for one.
 
+**Notes made offline** — New and Today do not wait. Today first looks
+for today's note on the device: its path follows from the daily pattern
+in the last `/api/status` the device saw and the daily space and folder
+from settings, the same way the server works it out; found in the saved
+tree, it opens like any other note. Otherwise, and for a new markdown
+note, the note is made on the device: the client picks its id itself, a
+ULID in the server's own format, keeps a cache entry for it, and writes
+its first text (the heading) into the note's device document. It opens
+in the editor and takes typing like any other; the tree shows it with a
+"not sent" mark, and renaming it from the title renames the queued
+create. The outbox entry carries the id. On replay the server makes the
+file under that id (`POST /api/notes` or `/api/notes/daily` with `id`
+and an empty body), so tabs, links and the device document stay valid;
+the text, heading included, reaches the server only through the note's
+CRDT document, so nothing is written twice. Until the create lands, the
+relay answers the editor's subscription with `not_found` and the editor
+asks again, backing off to every 8 s; its edits wait on the device.
+
+Two things can have changed by then. A name taken meanwhile gets a
+number (`Untitled 2.md`), as it does online. Today's note made on
+another device meanwhile (another id at the same path) wins: the open
+tabs move to it, what was written here goes onto its end under a `---`
+line, the note made here is dropped from the device, and a line says so.
+HTML notes and drawings do not merge, so offline they still queue and
+open once the server has made them.
+
 The one honest limitation: images in notes load through the API, so an
 offline render shows the text and broken image boxes. The markdown is
 all there.

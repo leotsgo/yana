@@ -160,5 +160,5 @@ nothing.
 | `GET /api/notes/{id}` | note payload, including its `links` |
 | `GET /api/notes/{id}/backlinks` | notes linking here, with context |
 | `GET /api/links/unresolved?space=` | unresolved-link report |
-| `POST /api/notes` | create a note (the create affordance) |
+| `POST /api/notes` | create a note (the create affordance); `{path, content?, id?}`, where `id` is a ULID the client picked offline (400 when malformed, 409 when in use) |
 | `POST /api/notes/{id}/move` | move/rename with link propagation |

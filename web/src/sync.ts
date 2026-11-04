@@ -9,7 +9,7 @@
 import * as Y from 'yjs'
 import { encode, decode } from '@msgpack/msgpack'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
-import { IndexeddbPersistence } from 'y-indexeddb'
+import { IndexeddbPersistence, clearDocument } from 'y-indexeddb'
 
 import { expire, tryRefresh, user, wsURL } from './auth'
 import { displayName } from './prefs'
@@ -108,6 +108,39 @@ export function presence(): PresenceUser {
   return withColor(displayName() || u.username)
 }
 
+/** Runs fn on a note's document as kept on this device, with no
+ * connection, and writes back whatever it changed. */
+async function onDevice<T>(noteID: string, fn: (text: Y.Text) => T): Promise<T> {
+  const doc = new Y.Doc()
+  const idb = new IndexeddbPersistence('yana-note-' + noteID, doc)
+  try {
+    await idb.whenSynced
+    return fn(doc.getText('body'))
+  } finally {
+    // Closing waits for the writes the change queued.
+    await idb.destroy()
+    doc.destroy()
+  }
+}
+
+/** Starts a note made offline: its first text in the device copy, where
+ * the editor and later the server pick it up. */
+export function seedOnDevice(noteID: string, body: string): Promise<void> {
+  return onDevice(noteID, (text) => {
+    if (text.length === 0) text.insert(0, body)
+  })
+}
+
+/** The text of a note's device copy. */
+export function readOnDevice(noteID: string): Promise<string> {
+  return onDevice(noteID, (text) => text.toString())
+}
+
+/** Forgets a note's device copy. */
+export function dropOnDevice(noteID: string): Promise<void> {
+  return clearDocument('yana-note-' + noteID)
+}
+
 export class SyncClient {
   readonly doc = new Y.Doc()
   readonly text: Y.Text
@@ -120,6 +153,8 @@ export class SyncClient {
   private ws: WebSocket | null = null
   private attempts = 0
   private retryTimer: number | undefined
+  private resubTimer: number | undefined
+  private resubs = 0
   private flushTimer: number | undefined
   private keepaliveTimer: number | undefined
   private pending: Uint8Array[] = []
@@ -202,10 +237,7 @@ export class SyncClient {
     this.ws = ws
 
     ws.onopen = () => {
-      // Ask for only what this document is missing; on first open that is
-      // everything, on reconnect only the delta.
-      this.send({ t: 'sub', n: this.noteID, sv: Y.encodeStateVector(this.doc), a: this.author })
-      this.lastSentAt = Date.now()
+      this.subscribe()
       this.startKeepalive()
     }
     ws.onmessage = (ev) => {
@@ -214,6 +246,8 @@ export class SyncClient {
     }
     ws.onclose = () => {
       this.stopKeepalive()
+      window.clearTimeout(this.resubTimer)
+      this.resubTimer = undefined
       const failedEarly = !this.synced
       this.synced = false
       this.ws = null
@@ -236,6 +270,12 @@ export class SyncClient {
     }
   }
 
+  /** Ask for only what this document is missing; on first open that is
+   * everything, on reconnect only the delta. */
+  private subscribe(): void {
+    this.send({ t: 'sub', n: this.noteID, sv: Y.encodeStateVector(this.doc), a: this.author })
+  }
+
   private handle(frame: ServerFrame): void {
     switch (frame.t) {
       case 'subd':
@@ -243,6 +283,7 @@ export class SyncClient {
         this.synced = true
         this.everSynced = true
         this.attempts = 0
+        this.resubs = 0
         this.events.onStatus?.('synced')
         // Push anything queued while offline; the server merges both ways.
         // Presence is re-announced since a new connection starts blank.
@@ -258,6 +299,18 @@ export class SyncClient {
       case 'pong':
         break
       case 'err':
+        // A note made offline is not on the server until the outbox
+        // replays its create; until then the subscription is refused as
+        // unknown. Ask again, backing off, and its edits wait unsent.
+        // ponytail: retries for as long as the tab is open; a note really
+        // gone costs one small frame every 8 s.
+        if (frame.c === 'not_found' && !this.synced && this.resubTimer === undefined) {
+          const delay = Math.min(BACKOFF_MIN_MS * 2 ** this.resubs++, BACKOFF_MAX_MS)
+          this.resubTimer = window.setTimeout(() => {
+            this.resubTimer = undefined
+            if (!this.synced) this.subscribe()
+          }, delay)
+        }
         this.events.onError?.(frame.c ?? 'error', frame.r ?? '')
         break
       case 'moved':
@@ -343,6 +396,7 @@ export class SyncClient {
   destroy(): void {
     this.destroyed = true
     if (this.retryTimer !== undefined) window.clearTimeout(this.retryTimer)
+    window.clearTimeout(this.resubTimer)
     if (this.flushTimer !== undefined) window.clearTimeout(this.flushTimer)
     // Whatever was typed in the last batch window goes out before the
     // socket closes; leaving a note is not a reason to drop an edit.

@@ -5,7 +5,9 @@
 // the source of truth, and edits do not pass through it (they live in
 // each note's CRDT document, persisted by y-indexeddb in sync.ts).
 // The one exception is drafts: a drawing's scene not yet confirmed by the
-// server, kept until a save lands (drawing.tsx).
+// server, kept until a save lands (drawing.tsx). And a note made offline
+// has its entry here before the server has it (marked local, never
+// evicted), so it opens like any other (outbox.ts).
 
 import type { Note, SpaceTree, Status } from './api'
 
@@ -71,6 +73,7 @@ async function evict(): Promise<void> {
   const all = await allNotes()
   if (!all || all.length <= NOTES_MAX) return
   const excess = all
+    .filter((e) => !e.note.local)
     .sort((a, b) => a.at - b.at)
     .slice(0, all.length - NOTES_MAX)
   const d = await db()
@@ -93,6 +96,10 @@ export async function allNotes(): Promise<Array<{ note: Note; at: number }>> {
 export async function getNote(id: string): Promise<Note | null> {
   const got = await tx<{ note: Note; at: number } | undefined>(NOTES, 'readonly', (s) => s.get(id))
   return got?.note ?? null
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  await tx(NOTES, 'readwrite', (s) => s.delete(id))
 }
 
 // --- drawing drafts ------------------------------------------------------

@@ -24,12 +24,13 @@ import * as cache from './cache'
 import { Confirm } from './confirm'
 import type { ConfirmSpec } from './confirm'
 import { isLocalConflict } from './conflict'
-import { pinned } from './defaults'
+import { dailyPath, pinned } from './defaults'
 import { isEditable, isMac, keys, label, matches, tabDigit } from './hotkeys'
 import { Icon, type IconName } from './icons'
 import { useVisualViewport } from './keyboard'
 import { coarsePointer, current as currentLayout, useLayout } from './layout'
 import { renderUnresolvedReport } from './links'
+import { dailySeed, newID, withLocal } from './localnote'
 import { Menu } from './menu'
 import type { MenuItem, MenuSpec } from './menu'
 import type { Completions, LinkTarget } from './editor'
@@ -194,7 +195,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const ws = useExternal(workspace.get, workspace.subscribe)
   // The phone's search screen, the one view that is not a tab.
   const [phoneSearch, setPhoneSearch] = useState(initialLoad)
-  const [spaces, setSpaces] = useState<SpaceTree[] | null>(null)
+  const [serverTree, setSpaces] = useState<SpaceTree[] | null>(null)
+  // The tree shown is the server's with the notes made offline in it.
+  const box = useExternal(outbox.outboxState, outbox.subscribeOutbox)
+  const spaces = useMemo(() => serverTree && withLocal(serverTree, box.local), [serverTree, box.local])
   const shownTree = useRef<SpaceTree[] | null>(null) // spaces as last set, for keepSame
   const [spaceList, setSpaceList] = useState<SpaceInfo[] | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
@@ -461,7 +465,6 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // --- data --------------------------------------------------------------
 
   const net = useExternal(pwa.netState, pwa.subscribeNet)
-  const box = useExternal(outbox.outboxState, outbox.subscribeOutbox)
 
   const loadTree = useCallback(async () => {
     try {
@@ -551,9 +554,16 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   }, [toast])
 
   // Replay results surface the same way everything else does.
+  // A replay made notes, so the tree catches up.
   useEffect(() => {
-    if (box.message) say(box.message)
-  }, [box.message, say])
+    if (box.message) {
+      say(box.message)
+      void loadTree()
+    }
+  }, [box.message, say, loadTree])
+
+  // Today's note made here and on another device: tabs follow the server's.
+  useEffect(() => outbox.onMoved((from, to) => workspace.renameNote(from, to)), [])
 
   // --- actions -----------------------------------------------------------
 
@@ -721,21 +731,30 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       if (!/\.(md|markdown|html?)$/i.test(p)) p += '.md'
       const title = baseOf(p).replace(/\.(md|markdown|html?)$/i, '')
       const body = seed ?? (/\.html?$/i.test(p) ? `<h1>${escapeHTML(title)}</h1>\n` : `# ${title}\n\n`)
-      try {
-        const res = await api.createNote(p, body)
+      const open = (id: string) => {
         prefs.touchFolder(dirOf(p))
         prefs.setLastFolder(dirOf(p))
-        const tab = navigate(res.id, how, { mode: 'edit' })
+        const tab = navigate(id, how, { mode: 'edit' })
         if (tab && how === 'right') {
           const at = workspace.find(tab.key)
           if (at) focusPane(at.pane)
         }
         if (tab && how !== 'background') setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1, named, caret }))
+      }
+      try {
+        const res = await api.createNote(p, body)
+        open(res.id)
         void loadTree()
       } catch (err) {
-        if (cache.networkDown(err)) {
-          // The id comes from the server, so offline the note is queued
-          // and created when the server answers again.
+        if (cache.networkDown(err) && /\.(md|markdown)$/i.test(p) && !/\.excalidraw\.md$/i.test(p)) {
+          // Offline, a markdown note is made on this device and opens
+          // now; the outbox creates it under the same id later.
+          const id = newID()
+          await outbox.makeLocal({ kind: 'create', path: p, id }, p, body)
+          open(id)
+        } else if (cache.networkDown(err)) {
+          // An HTML note or a drawing does not merge, so it waits for
+          // the server to be made.
           void outbox.enqueue({ kind: 'create', path: p, content: body })
           say(`Offline. ${p} is created when the connection returns.`)
         } else if (retryOnTaken && err instanceof ApiError && (err.status === 409 || err.status === 400)) {
@@ -849,14 +868,26 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       if (tab && res.created) setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1 }))
     } catch (err) {
       if (cache.networkDown(err)) {
-        void outbox.enqueue({ kind: 'daily', space: at.space, date, folder: at.folder })
-        say("Offline. Today's note opens when the connection returns.")
+        // Offline: the note at today's path when the device knows one,
+        // else a new one made here under the path the server would pick.
+        const pattern = status?.daily.pattern || 'journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md'
+        const rel = dailyPath(pattern, at.folder, date)
+        const path = at.space ? `${at.space}/${rel}` : rel
+        const known = notes.find((n) => n.path === path)
+        if (known) {
+          navigate(known.id, 'tab', {})
+          return
+        }
+        const id = newID()
+        await outbox.makeLocal({ kind: 'daily', space: at.space, date, folder: at.folder, id, path }, path, dailySeed(date))
+        const tab = navigate(id, 'tab', { mode: 'edit' })
+        if (tab) setFresh((f) => ({ key: tab.key, seq: (f?.seq ?? 0) + 1 }))
       } else {
         say(err instanceof ApiError ? err.message : 'Could not open the daily note.')
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigate, loadTree, say, spaces])
+  }, [navigate, loadTree, say, spaces, status, notes])
 
   // Quick capture: one line onto the end of today's note, without
   // opening it. The share target lands its line the same way.

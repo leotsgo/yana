@@ -333,6 +333,7 @@ function TreeRows(props: TreeProps) {
         {n.public && <Icon name="globe" class="tree-public" size={12} />}
         {n.kind === 'html' && <span class="tree-kind">html</span>}
         {n.kind === 'drawing' && <span class="tree-kind">draw</span>}
+        {n.local && <span class="tree-kind" title="Made offline; sent when the connection returns">not sent</span>}
         {moreButton(target, `Actions for ${n.title || n.name}`)}
       </a>
     )

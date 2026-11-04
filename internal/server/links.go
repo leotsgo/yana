@@ -17,6 +17,7 @@ import (
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
 	"github.com/madeofpendletonwool/yana/internal/scanner"
+	"github.com/oklog/ulid/v2"
 )
 
 // canWrite adapts the request-scoped permission checks (role lookup
@@ -194,12 +195,45 @@ func (s *Server) handleMove(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// clientNoteID checks the id a client picked for a note it made offline,
+// so the note keeps the id its tabs, links and local document already
+// use. It must be a ULID in the scanner's own shape (26 characters of
+// upper-case Crockford base32, as NewID writes it) that no note holds.
+// "" lets the server pick. A refused id gets its error written: 400 when
+// malformed, 409 when in use.
+func (s *Server) clientNoteID(w http.ResponseWriter, r *http.Request, id string) bool {
+	if id == "" {
+		return true
+	}
+	if !validULID(id) {
+		writeError(w, http.StatusBadRequest, "id must be a 26-character upper-case ULID")
+		return false
+	}
+	_, err := s.DB.GetNote(r.Context(), id)
+	if err == nil {
+		writeError(w, http.StatusConflict, "that id is in use")
+		return false
+	}
+	if !errors.Is(err, index.ErrNotFound) {
+		s.fail(w, r, err)
+		return false
+	}
+	return true
+}
+
+func validULID(id string) bool {
+	u, err := ulid.ParseStrict(id)
+	return err == nil && u.String() == id
+}
+
 // handleCreateNote makes a note file. The create affordance on unresolved
-// wikilinks uses it; anything else may too.
+// wikilinks uses it; anything else may too. An optional id (see
+// clientNoteID) names the note in place of a fresh one.
 func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
+		ID      string `json:"id"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "body must be JSON with a path field")
@@ -216,6 +250,9 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 	}
 	space := spaceOfPath(clean)
 	if !s.mayWrite(w, r, space) {
+		return
+	}
+	if !s.clientNoteID(w, r, body.ID) {
 		return
 	}
 	if int64(len(body.Content)) > s.Root.Limits().MaxNoteSize {
@@ -240,8 +277,15 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 			body.Content = string(drawing.Encode([]byte(drawing.EmptyScene)))
 		}
 	}
-	id := scanner.NewID(time.Now())
-	content, _, _ := frontmatter.EnsureID([]byte(body.Content), id, time.Now())
+	id := body.ID
+	if id == "" {
+		id = scanner.NewID(time.Now())
+	}
+	content, meta, _ := frontmatter.EnsureID([]byte(body.Content), id, time.Now())
+	if meta.ID != id && body.ID != "" {
+		writeError(w, http.StatusBadRequest, "the content's frontmatter names another id")
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		s.fail(w, r, err)
 		return

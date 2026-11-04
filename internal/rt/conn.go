@@ -167,6 +167,12 @@ func (c *conn) handle(ctx context.Context, msg ClientMessage) bool {
 		}
 		role, err := c.hub.authz.AuthorizeSubscribe(ctx, c.author, msg.Note)
 		if err != nil {
+			// A note not there (yet: one made offline whose create has not
+			// replayed) is not a refusal; the client asks again.
+			if errors.Is(err, reconcile.ErrNotFound) {
+				c.replyError(msgSubscribe, msg.Note, errNotFound, "no note with that id")
+				return true
+			}
 			c.replyError(msgSubscribe, msg.Note, errForbidden, err.Error())
 			return true
 		}
