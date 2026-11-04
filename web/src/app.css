@@ -569,7 +569,8 @@ kbd {
 /* the rendered note: the page itself in read mode, a second column in split */
 .reader, .preview { flex: 1; min-width: 0; overflow-y: auto; padding: 18px var(--page-x) 40vh; }
 .preview { border-left: 1px solid var(--line); background: var(--bg-2); }
-.reader > :first-child, .preview > :first-child { margin-top: 0; }
+.reader > .markdown > :first-child, .preview > .markdown > :first-child { margin-top: 0; }
+.page-backlinks { max-width: var(--measure); margin-top: 2.5em; }
 .cm-ySelectionInfo { font-family: var(--mono); }
 
 /* the formatting bar above the phone keyboard */

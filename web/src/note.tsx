@@ -28,7 +28,7 @@ import { ConflictDialog, isConflictName } from './conflict'
 import { coarsePointer } from './layout'
 import type { Layout } from './layout'
 import type { MenuSpec } from './menu'
-import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
+import { backlinksFooter, backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
 import type { LinkMenu, OpenNote } from './panels'
 import { headLines, resolveTitle } from './paths'
 import { ShareLinkDialog } from './publiclink'
@@ -880,22 +880,32 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, hi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync, note, readOnly, onOpen])
 
+  // The backlinks sit below the body, inside the same scroll; the body
+  // is replaced on every render, so they live outside it.
+  const foot = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    foot.current?.replaceChildren(backlinksFooter(note, onOpen))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.id, onOpen])
+
   return (
     <div
-      class={cls + ' markdown'}
-      ref={host}
+      class={cls}
       aria-label={cls === 'preview' ? 'preview' : 'note'}
       onClick={
         onEdit &&
         ((ev) => {
           const t = ev.target as HTMLElement
-          if (t.closest('a, input, button, summary, .wikilink, .tag')) return
+          if (t.closest('a, input, button, summary, .wikilink, .tag, .page-backlinks')) return
           // A drag to select text is not a request to edit.
           if (!(window.getSelection()?.isCollapsed ?? true)) return
           onEdit()
         })
       }
-    />
+    >
+      <div class="markdown" ref={host} />
+      <div ref={foot} />
+    </div>
   )
 }
 
