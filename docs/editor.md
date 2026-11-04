@@ -250,6 +250,48 @@ a folder in the tree.
 The quick switcher still creates the note you typed when nothing
 matches.
 
+## Drawings
+
+A drawing is a note you draw on instead of type in: a full Excalidraw
+canvas in the note area. Make one with New drawing in the command
+palette, or New drawing here in a folder's or a space's menu. The
+palette asks for a name; the file is `<name>.excalidraw.md` in the folder
+you were looking at and opens in a new tab. The tree shows a drawing by
+its name with a small `draw` label. It moves, renames, goes to the
+trash and has history like any other note ([file-format.md](file-format.md#drawings)
+has the file).
+
+A drawing opens straight into the canvas; there is no read mode. The
+canvas follows the app's light or dark theme. Changes save about a
+second after the last one, and again when the tab is hidden or closed.
+A chip in the toolbar says where it stands: Saved, Saving, Offline, or
+Not saved when the server refused the save (a drawing over the size
+limit, say) and the message says why. Editing is whole-file, one editor
+at a time; there is no live co-drawing.
+
+The editor is a separate download, fetched the first time a drawing is
+opened (or a note embeds one) and not before, so notes without drawings
+never pay for it. It is not part of the offline precache: a drawing
+opens offline only after it has been opened on that device once.
+
+Offline, or with the server unreachable, the scene is kept on the device
+as a draft and saved when the connection returns. Reopening a drawing
+with a draft waiting saves the draft first. A save that lands on a file
+changed in the meantime does not overwrite it: the file's version is
+kept beside the drawing as `Name.conflict-<timestamp>.excalidraw.md`,
+itself a drawing, and the app says so.
+
+A drawing that cannot be read opens read-only with a notice and is never
+saved over. A viewer in a space sees the canvas view-only, with no save
+chip.
+
+Linking to a drawing, linking out of one with element links, and
+embedding one with `![[Name]]` are in [links.md](links.md#drawings).
+Search finds the text written on a drawing, and `is:drawing` lists only
+drawings. Drawing works in a phone browser or the installed PWA, as far
+as Excalidraw's touch support goes; the native Android app does not
+support drawings.
+
 ## Capture
 
 Capture — the button on the home page, in the phone's bottom bar and the
@@ -343,6 +385,7 @@ double quotes make an exact phrase.
 | `is:untagged` | notes with no tags |
 | `is:task` | notes with an open task |
 | `is:html` | HTML notes |
+| `is:drawing` | drawings |
 | `has:image` | notes that reference an image in `_assets/` |
 | `has:attachment` | notes that reference any file in `_assets/` |
 | `author:claude` | notes whose last edit was made by that person or agent |

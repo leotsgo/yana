@@ -49,6 +49,14 @@ has a page, and the switcher finds notes by tag.
 
 ![Split mode: the editor on the left with the formatting buttons and a wikilink completion popup, the rendered note on the right](images/screenshots/editing.png)
 
+**Drawing.** New drawing opens an Excalidraw canvas as a note of its
+own, saved a moment after each change and kept on the device while
+offline. Link to it by name with `[[Name]]`, embed it as an image with
+`![[Name]]`, and set an element's link to `[[Another note]]` to click
+through to that note; those links show up as backlinks. The text you
+write on a drawing is searched. The editor is a separate download,
+fetched only when a drawing is opened.
+
 **Sync.** Each note is a CRDT document that stays in step with its file
 in both directions. Two people in one note see each other type, with
 presence and cursors. Edit the file with vim, `echo >>` a line, or
@@ -75,7 +83,7 @@ sits above the keyboard.
 
 **Finding things.** Full-text search over titles and bodies with
 operators — `tag:`, `path:`, `space:`, `is:untagged`, `is:task`,
-`is:html`, `has:image`, `has:attachment`, `author:`, `before:`, `after:`,
+`is:html`, `is:drawing`, `has:image`, `has:attachment`, `author:`, `before:`, `after:`,
 a `-` to exclude and quotes for a phrase — plus regex search
 over the files (with ripgrep), a switcher that opens a note by name or
 tag, recents and pins on the home screen, saved searches pinned to the
@@ -150,6 +158,9 @@ the file, and committed to git under an identifiable author.
 - **MCP.** `/mcp` with a space-scoped, revocable agent token from
   Settings → Agents, for agents that run somewhere else. Writes are rate
   limited and attributed to the token's label.
+
+A drawing is edited in the web app: over MCP an agent reads its text and
+links, and its writes are refused.
 
 Details in [docs/agents.md](docs/agents.md).
 
@@ -243,7 +254,7 @@ wrong.
 | [docs/using.md](docs/using.md) | How to do the everyday things, for a person rather than an implementer |
 | [docs/deployment.md](docs/deployment.md) | Compose, reverse proxies, the content origin, backups, every setting |
 | [docs/file-format.md](docs/file-format.md) | The on-disk contract: frontmatter, links, assets, what may be written |
-| [docs/editor.md](docs/editor.md) | The web client: shell, editor, capture, tags, tree actions, hotkeys |
+| [docs/editor.md](docs/editor.md) | The web client: shell, editor, drawings, capture, tags, tree actions, hotkeys |
 | [docs/links.md](docs/links.md) | Wikilink resolution, backlinks, rename propagation |
 | [docs/auth.md](docs/auth.md) | Accounts, sessions, spaces and roles |
 | [docs/agents.md](docs/agents.md) | The filesystem path, MCP, conventions, attribution |

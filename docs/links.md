@@ -33,6 +33,14 @@ another one). The order:
 A target without an extension is read as `.md`. HTML notes need their
 extension spelled out: `[[dashboard.html]]`.
 
+Drawings are the exception. When a target has no extension, steps 1 to 3
+look for `name.md` first, and only if nothing matches do they look again
+for `name.excalidraw.md`. So `[[Network map]]` finds the drawing
+`Network map.excalidraw.md`, and a markdown note called `Network map.md`
+in the same space wins over it. `[[Network map.excalidraw]]` names the
+drawing explicitly and is the way to link it when a note shares its
+name.
+
 Resolution runs when the index runs, over the note bodies the index holds.
 The `links` table is derived data like everything else in the index
 database: delete it and rescan, and it comes back.
@@ -68,6 +76,26 @@ itself renders a link. An unresolved embed is the create affordance, like
 an unresolved link. Embeds count as references: they appear in backlinks,
 and a move rewrites their targets like any other link. In exports and
 public pages an embed flattens to a link to the note.
+
+## Drawings
+
+A link to a drawing is a link like any other: it shows in the drawing's
+backlinks and is rewritten when the drawing moves. A move keeps the way
+the link was written, including the `.excalidraw` spelling: `[[Network
+map.excalidraw]]` stays that way and `[[Network map]]` stays bare.
+
+Links also go the other way. Set an element's link on the canvas to
+`[[Some note]]` (or `[[Some note|text]]`); clicking the element opens
+that note, resolved the way a link in the drawing's own folder would
+be. These links count as links from the drawing, so the target's
+backlinks and Linked mentions list it. A link to a note that does not
+exist yet creates it. A plain URL on an element behaves as it does in
+Excalidraw everywhere else.
+
+`![[Network map]]` in a markdown note shows the drawing as an image in
+the read view; clicking it opens the drawing. The image is drawn in the
+browser from the scene, so it follows the app's theme. In exports and
+public pages a drawing is not drawn; see [export.md](export.md).
 
 ## Unresolved links
 

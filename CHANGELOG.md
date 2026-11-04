@@ -9,6 +9,54 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-04
+
+Drawings: Excalidraw canvases as notes.
+
+- Drawing notes. A drawing is a `Name.excalidraw.md` file: the usual
+  frontmatter, then the Excalidraw scene as JSON in a fenced
+  `excalidraw` block. It is a note of a new kind, `drawing`, so it
+  moves, goes to the trash and has history like any other. Search finds
+  the text written on a drawing, and `is:drawing` lists only drawings.
+  Index migration 14 allows the new kind; the upgrade is in place and
+  nothing is rebuilt.
+- A drawing editor in the web client. New drawing is in the command
+  palette, and New drawing here in a folder's and a space's menu. The
+  canvas follows the app theme, saves about a second after the last
+  change, and shows Saved, Saving, Offline or Not saved. Offline, the
+  scene is kept as a draft on the device and saved when the connection
+  returns. A save against a file that changed keeps the file's version
+  as `Name.conflict-<timestamp>.excalidraw.md`. A drawing that cannot be
+  read opens read-only with a notice and is never saved over, and
+  viewers get a view-only canvas. It works in a phone browser; the
+  native Android app does not support drawings.
+- Links to and from drawings. `[[Name]]` resolves to `Name.md` first and
+  then to `Name.excalidraw.md`; `[[Name.excalidraw]]` names the drawing
+  explicitly. Moving a drawing rewrites links to it and keeps the
+  `.excalidraw` spelling. An element link written `[[target]]` on the
+  canvas opens that note when clicked and counts as a link from the
+  drawing, so it shows in the target's backlinks and Linked mentions.
+  `![[Name]]` embeds a drawing as an image in the read view.
+- Exports show a one-line placeholder for a drawing, "Excalidraw
+  drawing. Open it in yana to see it.", in site, single-note and public
+  exports.
+- MCP. `read_note` on a drawing returns a text summary of what is written
+  on it and the links it holds. `write_note` and `append_note` refuse
+  drawings: "drawings are edited in the yana web app, not through this
+  tool".
+- `yana drawings convert [--apply]` converts Obsidian Excalidraw-plugin
+  files (compressed-json or json) to drawings in place, keeping each
+  note's id. It is a dry run by default and lists every file as `ok` or
+  `FAIL`, with a `rename` line for a file whose name lacks
+  `.excalidraw.md`; renames go through the move API or `move_note` so
+  links follow. See [docs/deployment.md](docs/deployment.md#converting-obsidian-drawings).
+- Size. The editor is a lazy download that is not precached for offline
+  use, so a page without a drawing loads exactly what it did. It adds
+  about 22 MB to the embedded client (`dist/assets/drawing`): 13 MB of
+  fonts, served from the app rather than a CDN, and 8.5 MB of JavaScript
+  in chunks fetched on demand. The binary and the image grow by that
+  much.
+
 ## 0.1.0 — 2026-11-04
 
 The first release of the fork, cut from upstream's `main` as of

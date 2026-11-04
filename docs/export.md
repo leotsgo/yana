@@ -50,6 +50,15 @@ Two notes whose names differ only by extension (`a.md` and `a.html`)
 produce the same page name and the export refuses rather than silently
 overwriting one with the other.
 
+## Drawings in exports
+
+A drawing is not drawn in an export: it needs the editor, which only the
+app carries. Its page in a static site, a single-note export or a public
+link holds one line, "Excalidraw drawing. Open it in yana to see it.",
+and links to it resolve to that page. An `![[embed]]` of a drawing in a
+note flattens to a link, as embeds do. The zip is unaffected: the
+`.excalidraw.md` file is in it byte for byte.
+
 ## The tree as a zip
 
 `GET /api/spaces/{space}/export/notes.zip`, `?path=` for a subtree —

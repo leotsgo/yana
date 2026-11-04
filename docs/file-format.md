@@ -14,6 +14,7 @@ directly.
     .space.yml
     <folders...>/<note>.md
     <folders...>/<page>.html
+    <folders...>/<name>.excalidraw.md
     <folders...>/_assets/<file>
   .trash/
   .sync/
@@ -29,8 +30,9 @@ directly.
 
 ## Notes
 
-A note is a file ending in `.md` or `.markdown` (kind `md`) or `.html` /
-`.htm` (kind `html`). Everything else outside `_assets/` is ignored.
+A note is a file ending in `.md` or `.markdown` (kind `md`), `.html` /
+`.htm` (kind `html`), or `.excalidraw.md` (kind `drawing`). Everything
+else outside `_assets/` is ignored.
 
 ### Frontmatter
 
@@ -120,6 +122,39 @@ save-based last-write-wins; a save that lands on a changed file keeps the
 overwritten version as `name.conflict-<ts>.html` beside the note. The
 full contract — sandbox, CSP, view tokens, the wikilink attribute — is in
 [html-notes.md](html-notes.md).
+
+### Drawings
+
+A drawing is a file named `Name.excalidraw.md`: the usual frontmatter,
+then one fenced block holding the Excalidraw scene as JSON.
+
+````
+---
+id: 01JQ8X4K2M9P7R3T5V6W8Y0Z1A
+created: 2026-11-04T09:30:00Z
+---
+```excalidraw
+{"type":"excalidraw","version":2,"source":"yana","elements":[],"appState":{},"files":{}}
+```
+````
+
+It is an ordinary note file in every other respect: the scanner gives it
+an `id`, `mv` moves it, `rm` sends it to the trash, and git records it.
+The title is the file name without `.excalidraw.md`. Search indexes the
+text of the scene's text elements, so a drawing is found by what is
+written in it, and `is:drawing` lists only drawings. A drawing has no
+tags or tasks, and its preview is its text.
+
+Edit the scene in the app, not by hand. Pasted images live inside the
+scene (`files`, base64) and count toward `YANA_MAX_NOTE_SIZE` like the
+rest of the file. A drawing whose block cannot be read as a scene is
+still listed and opens read-only with a notice; the app never saves over
+it. Links written on the canvas are covered in [links.md](links.md), the
+editor in [editor.md](editor.md#drawings).
+
+Drawings made with Obsidian's Excalidraw plugin are a different format.
+`yana drawings convert` rewrites them in place
+([deployment.md](deployment.md#converting-obsidian-drawings)).
 
 ## Editing files while the server runs
 
@@ -230,7 +265,8 @@ of the scan continues.
 
 ## Writing notes from scripts and agents
 
-1. Write the file somewhere in the tree with a `.md` extension.
+1. Write the file somewhere in the tree with a `.md` extension. Leave
+   `.excalidraw.md` to the app.
 2. Do not invent an `id`. Leave the frontmatter out, or include only your
    own keys; the server adds `id` and `created` on its next scan.
 3. Finish writing before the settle window passes, or write to a temp name

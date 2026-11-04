@@ -118,6 +118,15 @@ Point an MCP client at the server with the token as a bearer header:
 | `move_note(note, new_path)` | move or rename, rewriting inbound links |
 | `upload_asset(space, note, filename, data, agent_label?)` | store a base64 file (e.g. an image) in the note's `_assets/`; returns the markdown link to put in the note |
 
+`read_note` on a drawing returns a text summary instead of the scene:
+the text written on the canvas and the links it holds, which is what an
+agent can use of it. `write_note` and `append_note` refuse drawings with
+"drawings are edited in the yana web app, not through this tool". Search
+finds the text on a drawing, `move_note` renames one and rewrites links
+to it, and `list_tree` lists it with the other notes. An agent on the
+filesystem path should leave `.excalidraw.md` files alone for the same
+reason ([file-format.md](file-format.md#drawings)).
+
 `agent_label` defaults to the token's label. It lets one token name the
 job in front of it, and it is what lands in the note's history and git:
 the CRDT author and the commit author are both `agent:<label>`.

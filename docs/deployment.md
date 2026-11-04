@@ -496,6 +496,33 @@ whole root for a trusted agent on the box) or through the MCP endpoint at
 Both paths, including scoping, revocation, rate limits, and git
 attribution, are in [agents.md](agents.md).
 
+## Converting Obsidian drawings
+
+Drawings made with Obsidian's Excalidraw plugin are stored in the
+plugin's own format and are not read by the app. `yana drawings convert`
+rewrites them as yana drawings ([file-format.md](file-format.md#drawings)),
+once, in place. It finds them by content, not by name: any `.md` file
+whose frontmatter carries `excalidraw-plugin:` and whose scene is in a
+`compressed-json` or `json` block. Each keeps its `id`, so links and
+history follow it, and the plugin's own keys and sections are dropped.
+The old content stays in git.
+
+Run it in the container, where `YANA_NOTES_ROOT` is set:
+
+```sh
+docker compose exec yana yana drawings convert
+docker compose exec yana yana drawings convert --apply
+```
+
+Without `--apply` it only reports. Each file is one line, `ok` with its
+element count or `FAIL` with the reason, and the command exits 1 if any
+failed. A plugin drawing whose name does not end in `.excalidraw.md`
+also gets a `rename` line. The command never renames: do that through
+`POST /api/notes/{id}/move` or the MCP `move_note` tool, so inbound links
+are rewritten along with the file. Keep the dry-run output, because once
+a file has been converted it is no longer listed as a plugin drawing and
+its rename line is not printed again.
+
 ## Daily note
 
 `YANA_DAILY_PATTERN` (default `journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md`)
