@@ -11,6 +11,7 @@
 // thing; a phone in split mode reads. The title is edited in place: it
 // rewrites the note's H1 and renames the file to match.
 
+import type { ComponentChildren } from 'preact'
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { EditorView } from '@codemirror/view'
 
@@ -403,7 +404,9 @@ export function NotePage(props: NotePageProps) {
     return <div class="placeholder muted">Opening…</div>
   }
 
-  const header = (
+  // The header carries the page's toolbar on the title's line; each kind
+  // of note brings its own.
+  const head = (actions: ComponentChildren) => (
     <NoteHeader
       note={note}
       onCommit={commitTitle}
@@ -415,7 +418,9 @@ export function NotePage(props: NotePageProps) {
       onShare={() => setShare(true)}
       onConflicts={() => setConflictDlg(true)}
       hasDir={hasDir}
-    />
+    >
+      {actions}
+    </NoteHeader>
   )
   const conflictDialog = conflictDlg && (
     <ConflictDialog
@@ -457,18 +462,16 @@ export function NotePage(props: NotePageProps) {
   if (note.kind === 'html') {
     return (
       <article class={'page html-page' + (details ? ' with-details' : '')}>
-        {header}
-        <div class="page-body html-body">
-          <HtmlNote
-            note={note}
-            onOpen={onOpen}
-            onToast={onToast}
-            onMore={openOverflow}
-            details={details}
-            onToggleDetails={() => setDetails((d) => !d)}
-          />
-          {detailsPane}
-        </div>
+        <HtmlNote
+          note={note}
+          onOpen={onOpen}
+          onToast={onToast}
+          onMore={openOverflow}
+          details={details}
+          onToggleDetails={() => setDetails((d) => !d)}
+          head={head}
+          aside={detailsPane}
+        />
         {shareDialog}
         {conflictDialog}
       </article>
@@ -478,19 +481,15 @@ export function NotePage(props: NotePageProps) {
   if (note.kind === 'drawing') {
     return (
       <article class={'page drawing-page' + (details ? ' with-details' : '')}>
-        {header}
-        <div class="page-body">
-          <DrawingNote key={note.id} note={note} onOpen={onOpen} onToast={onToast}>
-            <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Path, backlinks, graph and history" aria-pressed={details}>
-              <Icon name="panel-right" />
-              {!phone && 'Details'}
-            </button>
-            <button type="button" class="icon-btn" title="More" aria-label="More actions" onClick={(ev) => openOverflow(ev.currentTarget as HTMLElement)}>
-              <Icon name="more" size={18} />
-            </button>
-          </DrawingNote>
-          {detailsPane}
-        </div>
+        <DrawingNote key={note.id} note={note} onOpen={onOpen} onToast={onToast} head={head} aside={detailsPane}>
+          <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Path, backlinks, graph and history" aria-pressed={details}>
+            <Icon name="panel-right" />
+            {!phone && 'Details'}
+          </button>
+          <button type="button" class="icon-btn" title="More" aria-label="More actions" onClick={(ev) => openOverflow(ev.currentTarget as HTMLElement)}>
+            <Icon name="more" size={18} />
+          </button>
+        </DrawingNote>
         {shareDialog}
         {conflictDialog}
       </article>
@@ -514,62 +513,63 @@ export function NotePage(props: NotePageProps) {
 
   return (
     <article ref={article} class={'page' + (split ? ' split' : '') + (details ? ' with-details' : '') + (editing ? ' editing' : ' reading')}>
-      {header}
-      <div class="editor-toolbar">
-        <span class={'sync-status ' + status} title={statusTitle(status)}>
-          <span class="sync-dot" />
-          <span class="sync-label">{statusLabel(status)}</span>
-        </span>
-        {others.length > 0 && (
-          <div class="presence" aria-label="also here">
-            {others.map((u, i) => (
-              <span key={`${u.name}-${i}`} class="presence-chip" title={`${u.name} has this note open`}>
-                <span class="presence-dot" style={`background:${u.color}`} />
-                {u.name}
+      {head(
+        <div class="editor-toolbar">
+          <span class={'sync-status ' + status} title={statusTitle(status)}>
+            <span class="sync-dot" />
+            <span class="sync-label">{statusLabel(status)}</span>
+          </span>
+          {others.length > 0 && (
+            <div class="presence" aria-label="also here">
+              {others.map((u, i) => (
+                <span key={`${u.name}-${i}`} class="presence-chip" title={`${u.name} has this note open`}>
+                  <span class="presence-dot" style={`background:${u.color}`} />
+                  {u.name}
+                </span>
+              ))}
+            </div>
+          )}
+          {notice && <span class="editor-notice">{notice}</span>}
+          {!phone && editing && !readOnly && note.role !== 'viewer' && <FormatBar view={view} note={note} onToast={onToast} compact />}
+          <span class="spacer" />
+          {phone ? (
+            editing ? (
+              <button type="button" class="btn primary" onClick={() => onMode('read')} title="Back to reading (Esc)">
+                <Icon name="check" />
+                Done
+              </button>
+            ) : note.role === 'viewer' ? (
+              <span class="role-badge" title="Your account reads this space">
+                <Icon name="eye" />
+                Viewer
               </span>
-            ))}
-          </div>
-        )}
-        {notice && <span class="editor-notice">{notice}</span>}
-        {!phone && editing && !readOnly && note.role !== 'viewer' && <FormatBar view={view} note={note} onToast={onToast} compact />}
-        <span class="spacer" />
-        {phone ? (
-          editing ? (
-            <button type="button" class="btn primary" onClick={() => onMode('read')} title="Back to reading (Esc)">
-              <Icon name="check" />
-              Done
-            </button>
+            ) : (
+              <button type="button" class="btn" onClick={() => onMode('edit')} title="Edit (E)" disabled={readOnly}>
+                <Icon name="pencil" />
+                Edit
+              </button>
+            )
           ) : note.role === 'viewer' ? (
-            <span class="role-badge" title="Your account reads this space">
+            <span class="role-badge" title="Your account reads this space; an editor role would let you write">
               <Icon name="eye" />
               Viewer
             </span>
           ) : (
-            <button type="button" class="btn" onClick={() => onMode('edit')} title="Edit (E)" disabled={readOnly}>
-              <Icon name="pencil" />
-              Edit
-            </button>
-          )
-        ) : note.role === 'viewer' ? (
-          <span class="role-badge" title="Your account reads this space; an editor role would let you write">
-            <Icon name="eye" />
-            Viewer
-          </span>
-        ) : (
-          <div class="segmented" role="tablist" aria-label="view">
-            {modeBtn('read', 'book-open', 'Read', 'Read (Esc)')}
-            {modeBtn('edit', 'pencil', 'Edit', 'Edit (E)')}
-            {modeBtn('split', 'columns', 'Split', 'Editor and preview side by side')}
-          </div>
-        )}
-        <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Path, backlinks, graph and history" aria-pressed={details}>
-          <Icon name="panel-right" />
-          {!phone && 'Details'}
-        </button>
-        <button type="button" class="icon-btn" title="More" aria-label="More actions" onClick={(ev) => openOverflow(ev.currentTarget as HTMLElement)}>
-          <Icon name="more" size={18} />
-        </button>
-      </div>
+            <div class="segmented" role="tablist" aria-label="view">
+              {modeBtn('read', 'book-open', 'Read', 'Read (Esc)')}
+              {modeBtn('edit', 'pencil', 'Edit', 'Edit (E)')}
+              {modeBtn('split', 'columns', 'Split', 'Editor and preview side by side')}
+            </div>
+          )}
+          <button type="button" class={'btn' + (details ? ' on' : '')} onClick={() => setDetails((d) => !d)} title="Path, backlinks, graph and history" aria-pressed={details}>
+            <Icon name="panel-right" />
+            {!phone && 'Details'}
+          </button>
+          <button type="button" class="icon-btn" title="More" aria-label="More actions" onClick={(ev) => openOverflow(ev.currentTarget as HTMLElement)}>
+            <Icon name="more" size={18} />
+          </button>
+        </div>,
+      )}
       <div class="page-body">
         {editing &&
           (docReady ? (
@@ -673,9 +673,11 @@ interface NoteHeaderProps {
   /** Open the dialog that resolves this note's conflict copies. */
   onConflicts: () => void
   hasDir: (path: string) => boolean
+  /** The page's toolbar, on the title's line while there is room. */
+  children: ComponentChildren
 }
 
-function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLocation, onShare, onConflicts, hasDir }: NoteHeaderProps) {
+function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLocation, onShare, onConflicts, hasDir, children }: NoteHeaderProps) {
   const el = useRef<HTMLHeadingElement>(null)
   const dir = dirOf(note.path)
   // What the title says while it is being typed; a slash in it places
@@ -704,84 +706,98 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLoca
 
   return (
     <header class="note-header">
-      <nav class="crumbs" aria-label="folder">
-        <button
-          type="button"
-          class="crumbs-btn"
-          title={readOnly ? 'The folder this note is in' : 'Move to another folder'}
-          disabled={readOnly}
-          onClick={onLocation}
-        >
-          <Icon name="folder" />
-          {crumbs.length === 0 ? (
-            <span>/</span>
-          ) : (
-            crumbs.map((p, i) => (
-              <span key={i}>
-                {i > 0 && <span class="crumb-sep">/</span>}
-                {p}
-              </span>
-            ))
-          )}
-          {!readOnly && <Icon name="chevron-down" class="crumbs-caret" size={12} />}
-        </button>
-        {note.public && (
-          <button type="button" class="public-mark" title="A public link to this note is live" onClick={onShare}>
-            <Icon name="globe" size={13} />
-            Public
-          </button>
-        )}
-        {(note.conflict_count ?? 0) > 0 && (
+      <div class="note-line">
+        <nav class="crumbs" aria-label="folder">
           <button
             type="button"
-            class="conflict-chip"
-            title="Resolve the conflict copies parked beside this note"
-            onClick={onConflicts}
+            class="crumbs-btn"
+            title={readOnly ? 'The folder this note is in' : 'Move to another folder'}
+            disabled={readOnly}
+            onClick={onLocation}
           >
-            <Icon name="alert" size={13} />
-            {note.conflict_count} {note.conflict_count === 1 ? 'conflict' : 'conflicts'}
+            <Icon name="folder" />
+            {crumbs.length === 0 ? (
+              <span>/</span>
+            ) : (
+              crumbs.map((p, i) => (
+                <span key={i}>
+                  {i > 0 && <span class="crumb-sep">/</span>}
+                  {p}
+                </span>
+              ))
+            )}
+            {!readOnly && <Icon name="chevron-down" class="crumbs-caret" size={12} />}
           </button>
+          {note.public && (
+            <button type="button" class="public-mark" title="A public link to this note is live" onClick={onShare}>
+              <Icon name="globe" size={13} />
+              Public
+            </button>
+          )}
+          {(note.conflict_count ?? 0) > 0 && (
+            <button
+              type="button"
+              class="conflict-chip"
+              title="Resolve the conflict copies parked beside this note"
+              onClick={onConflicts}
+            >
+              <Icon name="alert" size={13} />
+              {note.conflict_count} {note.conflict_count === 1 ? 'conflict' : 'conflicts'}
+            </button>
+          )}
+        </nav>
+        {note.tags.length > 0 && (
+          <div class="note-tags" aria-label="tags">
+            {note.tags.map((t) => (
+              <a key={t} class="tag" href={`/tags/${encodeURIComponent(t)}`} onClick={(ev) => { ev.preventDefault(); onTag(t) }}>
+                #{t}
+              </a>
+            ))}
+          </div>
         )}
-      </nav>
-      <h1
-        ref={el}
-        class={'note-title' + (readOnly ? ' static' : '')}
-        contentEditable={readOnly ? false : ('plaintext-only' as unknown as boolean)}
-        spellcheck={false}
-        role={readOnly ? undefined : 'textbox'}
-        aria-label="Title"
-        onInput={(ev) => setDraft((ev.currentTarget as HTMLElement).textContent ?? '')}
-        onKeyDown={(ev) => {
-          if (ev.key === 'Enter') {
+      </div>
+      <div class="note-headline">
+        <h1
+          ref={el}
+          class={'note-title' + (readOnly ? ' static' : '')}
+          contentEditable={readOnly ? false : ('plaintext-only' as unknown as boolean)}
+          spellcheck={false}
+          role={readOnly ? undefined : 'textbox'}
+          aria-label="Title"
+          onInput={(ev) => setDraft((ev.currentTarget as HTMLElement).textContent ?? '')}
+          onKeyDown={(ev) => {
+            if (ev.key === 'Enter') {
+              ev.preventDefault()
+              ;(ev.currentTarget as HTMLElement).blur()
+              onNext()
+            } else if (ev.key === 'Escape') {
+              ev.preventDefault()
+              const h = ev.currentTarget as HTMLElement
+              h.textContent = note.title
+              setDraft(null)
+              h.blur()
+            }
+          }}
+          onPaste={(ev) => {
             ev.preventDefault()
-            ;(ev.currentTarget as HTMLElement).blur()
-            onNext()
-          } else if (ev.key === 'Escape') {
-            ev.preventDefault()
+            const t = ev.clipboardData?.getData('text/plain') ?? ''
+            document.execCommand('insertText', false, t.replace(/\s+/g, ' '))
+          }}
+          onBlur={(ev) => {
             const h = ev.currentTarget as HTMLElement
-            h.textContent = note.title
+            const v = h.textContent ?? ''
             setDraft(null)
-            h.blur()
-          }
-        }}
-        onPaste={(ev) => {
-          ev.preventDefault()
-          const t = ev.clipboardData?.getData('text/plain') ?? ''
-          document.execCommand('insertText', false, t.replace(/\s+/g, ' '))
-        }}
-        onBlur={(ev) => {
-          const h = ev.currentTarget as HTMLElement
-          const v = h.textContent ?? ''
-          setDraft(null)
-          if (v.trim() === '') {
-            h.textContent = note.title
-            return
-          }
-          // The heading shows the name, not the path that placed it.
-          h.textContent = resolveTitle(note.path, note.title, v).title
-          onCommit(v)
-        }}
-      />
+            if (v.trim() === '') {
+              h.textContent = note.title
+              return
+            }
+            // The heading shows the name, not the path that placed it.
+            h.textContent = resolveTitle(note.path, note.title, v).title
+            onCommit(v)
+          }}
+        />
+        {children}
+      </div>
       {target && (
         <p class="title-hint" aria-live="polite">
           <Icon name={target.moves ? 'move' : 'folder'} size={13} />
@@ -803,15 +819,6 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLoca
           <Icon name="alert" size={13} />
           A conflict copy. The note it came from is gone, so it is a plain note now.
         </p>
-      )}
-      {note.tags.length > 0 && (
-        <div class="note-tags" aria-label="tags">
-          {note.tags.map((t) => (
-            <a key={t} class="tag" href={`/tags/${encodeURIComponent(t)}`} onClick={(ev) => { ev.preventDefault(); onTag(t) }}>
-              #{t}
-            </a>
-          ))}
-        </div>
       )}
     </header>
   )

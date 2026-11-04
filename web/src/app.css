@@ -486,10 +486,14 @@ kbd {
 .placeholder-icon { color: var(--ink-3); display: block; margin-bottom: 10px; }
 
 .page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.note-header { flex: none; padding: 18px var(--page-x) 6px; }
-.crumbs { display: flex; align-items: center; font: 12px var(--mono); color: var(--ink-3); margin-bottom: 2px; margin-left: -6px; }
+.note-header { flex: none; padding: 8px var(--page-x); border-bottom: 1px solid var(--line); }
+/* The folder and the tags on one small line; under it the title, with the
+   page's toolbar beside it while there is room and under it when not. */
+.note-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0 12px; min-width: 0; }
+.note-headline { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; }
+.crumbs { display: flex; align-items: center; min-width: 0; font: 12px var(--mono); color: var(--ink-3); margin-left: -6px; }
 .crumbs-btn {
-  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; height: 24px; padding: 0 6px;
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; height: 20px; padding: 0 6px;
   font: inherit; color: inherit; background: none; border: 0; border-radius: var(--r-sm); cursor: pointer;
 }
 .crumbs-btn > span { white-space: nowrap; }
@@ -528,10 +532,13 @@ kbd {
 }
 .meta-path:hover { color: var(--accent-ink); text-decoration: underline; }
 .note-title {
-  margin: 0; padding: 2px 6px; margin-left: -6px; font-size: 26px; font-weight: 650; line-height: 1.25;
-  border-radius: var(--r-sm); outline: none; overflow-wrap: anywhere; cursor: text;
-  max-width: var(--measure);
+  flex: 999 1 12em; min-width: 0; max-width: var(--measure);
+  margin: 0; padding: 2px 6px; margin-left: -6px; font-size: 20px; font-weight: 650; line-height: 1.3;
+  border-radius: var(--r-sm); outline: none; cursor: text;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* A long title is cut short to keep the toolbar beside it; editing shows it whole. */
+.note-title:focus { white-space: normal; overflow-wrap: anywhere; }
 .note-title:hover { background: var(--hover); }
 .note-title:focus { background: var(--bg-2); box-shadow: 0 0 0 2px var(--accent-soft); }
 .note-title:empty::before { content: 'Untitled'; color: var(--ink-3); }
@@ -544,8 +551,8 @@ kbd {
 .role-badge .icon { color: var(--ink-3); }
 
 .editor-toolbar {
-  display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
-  padding: 6px var(--page-x) 8px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+  padding: 2px 0;
 }
 .editor-toolbar::-webkit-scrollbar { display: none; }
 .editor-toolbar .btn { box-shadow: none; }
@@ -620,8 +627,8 @@ kbd {
 .meta dd { margin: 0; overflow-wrap: anywhere; }
 .meta .tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag { font-family: var(--mono); font-size: 12px; color: var(--accent-ink); }
-.note-tags { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; }
-.note-tags .tag { font-size: 12.5px; }
+.note-tags { display: flex; flex-wrap: wrap; gap: 0 10px; }
+.note-tags .tag { font-size: 12px; }
 .note-tags .tag:hover { text-decoration: underline; }
 .markdown .tag { font-size: 0.92em; padding: 0 2px; border-radius: 3px; cursor: pointer; }
 .markdown .tag:hover, .markdown .tag:focus-visible { background: var(--accent-soft); }
@@ -1336,9 +1343,7 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .shell.phone .tree-note, .shell.phone .tree-dir { height: 40px; font-size: 15px; }
 .shell.phone .space-toggle { height: 40px; }
 .shell.phone .sidebar-link { height: 40px; font-size: 14px; }
-.shell.phone .note-header { padding-top: 12px; }
-.shell.phone .note-title { font-size: 23px; }
-.shell.phone .editor-toolbar { gap: 6px; padding-bottom: 6px; }
+.shell.phone .editor-toolbar { gap: 6px; }
 .shell.phone .preview { border-left: 0; }
 .shell.phone .markdown input[type="checkbox"] { width: 20px; height: 20px; vertical-align: -4px; }
 /* A table keeps its shape and scrolls inside itself rather than folding every cell. */
@@ -1365,7 +1370,6 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .shell.phone .menu-head { padding: 8px 12px 10px; }
 .shell.phone .menu-title { font-size: 15px; }
 .shell.phone .search-page .search-input { font-size: 16px; }
-.shell.phone .note-tags .tag { font-size: 13.5px; }
 .shell.phone .report-head { padding-top: 16px; }
 .shell.phone .settings-main { padding-top: 4px; }
 .shell.phone .settings-block { margin-top: 22px; padding-top: 16px; }

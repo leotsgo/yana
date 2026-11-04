@@ -40,6 +40,9 @@ under Unreleased until the next tag; see
   the scrollbar at the edge, the content centered or left as Center the
   text says. A long folder path in the tasks filter no longer stretches
   its select past the page.
+- The header above a note takes half the height: the folder and tags on
+  one small line, the title with the toolbar beside it. A long title is
+  cut short there and shows whole while you edit it.
 
 ## 0.3.3 — 2026-11-04
 

@@ -46,9 +46,13 @@ export interface DrawingNoteProps {
   onToast: (m: string) => void
   /** The page's own buttons (details, overflow), at the end of the toolbar. */
   children?: ComponentChildren
+  /** The page's header, given this drawing's toolbar to carry. */
+  head: (actions: ComponentChildren) => ComponentChildren
+  /** The details pane, beside the canvas. */
+  aside: ComponentChildren
 }
 
-export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProps) {
+export function DrawingNote({ note, onOpen, onToast, children, head, aside }: DrawingNoteProps) {
   const host = useRef<HTMLDivElement>(null)
   const [state, setState] = useState<SaveState>('saved')
   const [notice, setNotice] = useState<string | null>(null)
@@ -292,35 +296,42 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
   }, [note.id])
 
   return (
-    <section class="drawing-note">
-      <div class="editor-toolbar">
-        {viewOnly ? (
-          <span class="role-badge" title="Your account reads this space">
-            <Icon name="eye" />
-            Viewer
-          </span>
-        ) : (
-          readable && (
-            <span class={'sync-status ' + CLASS[state]} title={TITLE[state]}>
-              <span class="sync-dot" />
-              <span class="sync-label">{LABEL[state]}</span>
+    <>
+      {head(
+        <div class="editor-toolbar">
+          {viewOnly ? (
+            <span class="role-badge" title="Your account reads this space">
+              <Icon name="eye" />
+              Viewer
             </span>
-          )
-        )}
-        {notice && <span class="editor-notice">{notice}</span>}
-        <span class="spacer" />
-        {children}
-      </div>
-      {readable ? (
-        <div class="drawing-canvas">
-          <div class="drawing-host" ref={host} />
-        </div>
-      ) : (
-        <p class="drawing-unreadable" title={note.scene_error}>
-          This drawing could not be read. It is left as it is.
-        </p>
+          ) : (
+            readable && (
+              <span class={'sync-status ' + CLASS[state]} title={TITLE[state]}>
+                <span class="sync-dot" />
+                <span class="sync-label">{LABEL[state]}</span>
+              </span>
+            )
+          )}
+          {notice && <span class="editor-notice">{notice}</span>}
+          <span class="spacer" />
+          {children}
+        </div>,
       )}
-    </section>
+      <div class="page-body">
+        <section class="drawing-note">
+          {readable ? (
+            <div class="drawing-canvas">
+              <div class="drawing-host" ref={host} />
+            </div>
+          ) : (
+            <p class="drawing-unreadable" title={note.scene_error}>
+              This drawing could not be read. It is left as it is.
+            </p>
+          )}
+        </section>
+        {aside}
+      </div>
+    </>
   )
 }
 

@@ -4,6 +4,7 @@
 // and last-write-wins, with the server keeping a conflict copy when a
 // save lands on a file that changed underneath it.
 
+import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
 
 import { api, ApiError } from './api'
@@ -19,9 +20,13 @@ export interface HtmlNoteProps {
   onMore: (anchor: HTMLElement) => void
   details: boolean
   onToggleDetails: () => void
+  /** The page's header, given this note's toolbar to carry. */
+  head: (actions: ComponentChildren) => ComponentChildren
+  /** The details pane, beside the frame. */
+  aside: ComponentChildren
 }
 
-export function HtmlNote({ note, onOpen, onToast, onMore, details, onToggleDetails }: HtmlNoteProps) {
+export function HtmlNote({ note, onOpen, onToast, onMore, details, onToggleDetails, head, aside }: HtmlNoteProps) {
   const [frameURL, setFrameURL] = useState<string | null>(null)
   const [trusted, setTrusted] = useState(note.trusted)
   const [editing, setEditing] = useState(false)
@@ -112,83 +117,90 @@ export function HtmlNote({ note, onOpen, onToast, onMore, details, onToggleDetai
   }
 
   return (
-    <section class={'html-note' + (editing ? ' editing' : '')}>
-      <div class="editor-toolbar">
-        <span class={'trust-badge ' + (trusted ? 'trusted' : 'sandboxed')} title={trusted
-          ? 'Rendered as written, scripts and all, on the content origin.'
-          : 'Sanitized: scripts, event handlers and external loads are stripped before rendering.'}>
-          <Icon name={trusted ? 'shield-off' : 'shield'} />
-          {trusted ? 'Unsanitized' : 'Sanitized'}
-        </span>
-        {notice && <span class="editor-notice">{notice}</span>}
-        <span class="spacer" />
-        {editing && (
-          <>
-            <span class={'sync-status ' + (dirty ? 'offline' : 'synced')}>
-              <span class="sync-dot" />
-              <span class="sync-label">{dirty ? 'Unsaved' : 'Saved'}</span>
-            </span>
-            <button type="button" class="btn primary" disabled={!dirty || saving} onClick={save}>
-              <Icon name="save" />
-              Save
-            </button>
-          </>
-        )}
-        <button type="button" class={'btn' + (editing ? ' on' : '')} onClick={() => setEditing((e) => !e)} title="Edit the HTML source" aria-pressed={editing}>
-          <Icon name="code" />
-          Source
-        </button>
-        <button
-          type="button"
-          class={'btn trust-toggle' + (trusted ? ' on' : '')}
-          onClick={toggleTrust}
-          title={trusted ? 'Sanitize this note again' : 'Render this note unsanitized (scripts run)'}
-          aria-pressed={trusted}
-        >
-          <Icon name={trusted ? 'shield-off' : 'shield'} />
-          Trust
-        </button>
-        <button type="button" class={'btn' + (details ? ' on' : '')} onClick={onToggleDetails} title="Path, backlinks, graph and history" aria-pressed={details}>
-          <Icon name="panel-right" />
-        </button>
-        <button type="button" class="icon-btn" title="More" aria-label="More actions" onClick={(ev) => onMore(ev.currentTarget as HTMLElement)}>
-          <Icon name="more" size={18} />
-        </button>
-      </div>
-      {editing ? (
-        <textarea
-          class="source-editor"
-          spellcheck={false}
-          value={source}
-          onKeyDown={(ev: KeyboardEvent) => {
-            if ((ev.metaKey || ev.ctrlKey) && ev.key === 's') {
-              ev.preventDefault()
-              save()
-            }
-          }}
-          onInput={(ev: Event) => {
-            setSource((ev.target as HTMLTextAreaElement).value)
-            setDirty(true)
-          }}
-        />
-      ) : frameURL ? (
-        <iframe
-          class="html-frame"
-          title={note.title || note.path}
-          // allow-scripts only: the frame gets an opaque origin, so it
-          // cannot reach this app's DOM, storage, or API even though its
-          // markup runs.
-          sandbox="allow-scripts"
-          referrerpolicy="no-referrer"
-          src={frameURL}
-        />
-      ) : (
-        <div class="html-source-fallback">
-          <pre class="note-source">
-            <code>{source}</code>
-          </pre>
-        </div>
+    <>
+      {head(
+        <div class="editor-toolbar">
+          <span class={'trust-badge ' + (trusted ? 'trusted' : 'sandboxed')} title={trusted
+            ? 'Rendered as written, scripts and all, on the content origin.'
+            : 'Sanitized: scripts, event handlers and external loads are stripped before rendering.'}>
+            <Icon name={trusted ? 'shield-off' : 'shield'} />
+            {trusted ? 'Unsanitized' : 'Sanitized'}
+          </span>
+          {notice && <span class="editor-notice">{notice}</span>}
+          <span class="spacer" />
+          {editing && (
+            <>
+              <span class={'sync-status ' + (dirty ? 'offline' : 'synced')}>
+                <span class="sync-dot" />
+                <span class="sync-label">{dirty ? 'Unsaved' : 'Saved'}</span>
+              </span>
+              <button type="button" class="btn primary" disabled={!dirty || saving} onClick={save}>
+                <Icon name="save" />
+                Save
+              </button>
+            </>
+          )}
+          <button type="button" class={'btn' + (editing ? ' on' : '')} onClick={() => setEditing((e) => !e)} title="Edit the HTML source" aria-pressed={editing}>
+            <Icon name="code" />
+            Source
+          </button>
+          <button
+            type="button"
+            class={'btn trust-toggle' + (trusted ? ' on' : '')}
+            onClick={toggleTrust}
+            title={trusted ? 'Sanitize this note again' : 'Render this note unsanitized (scripts run)'}
+            aria-pressed={trusted}
+          >
+            <Icon name={trusted ? 'shield-off' : 'shield'} />
+            Trust
+          </button>
+          <button type="button" class={'btn' + (details ? ' on' : '')} onClick={onToggleDetails} title="Path, backlinks, graph and history" aria-pressed={details}>
+            <Icon name="panel-right" />
+          </button>
+          <button type="button" class="icon-btn" title="More" aria-label="More actions" onClick={(ev) => onMore(ev.currentTarget as HTMLElement)}>
+            <Icon name="more" size={18} />
+          </button>
+        </div>,
       )}
-    </section>
+      <div class="page-body html-body">
+        <section class={'html-note' + (editing ? ' editing' : '')}>
+          {editing ? (
+            <textarea
+              class="source-editor"
+              spellcheck={false}
+              value={source}
+              onKeyDown={(ev: KeyboardEvent) => {
+                if ((ev.metaKey || ev.ctrlKey) && ev.key === 's') {
+                  ev.preventDefault()
+                  save()
+                }
+              }}
+              onInput={(ev: Event) => {
+                setSource((ev.target as HTMLTextAreaElement).value)
+                setDirty(true)
+              }}
+            />
+          ) : frameURL ? (
+            <iframe
+              class="html-frame"
+              title={note.title || note.path}
+              // allow-scripts only: the frame gets an opaque origin, so it
+              // cannot reach this app's DOM, storage, or API even though its
+              // markup runs.
+              sandbox="allow-scripts"
+              referrerpolicy="no-referrer"
+              src={frameURL}
+            />
+          ) : (
+            <div class="html-source-fallback">
+              <pre class="note-source">
+                <code>{source}</code>
+              </pre>
+            </div>
+          )}
+        </section>
+        {aside}
+      </div>
+    </>
   )
 }
