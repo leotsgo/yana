@@ -169,6 +169,13 @@ func HasExtension(raw string) bool {
 	return false
 }
 
+// SpellsDrawing reports whether the raw target names a drawing by its short
+// form, Name.excalidraw, which withExtension completes to Name.excalidraw.md.
+// Dropping that suffix would retarget the link to a note called Name.
+func SpellsDrawing(raw string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(raw)), ".excalidraw")
+}
+
 // RewriteTarget computes the raw target that keeps a link pointing at a
 // note after it moved to newRel, preserving the style the author chose:
 // relative links stay relative to the linking note, root-path links stay

@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/fsutil"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/scanner"
@@ -209,11 +210,12 @@ func (r *Reconciler) planRewrites(ctx context.Context, row index.Note, clean str
 			continue
 		}
 		seen[key] = struct{}{}
-		rewrites = append(rewrites, linkRewrite{
-			fromID: in.FromID,
-			oldRaw: in.RawTarget,
-			newRaw: wikilink.RewriteTarget(got.Rule, in.FromRel, clean, wikilink.HasExtension(in.RawTarget)),
-		})
+		newRaw := wikilink.RewriteTarget(got.Rule, in.FromRel, clean, wikilink.HasExtension(in.RawTarget))
+		if wikilink.SpellsDrawing(in.RawTarget) && drawing.Is(clean) {
+			// [[Name.excalidraw]] keeps naming the drawing.
+			newRaw += ".excalidraw"
+		}
+		rewrites = append(rewrites, linkRewrite{fromID: in.FromID, oldRaw: in.RawTarget, newRaw: newRaw})
 	}
 	return rewrites, broken, nil
 }

@@ -193,3 +193,19 @@ func TestRewriteTargetDrawing(t *testing.T) {
 		}
 	}
 }
+
+func TestSpellsDrawing(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"Foo.excalidraw":       true,
+		" dir/Foo.Excalidraw ": true,
+		"Foo":                  false,
+		"Foo.excalidraw.md":    false,
+		"Foo.md":               false,
+		"Foo.png":              false,
+		"":                     false,
+	} {
+		if got := SpellsDrawing(raw); got != want {
+			t.Errorf("SpellsDrawing(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}

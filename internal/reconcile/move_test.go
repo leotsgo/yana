@@ -299,3 +299,43 @@ func TestReplaceRawTarget(t *testing.T) {
 }
 
 var _ = context.Background
+
+func TestMoveDrawingKeepsExcalidrawSpelling(t *testing.T) {
+	h := newHarness(t, "", testOptions())
+	defer h.close()
+
+	// Foo.md and Foo.excalidraw.md both exist: [[Foo.excalidraw]] names the
+	// drawing, and a rewrite to [[sub/Foo]] would silently retarget the note.
+	h.newNote("main/Foo.md", "# Foo\n")
+	drawing := h.newNote("main/Foo.excalidraw.md", "# Foo drawing\n")
+	linker := h.newNote("main/l.md", "See [[Foo.excalidraw]] and [[Foo.excalidraw|the board]].\n")
+
+	if _, err := h.rec.Move(h.ctx, drawing, "main/sub/Foo.excalidraw.md", nil); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	want := "See [[sub/Foo.excalidraw]] and [[sub/Foo.excalidraw|the board]].\n"
+	if got := h.converged(linker); got != want {
+		t.Fatalf("linker body = %q, want %q", got, want)
+	}
+	if !h.eventually(20*tSettle, func() bool {
+		back, err := h.db.Backlinks(h.ctx, drawing)
+		return err == nil && len(back) == 1 && back[0].Note.ID == linker
+	}) {
+		back, _ := h.db.Backlinks(h.ctx, drawing)
+		t.Fatalf("backlinks of the moved drawing = %+v", back)
+	}
+}
+
+func TestMoveDrawingRenamedToNoteDropsExcalidrawSpelling(t *testing.T) {
+	h := newHarness(t, "", testOptions())
+	defer h.close()
+
+	drawing := h.newNote("main/Foo.excalidraw.md", "# Foo\n")
+	linker := h.newNote("main/l.md", "See [[Foo.excalidraw]].\n")
+	if _, err := h.rec.Move(h.ctx, drawing, "main/Bar.md", nil); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if got, want := h.converged(linker), "See [[Bar]].\n"; got != want {
+		t.Fatalf("linker body = %q, want %q", got, want)
+	}
+}
