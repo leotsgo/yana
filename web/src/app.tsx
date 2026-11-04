@@ -2108,6 +2108,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               <Icon name="calendar" />
               Today
             </button>
+            <button type="button" class={'btn' + (route.kind === 'tasks' ? ' on' : '')} title="Open tasks across your spaces" onClick={() => openTasksPage()}>
+              <Icon name="check-square" />
+              Tasks
+            </button>
           </>
         )}
         <button type="button" class="icon-btn" title={`Command palette (${label(keys.palette)})`} aria-label="Command palette" onClick={openPalette}>

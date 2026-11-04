@@ -9,6 +9,12 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- A Tasks button in the top bar, beside New, Capture and Today.
+- The tasks, activity and trash pages span the pane like the home page:
+  the scrollbar at the edge, the content centered or left as Center the
+  text says. A long folder path in the tasks filter no longer stretches
+  its select past the page.
+
 ## 0.3.3 — 2026-11-04
 
 - Reveal the open note can be turned off (Settings, Appearance,
