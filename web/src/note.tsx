@@ -16,6 +16,7 @@ import type { EditorView } from '@codemirror/view'
 
 import { api, ApiError, dirOf } from './api'
 import type { MoveResult, Note } from './api'
+import { PageBacklinks } from './backlinks'
 import * as cache from './cache'
 import { fmtBytes, fmtDate } from './dom'
 import { Editor } from './editor'
@@ -28,7 +29,7 @@ import { ConflictDialog, isConflictName } from './conflict'
 import { coarsePointer } from './layout'
 import type { Layout } from './layout'
 import type { MenuSpec } from './menu'
-import { backlinksFooter, backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
+import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
 import type { LinkMenu, OpenNote } from './panels'
 import { headLines, resolveTitle } from './paths'
 import { ShareLinkDialog } from './publiclink'
@@ -880,14 +881,6 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, hi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync, note, readOnly, onOpen])
 
-  // The backlinks sit below the body, inside the same scroll; the body
-  // is replaced on every render, so they live outside it.
-  const foot = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    foot.current?.replaceChildren(backlinksFooter(note, onOpen))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note.id, onOpen])
-
   return (
     <div
       class={cls}
@@ -904,7 +897,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, hi
       }
     >
       <div class="markdown" ref={host} />
-      <div ref={foot} />
+      <PageBacklinks noteId={note.id} onOpen={onOpen} />
     </div>
   )
 }

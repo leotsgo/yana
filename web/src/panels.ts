@@ -100,23 +100,6 @@ export function backlinksPanel(note: Note, onOpen: OpenNote): HTMLElement {
   return panel
 }
 
-// The same list at the foot of the read view, Obsidian style. It stays
-// out of the way until something links here: no empty state, no error.
-export function backlinksFooter(note: Note, onOpen: OpenNote): HTMLElement {
-  const section = h('section', { class: 'page-backlinks panel', 'aria-label': 'linked from', hidden: true })
-  api
-    .backlinks(note.id)
-    .then(({ backlinks }) => {
-      if (backlinks.length === 0) return
-      const list = h('ul', { class: 'backlinks-list' })
-      for (const b of backlinks) list.append(backlinkRow(b, onOpen))
-      section.append(h('h2', { class: 'panel-title' }, `Linked from · ${backlinks.length}`), list)
-      section.hidden = false
-    })
-    .catch(() => {})
-  return section
-}
-
 function backlinkRow(b: Backlink, onOpen: OpenNote): HTMLElement {
   const a = h('a', { class: 'backlink-note', href: `/n/${b.note.id}` }, b.note.title || b.note.path)
   wireOpen(a, (how) => onOpen(b.note.id, how))

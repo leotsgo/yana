@@ -570,7 +570,6 @@ kbd {
 .reader, .preview { flex: 1; min-width: 0; overflow-y: auto; padding: 18px var(--page-x) 40vh; }
 .preview { border-left: 1px solid var(--line); background: var(--bg-2); }
 .reader > .markdown > :first-child, .preview > .markdown > :first-child { margin-top: 0; }
-.page-backlinks { max-width: var(--measure); margin-top: 2.5em; }
 .cm-ySelectionInfo { font-family: var(--mono); }
 
 /* the formatting bar above the phone keyboard */
@@ -726,6 +725,21 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .backlinks-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; }
 .backlink-note { font-weight: 500; }
 .backlink-context { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-2); }
+
+/* Linked mentions at the foot of the read view (backlinks.tsx). */
+.page-backlinks { max-width: var(--measure); margin-top: 3em; padding-top: 16px; border-top: 1px solid var(--line); }
+.page-backlinks-title { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; font-size: 16px; font-weight: 600; }
+.page-backlinks .count { font: 12px var(--mono); color: var(--ink-3); }
+.mention-group { margin: 0 0 12px; }
+.mention-group > summary { display: flex; align-items: center; gap: 6px; padding: 3px 0; list-style: none; cursor: pointer; color: var(--ink-2); }
+.mention-group > summary::-webkit-details-marker { display: none; }
+.mention-group > summary a { color: var(--ink); font-weight: 500; }
+.mention-group > summary .count { margin-left: auto; }
+.mention-caret { transition: transform 0.12s; }
+.mention-group[open] .mention-caret { transform: rotate(90deg); }
+.mention { display: block; margin: 4px 0 0; padding: 7px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg-2); color: var(--ink-2); font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.mention:hover { text-decoration: none; border-color: var(--line-2); background: var(--hover); }
+.mention mark { padding: 0 2px; border-radius: 3px; background: var(--accent-soft); color: var(--ink); }
 
 .history-head { display: flex; align-items: center; gap: 12px; }
 .history-head .btn-snapshot { margin-left: auto; }
