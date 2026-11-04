@@ -29,8 +29,18 @@ func TestDefaultsFile(t *testing.T) {
 	if err := json.Unmarshal(raw, &onDisk); err != nil || onDisk != (Defaults{Space: "work", Folder: "work/inbox", DailyFolder: "work/journal"}) {
 		t.Fatalf("file = %s (%v)", raw, err)
 	}
-	if code, body := doGet(t, f.ts, "/api/defaults", w.samHdr); code != 200 || body["folder"] != "work/inbox" || body["daily_folder"] != "work/journal" {
-		t.Fatalf("get for another account: %d %v", code, body)
+	// sam is not in work: its names never reach sam.
+	if code, body := doGet(t, f.ts, "/api/defaults", w.samHdr); code != 200 || body["space"] != "" || body["folder"] != "" || body["daily_folder"] != "" {
+		t.Fatalf("get for a non-member: %d %v", code, body)
+	}
+	if code, _ := doPost(t, f.ts, "PUT", "/api/defaults", w.ownerHdr, Defaults{Space: "work", Folder: "work/inbox", DailySpace: "home", DailyFolder: "home/daily"}); code != 200 {
+		t.Fatalf("owner put with home %d", code)
+	}
+	if code, body := doGet(t, f.ts, "/api/defaults", w.samHdr); code != 200 || body["folder"] != "" || body["daily_space"] != "home" || body["daily_folder"] != "home/daily" {
+		t.Fatalf("get for a member of home: %d %v", code, body)
+	}
+	if code, body := doGet(t, f.ts, "/api/defaults", w.ownerHdr); code != 200 || body["folder"] != "work/inbox" {
+		t.Fatalf("get for the owner: %d %v", code, body)
 	}
 	if code, _ := doGet(t, f.ts, "/api/defaults", ""); code != 401 {
 		t.Fatalf("anonymous get %d", code)

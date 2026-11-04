@@ -7,6 +7,7 @@ package server
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/madeofpendletonwool/yana/internal/spaces"
@@ -36,6 +37,26 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		writeJSON(w, http.StatusOK, nil)
 		return
+	}
+	allowed, ok := s.readableSpaces(w, r)
+	if !ok {
+		return
+	}
+	// A space the caller cannot read is not even named to them.
+	if allowed != nil {
+		readable := func(space string) bool { return space != "" && slices.Contains(allowed, space) }
+		if !readable(d.Space) {
+			d.Space = ""
+		}
+		if !readable(strings.SplitN(d.Folder, "/", 2)[0]) {
+			d.Folder = ""
+		}
+		if !readable(d.DailySpace) {
+			d.DailySpace = ""
+		}
+		if !readable(strings.SplitN(d.DailyFolder, "/", 2)[0]) {
+			d.DailyFolder = ""
+		}
 	}
 	writeJSON(w, http.StatusOK, d)
 }
