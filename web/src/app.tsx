@@ -1478,7 +1478,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       items,
       operators: searchSource,
       // Operators the tree can evaluate filter the rows (tag:, path:,
-      // space:, is:untagged, is:html); the rest is fuzzy text as ever.
+      // space:, is:untagged, is:html, is:drawing); the rest is fuzzy text as ever.
       operatorFilter: (q) => {
         const terms = parseQuery(q)
         if (!terms.some((t) => t.op)) return null

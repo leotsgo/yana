@@ -756,6 +756,10 @@ func TestMCPReadDrawing(t *testing.T) {
 	if isErr || !strings.Contains(txt, "Excalidraw drawing (could not be read).") {
 		t.Fatalf("unreadable drawing: %v %s", isErr, txt)
 	}
+	// A drawing is read from its file: no CRDT document is made for it.
+	if n := f.rec.Stats().Loaded; n != 0 {
+		t.Fatalf("reading drawings loaded %d documents", n)
+	}
 }
 
 func TestMCPWriteDrawingRefused(t *testing.T) {

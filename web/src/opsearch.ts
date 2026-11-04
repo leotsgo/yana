@@ -23,7 +23,7 @@ export interface OpTerm {
 const OP_NAMES = ['tag', 'path', 'space', 'is', 'has', 'author', 'before', 'after'] as const
 export type OpName = (typeof OP_NAMES)[number]
 
-const IS_VALUES = ['untagged', 'task', 'html']
+const IS_VALUES = ['untagged', 'task', 'html', 'drawing']
 const HAS_VALUES = ['image', 'attachment']
 
 /** What the empty state lists: every operator with a plain-language hint. */
@@ -31,7 +31,7 @@ export const OPERATORS: Array<{ op: OpName; example: string; hint: string }> = [
   { op: 'tag', example: 'tag:home', hint: 'notes carrying a #tag' },
   { op: 'path', example: 'path:folder/', hint: 'notes under a folder' },
   { op: 'space', example: 'space:work', hint: 'one space' },
-  { op: 'is', example: 'is:untagged', hint: 'untagged · task (an open box) · html' },
+  { op: 'is', example: 'is:untagged', hint: 'untagged · task (an open box) · html · drawing' },
   { op: 'has', example: 'has:image', hint: 'image · attachment (a file in _assets)' },
   { op: 'author', example: 'author:claude', hint: 'last edit by that person or agent' },
   { op: 'before', example: 'before:2026-01-01', hint: 'modified before a day' },
@@ -156,7 +156,7 @@ export interface NoteLike {
 }
 
 /** Whether a note satisfies the terms the tree can evaluate: tag, path,
- * space, is:untagged, is:html. The others need the index, so the
+ * space, is:untagged, is:html, is:drawing. The others need the index, so the
  * switcher leaves them to the search box. */
 export function noteMatches(terms: OpTerm[], note: NoteLike): boolean {
   for (const t of terms) {
@@ -179,7 +179,7 @@ export function noteMatches(terms: OpTerm[], note: NoteLike): boolean {
       }
       case 'is':
         if (t.value === 'untagged') hit = note.tags.length === 0
-        else if (t.value === 'html') hit = note.kind === 'html'
+        else if (t.value === 'html' || t.value === 'drawing') hit = note.kind === t.value
         else continue // task and the rest: not the switcher's to judge
         break
       default:

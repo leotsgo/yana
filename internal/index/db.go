@@ -165,6 +165,22 @@ func (db *DB) Write(ctx context.Context, fn func(tx *sql.Tx) error) error {
 // Reader exposes the read pool for query helpers.
 func (db *DB) Reader() *sql.DB { return db.readers }
 
+// checkDrawingKind fails unless migration 014's in-place edit of the kind
+// CHECK took on both tables. The edit is a text replace that silently
+// matches nothing if the stored CHECK differs from what 001 and 007 wrote.
+func checkDrawingKind(tx *sql.Tx) error {
+	for _, table := range []string{"notes", "deleted_notes"} {
+		var ddl string
+		if err := tx.QueryRow(`SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?`, table).Scan(&ddl); err != nil {
+			return fmt.Errorf("read the %s schema: %w", table, err)
+		}
+		if !strings.Contains(ddl, "'drawing'") {
+			return fmt.Errorf("the kind CHECK of %s was not widened to allow 'drawing'; its stored text is not the one 014 expects", table)
+		}
+	}
+	return nil
+}
+
 func (db *DB) migrate() error {
 	var version int
 	if err := db.writer.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
@@ -194,6 +210,11 @@ func (db *DB) migrate() error {
 		if err := db.runTx(context.Background(), func(tx *sql.Tx) error {
 			if _, err := tx.Exec(string(raw)); err != nil {
 				return fmt.Errorf("migration %s: %w", name, err)
+			}
+			if n == 14 {
+				if err := checkDrawingKind(tx); err != nil {
+					return fmt.Errorf("migration %s: %w", name, err)
+				}
 			}
 			_, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", n))
 			return err

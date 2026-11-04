@@ -157,6 +157,7 @@ func (r *Ripgrep) SearchSpacesPaths(ctx context.Context, pattern, space string, 
 		"--max-count", "50", // per file
 		"--glob", "*.md", "--glob", "*.markdown", "--glob", "*.html", "--glob", "*.htm",
 		"--glob", "!.*",
+		"--iglob", "!*.excalidraw.md", // a drawing's body is scene JSON
 		"-e", pattern, "--",
 	}
 	args = append(args, targets...)

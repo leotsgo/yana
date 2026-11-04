@@ -339,3 +339,32 @@ func TestMoveDrawingRenamedToNoteDropsExcalidrawSpelling(t *testing.T) {
 		t.Fatalf("linker body = %q, want %q", got, want)
 	}
 }
+
+// A link drawn on a canvas is not rewritten when its target moves: the
+// drawing is saved whole by the web app, never edited through the CRDT.
+func TestMoveLeavesDrawingLinkersAlone(t *testing.T) {
+	h := newHarness(t, "", testOptions())
+	defer h.close()
+
+	board := "```excalidraw\n" + `{"type":"excalidraw","version":2,"elements":[{"type":"rectangle","link":"[[peer]]"}],"appState":{},"files":{}}` + "\n```\n"
+	linker := h.newNote("main/Board.excalidraw.md", board)
+	peer := h.newNote("main/peer.md", "# Peer\n")
+	if !h.eventually(20*tSettle, func() bool {
+		back, err := h.db.Backlinks(h.ctx, peer)
+		return err == nil && len(back) == 1 && back[0].Note.ID == linker
+	}) {
+		t.Fatal("the drawing's link to peer was never indexed")
+	}
+
+	res, err := h.rec.Move(h.ctx, peer, "main/renamed.md", nil)
+	if err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if res.Rewritten != 0 {
+		t.Fatalf("rewritten = %d, want 0", res.Rewritten)
+	}
+	time.Sleep(2 * tSettle)
+	if got := h.read("main/Board.excalidraw.md"); !strings.HasSuffix(got, "---\n"+board) {
+		t.Fatalf("drawing body changed: %q", got)
+	}
+}

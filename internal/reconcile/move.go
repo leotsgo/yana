@@ -203,6 +203,11 @@ func (r *Reconciler) planRewrites(ctx context.Context, row index.Note, clean str
 			broken++
 			continue
 		}
+		if drawing.Is(in.FromRel) {
+			// A link drawn on a canvas is left as drawn: the drawing is
+			// saved whole by the web app and never edited through the CRDT.
+			continue
+		}
 		// A link and an embed of the same target from one note are two
 		// rows but one text; rewrite it once.
 		key := in.FromID + "\x00" + in.RawTarget

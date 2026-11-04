@@ -233,6 +233,37 @@ func TestConflictResolveBoth(t *testing.T) {
 	}
 }
 
+// A drawing's kept copy keeps the whole .excalidraw.md suffix, so it
+// stays a drawing.
+func TestConflictResolveBothDrawing(t *testing.T) {
+	e := newConflictEnv(t)
+	scene := "```excalidraw\n{\"type\":\"excalidraw\",\"elements\":[]}\n```\n"
+	for _, rel := range []string{"main/Map.excalidraw.md", "main/Map.conflict-20260923-121212.excalidraw.md"} {
+		p := filepath.Join(e.dir, filepath.FromSlash(rel))
+		if err := os.WriteFile(p, []byte(scene), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-time.Minute)
+		os.Chtimes(p, old, old)
+	}
+	if _, err := e.srv.Scanner.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	copy, err := e.db.GetNoteByPath(context.Background(), "main/Map.conflict-20260923-121212.excalidraw.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res struct {
+		Path string `json:"path"`
+	}
+	if code := e.resolve(t, copy.ID, "both", &res); code != 200 {
+		t.Fatalf("resolve both %d", code)
+	}
+	if res.Path != "main/Map (older).excalidraw.md" {
+		t.Fatalf("renamed to %q", res.Path)
+	}
+}
+
 func TestConflictResolveMine(t *testing.T) {
 	e := newConflictEnv(t)
 	copy, err := e.db.GetNoteByPath(context.Background(), "main/a.conflict-20260923T121212.md")

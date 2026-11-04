@@ -17,7 +17,8 @@ Drawings: Excalidraw canvases as notes.
   frontmatter, then the Excalidraw scene as JSON in a fenced
   `excalidraw` block. It is a note of a new kind, `drawing`, so it
   moves, goes to the trash and has history like any other. Search finds
-  the text written on a drawing, and `is:drawing` lists only drawings.
+  the text written on a drawing, and `is:drawing` lists only drawings;
+  the regex search skips them.
   Index migration 14 allows the new kind; the upgrade is in place and
   nothing is rebuilt.
 - A drawing editor in the web client. New drawing is in the command
@@ -36,6 +37,7 @@ Drawings: Excalidraw canvases as notes.
   `.excalidraw` spelling. An element link written `[[target]]` on the
   canvas opens that note when clicked and counts as a link from the
   drawing, so it shows in the target's backlinks and Linked mentions.
+  A canvas link is not rewritten when its target moves.
   `![[Name]]` embeds a drawing as an image in the read view.
 - Exports show a one-line placeholder for a drawing, "Excalidraw
   drawing. Open it in yana to see it.", in site, single-note and public

@@ -18,6 +18,7 @@ import (
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/reconcile"
@@ -251,8 +252,7 @@ func (s *Server) keepBoth(ctx context.Context, n index.Note, may reconcile.CanWr
 	if dir == "." {
 		dir = ""
 	}
-	ext := path.Ext(su)
-	stem := strings.TrimSuffix(path.Base(su), ext)
+	stem, ext := drawing.SplitExt(path.Base(su))
 	var lastErr error
 	for i := 0; i < 50; i++ {
 		name := stem + " (older)"

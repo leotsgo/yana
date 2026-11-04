@@ -19,7 +19,7 @@ export interface EditorOptions {
   sceneJSON: string
   dark: boolean
   viewOnly: boolean
-  /** Fires with serializeAsJSON(elements, appState, files, 'local') only when getSceneVersion changed. */
+  /** Fires with serializeAsJSON(elements, appState, files, 'local') only when getSceneVersion or the background colour changed. */
   onChange: (sceneJSON: string) => void
   /** A clicked element link; the editor has already prevented Excalidraw's default for [[…]] links. */
   onLink: (link: string, ev: MouseEvent | undefined) => void
@@ -38,8 +38,10 @@ function parse(sceneJSON: string) {
 
 export function mountEditor(host: HTMLElement, opts: EditorOptions): EditorHandle {
   const scene = parse(opts.sceneJSON)
-  // Scroll and zoom change appState only; saving on those would spam.
+  // Scroll and zoom change appState only; saving on those would spam. The
+  // background colour is the one appState change worth a save.
   let version = getSceneVersion(scene.elements)
+  let background = scene.appState.viewBackgroundColor
   const root = createRoot(host)
   const render = (dark: boolean) =>
     root.render(
@@ -49,8 +51,9 @@ export function mountEditor(host: HTMLElement, opts: EditorOptions): EditorHandl
         viewModeEnabled: opts.viewOnly,
         onChange: (elements, appState, files) => {
           const next = getSceneVersion(elements)
-          if (next === version) return
+          if (next === version && appState.viewBackgroundColor === background) return
           version = next
+          background = appState.viewBackgroundColor
           opts.onChange(serializeAsJSON(elements, appState, files, 'local'))
         },
         onLinkOpen: (element, event) => {
@@ -66,11 +69,16 @@ export function mountEditor(host: HTMLElement, opts: EditorOptions): EditorHandl
   return { setDark: render, unmount: () => root.unmount() }
 }
 
-export function renderSvg(sceneJSON: string, dark: boolean): Promise<SVGSVGElement> {
+export async function renderSvg(sceneJSON: string, dark: boolean): Promise<SVGSVGElement> {
   const scene = parse(sceneJSON)
-  return exportToSvg({
+  const svg = await exportToSvg({
     elements: getNonDeletedElements(scene.elements),
     appState: { ...scene.appState, exportWithDarkMode: dark },
     files: scene.files,
   })
+  // exportToSvg wraps a linked element in <a href="[[Note]]">, which the
+  // browser would follow as a relative URL. The picture links nowhere; a
+  // click on it opens the drawing.
+  for (const a of svg.querySelectorAll('a')) a.replaceWith(...a.childNodes)
+  return svg
 }

@@ -466,9 +466,10 @@ func drawingSummary(body string) string {
 
 // noteText returns the note's current text: the document when the
 // reconciliation loop is running (it holds edits not yet written back),
-// the file otherwise.
+// the file otherwise. A drawing is always the file: it is saved whole and
+// never gets a CRDT document.
 func (h *Handler) noteText(ctx context.Context, n index.Note) (string, error) {
-	if h.Sync != nil {
+	if h.Sync != nil && !isDrawing(n) {
 		return h.Sync.Text(ctx, n.ID)
 	}
 	abs, _, err := h.Root.Resolve(n.RelPath)

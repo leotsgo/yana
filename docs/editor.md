@@ -288,7 +288,7 @@ chip.
 Linking to a drawing, linking out of one with element links, and
 embedding one with `![[Name]]` are in [links.md](links.md#drawings).
 Search finds the text written on a drawing, and `is:drawing` lists only
-drawings. Drawing works in a phone browser or the installed PWA, as far
+drawings. The regex search skips drawings, whose body is scene JSON. Drawing works in a phone browser or the installed PWA, as far
 as Excalidraw's touch support goes; the native Android app does not
 support drawings.
 
@@ -409,7 +409,8 @@ index as SQL filters around the full-text match
 highlight recognised operators as chips and offer completions after
 `tag:`, `path:`, `space:`, `is:` and `has:` — the tags, folders and
 spaces that exist. The switcher applies the operators the tree can
-answer (`tag:`, `path:`, `space:`, `is:untagged`, `is:html`); the rest
+answer (`tag:`, `path:`, `space:`, `is:untagged`, `is:html`,
+`is:drawing`); the rest
 belong to the search box. The regex search (`.* `, `GET
 /api/search/regex?raw=…`) accepts only `path:` and `space:`, which
 narrow where the pattern runs; everything else in the box is the

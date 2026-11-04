@@ -27,7 +27,7 @@ export function spaceOfDir(dir: string): string {
 }
 
 export function templatesIn(notes: FlatNote[], space: string): FlatNote[] {
-  return notes.filter((n) => !n.conflict && n.kind !== 'html' && spaceOf(n.path) === space && isTemplateNote(n.path))
+  return notes.filter((n) => !n.conflict && n.kind !== 'html' && n.kind !== 'drawing' && spaceOf(n.path) === space && isTemplateNote(n.path))
 }
 
 export interface FromTemplateProps {

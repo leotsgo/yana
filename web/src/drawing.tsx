@@ -365,14 +365,17 @@ function forgetEmbed(id: string): void {
   embeds.delete(`${id}:false`)
 }
 
-// Two scenes with the same elements but for their version stamps.
-// Excalidraw can bump versions with nothing changed (text re-measured
-// once its fonts load, right after mount); that is not worth a save.
+// Two scenes with the same elements, but for their version stamps, and the
+// same background colour. Excalidraw can bump versions with nothing changed
+// (text re-measured once its fonts load, right after mount); that is not
+// worth a save.
 function sameElements(a: string, b: string): boolean {
   const strip = (s: string): string => {
     try {
-      const elements = (JSON.parse(s) as { elements?: unknown }).elements
-      return JSON.stringify(elements, (k, v: unknown) => (k === 'version' || k === 'versionNonce' || k === 'updated' ? undefined : v))
+      const { elements, appState } = JSON.parse(s) as { elements?: unknown; appState?: { viewBackgroundColor?: unknown } }
+      return JSON.stringify([elements, appState?.viewBackgroundColor], (k, v: unknown) =>
+        k === 'version' || k === 'versionNonce' || k === 'updated' ? undefined : v,
+      )
     } catch {
       return s
     }

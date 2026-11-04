@@ -25,6 +25,8 @@ func TestRipgrep(t *testing.T) {
 	write("work/c.md", "TODO: ship it\n")
 	write(".sync/x.md", "TODO: hidden\n")
 	write("home/.dot.md", "TODO: dotfile\n")
+	// A drawing's body is scene JSON: never a regex hit.
+	write("home/Map.excalidraw.md", "```excalidraw\n{\"text\":\"TODO: drawn\"}\n```\n")
 
 	r := NewRipgrep(dir, true, 5*time.Second)
 	if !r.Available() {

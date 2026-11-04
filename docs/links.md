@@ -88,7 +88,9 @@ Links also go the other way. Set an element's link on the canvas to
 `[[Some note]]` (or `[[Some note|text]]`); clicking the element opens
 that note, resolved the way a link in the drawing's own folder would
 be. These links count as links from the drawing, so the target's
-backlinks and Linked mentions list it. A link to a note that does not
+backlinks and Linked mentions list it. A link drawn on a canvas is not
+rewritten when its target moves or is renamed; set it again on the
+canvas. A link to a note that does not
 exist yet creates it. A plain URL on an element behaves as it does in
 Excalidraw everywhere else.
 
@@ -132,8 +134,8 @@ half-renamed. A folder cannot move inside itself.
 ## Moving and renaming notes
 
 `POST /api/notes/{id}/move` with `{"path": "new/path.md"}` moves a note and
-rewrites every inbound wikilink to keep pointing at it, keeping its
-aliases: a link that resolved through an alias is left as written, because
+rewrites every inbound wikilink to keep pointing at it (except links
+drawn on a canvas; see [Drawings](#drawings)), keeping its aliases: a link that resolved through an alias is left as written, because
 the alias still resolves. Each rewrite is a
 CRDT edit with author `filesystem`, so anyone with a linking note open sees
 the new target live, and the files on disk follow through the ordinary
