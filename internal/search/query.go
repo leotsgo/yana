@@ -30,6 +30,7 @@ var isValues = map[string]bool{
 	"untagged": true,
 	"task":     true,
 	"html":     true,
+	"drawing":  true,
 }
 
 // hasValues are the has: selectors.

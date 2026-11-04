@@ -12,6 +12,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 )
 
 // conflictNameRe matches the stem of a conflict copy's file name:
@@ -25,11 +27,11 @@ var conflictNameRe = regexp.MustCompile(`(?i)^(.+)\.conflict-\d{8}[-T]\d{6}(-\d+
 // segment removed — or "" when rel is not a conflict copy.
 func ConflictSurvivorPath(rel string) string {
 	base := path.Base(rel)
-	ext := path.Ext(base)
+	stem, ext := drawing.SplitExt(base)
 	if ext == "" {
 		return ""
 	}
-	m := conflictNameRe.FindStringSubmatch(strings.TrimSuffix(base, ext))
+	m := conflictNameRe.FindStringSubmatch(stem)
 	if m == nil {
 		return ""
 	}

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/fsutil"
 	"github.com/madeofpendletonwool/yana/internal/index"
@@ -225,8 +226,8 @@ func (r *Reconciler) Restore(ctx context.Context, id string, may CanWrite) (Rest
 		// rather than clobber it, the same convention as colliding
 		// HTML saves.
 		res.Conflict = true
-		ext := path.Ext(target)
-		target = strings.TrimSuffix(target, ext) + ".conflict-" + now.UTC().Format("20060102T150405") + ext
+		stem, ext := drawing.SplitExt(target)
+		target = stem + ".conflict-" + now.UTC().Format("20060102T150405") + ext
 		absTarget, _, err = r.root.Resolve(target)
 		if err != nil {
 			return RestoreResult{}, err

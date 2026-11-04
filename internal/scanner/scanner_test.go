@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
@@ -419,5 +420,66 @@ func TestScanAssetSingleFile(t *testing.T) {
 	}
 	if _, err := f.db.GetAttachment(context.Background(), "home/_assets/manual.pdf"); err != index.ErrAttachmentNotFound {
 		t.Fatalf("expected the row gone, got %v", err)
+	}
+}
+
+func TestKindOfDrawing(t *testing.T) {
+	if got := KindOf("s/a.excalidraw.md"); got != "drawing" {
+		t.Errorf("drawing kind = %q", got)
+	}
+	if got := KindOf("s/a.md"); got != "md" {
+		t.Errorf("md kind = %q", got)
+	}
+}
+
+func TestIndexDrawing(t *testing.T) {
+	f := setup(t)
+	scene := `{"type":"excalidraw","version":2,"elements":[` +
+		`{"type":"text","text":"hello board","originalText":"hello board"},` +
+		`{"type":"rectangle","link":"[[Target]]"}],"appState":{},"files":{}}`
+	f.write(t, "s/Map.excalidraw.md", "---\nid: 01HZZZZZZZZZZZZZZZZZZZZZZZ\n---\n"+string(drawing.Encode([]byte(scene))))
+	f.write(t, "s/Target.md", "# Target\n")
+	if _, err := f.sc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	n, err := f.db.GetNoteByPath(ctx, "s/Map.excalidraw.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Kind != "drawing" || n.Title != "Map" {
+		t.Fatalf("note = kind %q title %q", n.Kind, n.Title)
+	}
+	hits, err := f.db.Search(ctx, "board", "", nil, 10)
+	if err != nil || len(hits) != 1 || hits[0].Note.ID != n.ID {
+		t.Fatalf("search = %+v, %v", hits, err)
+	}
+	target, err := f.db.GetNoteByPath(ctx, "s/Target.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := f.db.Backlinks(ctx, target.ID)
+	if err != nil || len(back) != 1 || back[0].Note.Title != "Map" {
+		t.Fatalf("backlinks = %+v, %v", back, err)
+	}
+}
+
+func TestIndexDrawingUnparseable(t *testing.T) {
+	f := setup(t)
+	f.write(t, "s/Bad.excalidraw.md", "# not a scene\n")
+	if _, err := f.sc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	n, err := f.db.GetNoteByPath(ctx, "s/Bad.excalidraw.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Kind != "drawing" || n.Title != "Bad" {
+		t.Fatalf("note = kind %q title %q", n.Kind, n.Title)
+	}
+	out, err := f.db.OutboundLinks(ctx, n.ID)
+	if err != nil || len(out) != 0 {
+		t.Fatalf("links = %+v, %v", out, err)
 	}
 }

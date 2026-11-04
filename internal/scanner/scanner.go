@@ -23,6 +23,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/fsutil"
 	"github.com/madeofpendletonwool/yana/internal/index"
@@ -629,13 +630,19 @@ func (s *Scanner) indexFile(ctx context.Context, abs, rel, space, kind string, i
 		title = render.Title(body)
 		bodyText = string(body)
 		raw = bodyText
+	case drawing.Kind:
+		// An unparseable scene indexes with no text and no links.
+		if sc, _, err := drawing.Parse(body); err == nil {
+			bodyText = sc.Text()
+		}
+		raw = string(body)
 	case "html":
 		bodyText = render.StripHTML(body)
 		title = htmlTitle(body)
 		raw = string(body)
 	}
 	if title == "" {
-		title = strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
+		title, _ = drawing.SplitExt(filepath.Base(rel))
 	}
 	created := fm.Meta.Created
 	if created.IsZero() {
@@ -725,8 +732,11 @@ func IsAsset(rel string) bool {
 	return false
 }
 
-// KindOf returns "md" or "html" for note files and "" for anything else.
+// KindOf returns "md", "html" or "drawing" for note files and "" for anything else.
 func KindOf(rel string) string {
+	if drawing.Is(rel) {
+		return drawing.Kind
+	}
 	switch strings.ToLower(filepath.Ext(rel)) {
 	case ".md", ".markdown":
 		return "md"

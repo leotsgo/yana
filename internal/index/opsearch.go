@@ -174,6 +174,8 @@ func opFilter(t search.Term) (string, []any) {
 			return `EXISTS (SELECT 1 FROM tasks k WHERE k.note_id = n.id AND k.done = 0)`, nil
 		case "html":
 			return `n.kind = 'html'`, nil
+		case "drawing":
+			return `n.kind = 'drawing'`, nil
 		}
 	case search.OpHas:
 		switch t.Value {

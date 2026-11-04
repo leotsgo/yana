@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/render"
 	"github.com/madeofpendletonwool/yana/internal/wikilink"
 )
@@ -204,6 +205,14 @@ func writeLinks(tx *sql.Tx, fromID, kind string, res *wikilink.Resolver, fromRel
 			}
 		}
 		return nil
+	}
+	if kind == drawing.Kind {
+		// An unparseable drawing has no links.
+		sc, _, err := drawing.Parse([]byte(raw))
+		if err != nil {
+			return nil
+		}
+		return write(sc.Links(), "link")
 	}
 	if kind == "html" {
 		return write(render.HTMLWikiLinks([]byte(raw)), "link")

@@ -30,3 +30,15 @@ func TestConflictSurvivorPath(t *testing.T) {
 		}
 	}
 }
+
+func TestConflictSurvivorPathDrawing(t *testing.T) {
+	for in, want := range map[string]string{
+		"s/X.conflict-20261104-120000.excalidraw.md": "s/X.excalidraw.md",
+		"X.conflict-20261104T120000.excalidraw.md":   "X.excalidraw.md",
+		"s/X.excalidraw.md":                          "",
+	} {
+		if got := ConflictSurvivorPath(in); got != want {
+			t.Errorf("ConflictSurvivorPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
