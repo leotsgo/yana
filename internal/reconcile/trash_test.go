@@ -201,6 +201,25 @@ func TestRestoreConflictLandsBeside(t *testing.T) {
 	}
 }
 
+func TestRestoreDrawingConflictKeepsExtension(t *testing.T) {
+	h := newHarness(t, "", testOptions())
+	defer h.close()
+	body := "```excalidraw\n" + `{"type":"excalidraw","elements":[]}` + "\n```\n"
+	// No converged(): a drawing's index body is its scene text, not the file.
+	id := h.newNote("proj/Map.excalidraw.md", body)
+	if _, err := h.rec.Delete(h.ctx, id, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.newNote("proj/Map.excalidraw.md", body)
+	res, err := h.rec.Restore(h.ctx, id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Conflict || !strings.HasPrefix(res.Path, "proj/Map.conflict-") || !strings.HasSuffix(res.Path, ".excalidraw.md") {
+		t.Fatalf("restore result: %+v", res)
+	}
+}
+
 func TestDeleteSameNameTwiceKeepsBoth(t *testing.T) {
 	h := newHarness(t, "", testOptions())
 	defer h.close()

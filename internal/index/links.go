@@ -184,7 +184,8 @@ func resolverFromRows(space string, rows *sql.Rows) (*wikilink.Resolver, error) 
 
 // writeLinks replaces the outbound rows of one note. Links are exactly
 // the distinct targets the body spells: [[targets]] for markdown notes,
-// data-wikilink attributes for HTML ones; markdown embeds (![[targets]])
+// data-wikilink attributes for HTML ones, element links of the scene for
+// drawings; markdown embeds (![[targets]])
 // are recorded as their own kind.
 func writeLinks(tx *sql.Tx, fromID, kind string, res *wikilink.Resolver, fromRel, raw string) error {
 	if _, err := tx.Exec(`DELETE FROM links WHERE from_id = ?`, fromID); err != nil {

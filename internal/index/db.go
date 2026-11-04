@@ -202,10 +202,6 @@ func (db *DB) migrate() error {
 		}
 		db.log.Info("applied migration", "name", name)
 		version = n
-		// 014 edits sqlite_schema directly, which leaves this connection's
-		// cached schema stale; drop it so the next use opens a fresh one.
-		db.writer.SetMaxIdleConns(0)
-		db.writer.SetMaxIdleConns(2)
 	}
 	return nil
 }
