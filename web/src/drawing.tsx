@@ -1,10 +1,17 @@
 // The drawing page: an Excalidraw canvas for a .excalidraw.md note, from
-// the bundle drawing-load.ts fetches on first use. Saves are whole-file,
-// as for HTML notes: a second after the last change, when the tab hides,
-// and on leaving. Until the server confirms a save the scene is kept on
-// the device as a draft, so going offline or closing the tab loses
-// nothing; a draft left behind is saved first the next time the drawing
-// opens. A drawing whose body could not be read is never saved over.
+// the bundle drawing-load.ts fetches on first use. Saves are whole-file:
+// a second after the last change, when the tab hides, and on leaving. The
+// server merges each save with the file element by element, so saves from
+// several devices, or a draft from an offline spell, keep every stroke.
+// Until the server confirms a save the scene is kept on the device as a
+// draft, so going offline or closing the tab loses nothing; a draft left
+// behind is saved first the next time the drawing opens. A drawing whose
+// body could not be read is never saved over.
+//
+// While the drawing is open the page is in its room on the relay
+// (drawing-live.ts): changed elements go to the others as they happen,
+// theirs merge in out of the undo history, and each page shows the
+// others' pointers.
 
 import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
@@ -13,7 +20,10 @@ import { api, ApiError } from './api'
 import type { Note } from './api'
 import * as cache from './cache'
 import { markLocalConflict } from './conflict'
+import { changedSince, markSent, pack, packFile } from './drawing-delta'
+import type { Delta } from './drawing-delta'
 import type { EditorHandle } from './drawing-editor/editor'
+import { DrawingRoom, MAX_FRAME } from './drawing-live'
 import { loadDrawing } from './drawing-load'
 import { Icon } from './icons'
 import { createPathFor } from './panels'
@@ -95,6 +105,103 @@ export function DrawingNote({ note, onOpen, onToast, children, head, aside }: Dr
     }
     const toast = (m: string) => latest.current.onToast(m)
 
+    // Live: the room, which element versions it has from this page, the
+    // images it has been sent, and whether an image never arrived (the
+    // next file change fetches it with the saved scene).
+    let room: DrawingRoom | null = null
+    const sent = new Map<string, number>()
+    const sentFiles = new Set<string>()
+    let needFiles = false
+    let deltaTimer = 0
+    let fetchTimer = 0
+
+    // Merges a whole scene from the server into the canvas.
+    function takeScene(json: string): void {
+      if (!editor) return
+      try {
+        const s = JSON.parse(json) as { elements?: { id: string; version: number }[]; files?: Record<string, unknown> }
+        const els = s.elements ?? []
+        needFiles = editor.merge(els, Object.values(s.files ?? {}))
+        markSent(els, sent)
+      } catch {
+        // Not a scene: the page keeps what it has.
+      }
+    }
+
+    const sendFiles = (els: readonly unknown[], all: boolean) => {
+      if (!room || !editor) return
+      const files = editor.files()
+      for (const e of els as { fileId?: string | null; isDeleted?: boolean }[]) {
+        const f = e.fileId ? files[e.fileId] : undefined
+        if (!f || e.isDeleted || (!all && sentFiles.has(f.id))) continue
+        sentFiles.add(f.id)
+        const p = packFile(f, MAX_FRAME)
+        if (p) room.send([p])
+      }
+    }
+
+    // The elements changed since the last send, about ten times a second.
+    const flushDelta = () => {
+      deltaTimer = 0
+      if (!room || !editor || viewOnly) return
+      const els = changedSince(editor.elements(), sent)
+      if (els.length === 0) return
+      room.send(pack(els, MAX_FRAME))
+      sendFiles(els, false)
+    }
+    const scheduleDelta = () => {
+      if (!deltaTimer) deltaTimer = window.setTimeout(flushDelta, 100)
+    }
+
+    // Joined: say what this page has, and ask the others for theirs.
+    const hello = () => {
+      if (!room || !editor || viewOnly) return
+      sent.clear()
+      sentFiles.clear()
+      const els = editor.elements()
+      markSent(els, sent)
+      room.send(pack(els, MAX_FRAME, true))
+      sendFiles(els, true)
+    }
+
+    const onDelta = (d: Delta) => {
+      if (!editor) return
+      const els = (d.els ?? []) as { id: string; version: number }[]
+      needFiles = editor.merge(els, d.files ?? [])
+      markSent(els, sent)
+      if (d.hello && !viewOnly && room) {
+        // A page joined: it gets the whole scene, images included.
+        const all = editor.elements()
+        room.send(pack(all, MAX_FRAME))
+        sendFiles(all, true)
+      }
+    }
+
+    // The file changed on disk: unless it is this page's own save, fetch
+    // it and merge (an agent's write, a restore, a save from a page that
+    // was not in the room, an image too large to travel live).
+    const onChanged = (hash: string | undefined) => {
+      const own = () => hash !== undefined && hash === base && !needFiles
+      if (own()) return
+      window.clearTimeout(fetchTimer)
+      fetchTimer = window.setTimeout(() => {
+        // The notice can beat this page's own save reply; by now it is in.
+        if (own()) return
+        api.note(id).then(
+          (fresh) => {
+            if (!alive || fresh.scene === undefined || fresh.scene_error) return
+            saved = fresh.scene
+            base = fresh.content_hash
+            links = fresh.links
+            confirmed.set(id, { scene: saved, hash: base })
+            forgetEmbed(id)
+            takeScene(fresh.scene)
+          },
+          () => {}, // offline: the next change or join tries again
+        )
+      }, 300)
+    }
+
     const schedule = () => {
       window.clearTimeout(timer)
       timer = window.setTimeout(() => void save(), 1000)
@@ -119,10 +226,13 @@ export function DrawingNote({ note, onOpen, onToast, children, head, aside }: Dr
       try {
         const res = await api.saveSource(id, scene, base)
         base = res.hash
-        saved = scene
-        confirmed.set(id, { scene, hash: base })
+        // The file holds more than this page had (another device's save):
+        // the server sent the merge, and the canvas takes it in.
+        saved = res.scene ?? scene
+        if (res.scene) takeScene(res.scene)
+        confirmed.set(id, { scene: saved, hash: base })
         forgetEmbed(id)
-        void cache.putNote({ ...latest.current.note, scene, content_hash: base })
+        void cache.putNote({ ...latest.current.note, scene: saved, content_hash: base })
         if (res.conflict_copy) {
           markLocalConflict(res.conflict_copy)
           toast(`Saved. The version that was on disk moved to ${res.conflict_copy}.`)
@@ -166,6 +276,7 @@ export function DrawingNote({ note, onOpen, onToast, children, head, aside }: Dr
       void cache.putDraft(id, { scene, baseHash: base, at: Date.now() })
       if (status !== 'offline') show('saving')
       schedule()
+      scheduleDelta()
     }
 
     // A [[target]] on an element: the note's links say where it goes. One
@@ -229,9 +340,9 @@ export function DrawingNote({ note, onOpen, onToast, children, head, aside }: Dr
       }
       if (!alive) return
       let scene = saved
-      // A draft is a scene no save confirmed: save it before anything else,
-      // from the hash it was edited from, so a file that moved on since is
-      // kept as a conflict copy instead of lost.
+      // A draft is a scene no save confirmed: save it before anything else.
+      // The server merges it with a file that moved on since, and the
+      // canvas opens on the merge.
       const draft = viewOnly ? null : await cache.getDraft(id)
       if (draft && sameElements(draft.scene, saved)) void cache.deleteDraft(id)
       else if (draft) {
@@ -239,6 +350,7 @@ export function DrawingNote({ note, onOpen, onToast, children, head, aside }: Dr
         base = draft.baseHash
         scene = draft.scene
         await save()
+        if (pending === null) scene = saved
       }
       if (!alive) return
       let mod
@@ -258,10 +370,21 @@ export function DrawingNote({ note, onOpen, onToast, children, head, aside }: Dr
           onLink: (l, ev) => void onLink(l, ev),
           view: prefs.drawingView(id),
           onView,
+          onPointer: (x, y, button, selected) => room?.point(x, y, button, selected),
         })
       } catch {
         setNotice('This drawing could not be read. It is left as it is.')
+        return
       }
+      await editor.ready
+      if (!alive) return
+      room = new DrawingRoom(id, {
+        onJoined: hello,
+        onDelta,
+        onChanged,
+        onPointers: (peers) => editor?.setPeers([...peers].map(([key, p]) => ({ key, ...p }))),
+      })
+      if (document.visibilityState === 'hidden') room.pause()
     }
     void open()
 
@@ -269,8 +392,15 @@ export function DrawingNote({ note, onOpen, onToast, children, head, aside }: Dr
     const theme = new MutationObserver(() => editor?.setDark(isDark()))
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     const onHide = () => {
-      if (document.visibilityState !== 'hidden') return
+      // A hidden page leaves the room, so its cursor goes; it joins again,
+      // and catches up, when it shows.
+      if (document.visibilityState !== 'hidden') {
+        room?.resume()
+        return
+      }
       keepView()
+      flushDelta()
+      room?.pause()
       void save()
     }
     const onUnload = (ev: BeforeUnloadEvent) => {
@@ -289,6 +419,10 @@ export function DrawingNote({ note, onOpen, onToast, children, head, aside }: Dr
       window.removeEventListener('beforeunload', onUnload)
       window.removeEventListener('online', onOnline)
       keepView()
+      flushDelta()
+      window.clearTimeout(deltaTimer)
+      window.clearTimeout(fetchTimer)
+      room?.destroy()
       void save()
       editor?.unmount()
     }

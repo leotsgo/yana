@@ -623,7 +623,7 @@ export const api = {
   noteView: (id: string) =>
     get<{ url: string; expires_at: string }>(`/api/notes/${encodeURIComponent(id)}/view`),
   saveSource: (id: string, source: string, baseHash: string) =>
-    post<{ ok: boolean; path: string; hash: string; conflict_copy?: string }>(
+    post<{ ok: boolean; path: string; hash: string; conflict_copy?: string; scene?: string }>(
       `/api/notes/${encodeURIComponent(id)}/source`,
       { source, base_hash: baseHash },
       'PUT',

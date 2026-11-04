@@ -145,6 +145,14 @@ text of the scene's text elements, so a drawing is found by what is
 written in it, and `is:drawing` lists only drawings. A drawing has no
 tags or tasks, and its preview is its text.
 
+A save from the app merges with the file element by element, with
+Excalidraw's own rule: for each element `id` the higher `version` wins,
+and of two equal versions the lower `versionNonce`. Elements only one
+side has are kept, so two devices saving from the same starting point
+both keep their strokes. A deleted element therefore stays in the
+scene as a tombstone, `"isDeleted": true`, or the copy on disk would
+bring it back.
+
 Edit the scene in the app, not by hand. Pasted images live inside the
 scene (`files`, base64) and count toward `YANA_MAX_NOTE_SIZE` like the
 rest of the file. A drawing whose block cannot be read as a scene is

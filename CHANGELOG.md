@@ -9,6 +9,10 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- Drawings are live: several people or devices draw on one drawing at
+  once, see each other's strokes as they happen and each other's named
+  cursors, and saves merge shape by shape instead of making conflict
+  copies.
 - Offline, Today and New open a note you can write in straight away:
   today's note from the device when it is there, otherwise one made on
   the device and sent, under the same id, when the connection returns.

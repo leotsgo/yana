@@ -317,8 +317,20 @@ canvas follows the app's light or dark theme. Changes save about a
 second after the last one, and again when the tab is hidden or closed.
 A chip in the toolbar says where it stands: Saved, Saving, Offline, or
 Not saved when the server refused the save (a drawing over the size
-limit, say) and the message says why. Editing is whole-file, one editor
-at a time; there is no live co-drawing.
+limit, say) and the message says why.
+
+Several people, or one person on several devices, can draw on the same
+drawing at once. What one draws, moves, restyles or deletes shows on the
+others within a fraction of a second, and each sees the others' pointers
+with their names, and what they have selected. A pointer goes when its
+owner closes the drawing or switches away from the tab, and goes too
+after half a minute without moving. Undo takes back only your own
+strokes, never someone else's. Two people changing the same shape at the
+same moment end up with one of the two changes, the same one on every
+screen. An image pasted on one device shows on the others; one too large
+to travel live arrives with the next save. A change written to the file
+by anything else (an agent, a git restore) appears on the open canvases
+too. A viewer of the space sees all of this live and draws nothing.
 
 A drawing reopens where you left it: the scroll position, the zoom and
 the tool in hand (with its lock) are remembered per drawing in this
@@ -337,13 +349,15 @@ opens offline only after it has been opened on that device once.
 Offline, or with the server unreachable, the scene is kept on the device
 as a draft and saved when the connection returns. Reopening a drawing
 with a draft waiting saves the draft first. A save that lands on a file
-changed in the meantime does not overwrite it: the file's version is
-kept beside the drawing as `Name.conflict-<timestamp>.excalidraw.md`,
-itself a drawing, and the app says so.
+changed in the meantime is merged with it shape by shape, newest edit of
+each shape winning, so what was drawn offline and what others drew
+meanwhile both stay, and the canvas shows the result. Drawings get no
+conflict copies.
 
 A drawing that cannot be read opens read-only with a notice and is never
-saved over. A viewer in a space sees the canvas view-only, with no save
-chip.
+saved over; a save that finds the file unreadable on disk keeps it
+beside the drawing as `Name.conflict-<timestamp>.excalidraw.md`. A
+viewer in a space sees the canvas view-only, with no save chip.
 
 Linking to a drawing, linking out of one with element links, and
 embedding one with `![[Name]]` are in [links.md](links.md#drawings).
