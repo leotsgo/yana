@@ -21,16 +21,18 @@ are refused.
 
 | `t` | Fields | Behaviour |
 |---|---|---|
-| `sub` | `n` note id, `sv` optional state vector, `a` optional author | Join the note's room. Authorizes, pins the note, and replies `subd` with everything the client's state vector is missing. Empty `sv` means "send the whole document". |
+| `sub` | `n` note id, `sv` optional state vector, `a` optional author, `rl` relay-only | Join the note's room. Authorizes, pins the note, and replies `subd` with everything the client's state vector is missing. Empty `sv` means "send the whole document". With `rl` true (drawings) nothing is pinned or diffed: `subd` comes back empty and the room carries `dr`, `aw` and `chg` only. |
 | `unsub` | `n` | Leave the room. An emptied room unpins the note. |
 | `upd` | `n`, `u` CRDT payload, `a` author | Apply through the reconciliation loop: appended to `note_updates`, marked dirty for write-back, and fanned out to the room. |
 | `aw` | `n`, `p` awareness payload | Broadcast to the room's other members only. Never persisted. |
+| `dr` | `n`, `p` scene delta | A drawing's changed elements. Broadcast to the room's other members only; never parsed, persisted, or handed to the reconciliation loop. Only members with the editor or owner role may send it (`forbidden` otherwise); bounded by the frame size and the message rate like `upd`. |
 | `watch` | `s` space, `a` optional author | Hear about changes in a whole space, without joining rooms. Authorizes against space membership and replies `watchd`. |
 | `ping` | — | Replied with `pong`. |
 
 Field names on the wire: `t` type, `n` note id, `s` space, `sv` state
-vector, `u` update payload, `a` author, `p` awareness payload, `path`,
-`c` error code, `r` error reason.
+vector, `u` update payload, `a` author, `p` awareness or scene payload,
+`rl` relay-only, `path`, `h` content hash, `c` error code, `r` error
+reason.
 
 ## Server to client
 
@@ -39,10 +41,11 @@ vector, `u` update payload, `a` author, `p` awareness payload, `path`,
 | `subd` | `n`, `u` | Reply to `sub`: the delta the client is missing (empty when it is current). Live `upd` messages may arrive before or after it; CRDT updates are idempotent and commutative, so order does not matter. |
 | `upd` | `n`, `u`, `a` | A relayed update. Includes edits authored by the filesystem (external writes) and by other clients. The sender does not receive its own updates back. |
 | `aw` | `n`, `p` | A relayed awareness payload (cursor, selection, user colour). |
+| `dr` | `n`, `p` | A relayed drawing delta. |
 | `moved` | `n`, `path` | The note's file moved or was renamed. |
 | `deleted` | `n` | The note's file is gone. |
 | `watchd` | `s` | Reply to `watch`: the space is being watched. |
-| `chg` | `n`, `path` | A note in a watched space changed (an edit, a move, a delete). Carries no payload; a listing page refetches what it needs, debounced. |
+| `chg` | `n`, `path`, `h` | A note in a watched space changed (an edit, a move, a delete). Carries no payload; a listing page refetches what it needs, debounced. A relay-only room hears it too when its note's file changes; `h`, when present, is the file's content hash, so the client that saved it can skip the refetch. |
 | `pong` | — | Reply to `ping`. |
 | `err` | `n`, `c`, `r` | Code and reason: `not_found`, `invalid_author`, `rate_limited`, `too_many_rooms`, `invalid`, `forbidden`, `internal`. |
 

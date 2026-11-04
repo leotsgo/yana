@@ -153,7 +153,15 @@ func AllowAll() Authorizer { return allowAll{} }
 type room struct {
 	id      string
 	members map[*conn]struct{}
-	unpin   func()
+	// unpin is nil while only relay-only members (drawings) are in.
+	unpin func()
+}
+
+// release unpins an emptied room's note, if it was pinned.
+func (r *room) release() {
+	if r.unpin != nil {
+		r.unpin()
+	}
 }
 
 // Hub routes CRDT updates between note rooms and the reconciliation loop.
@@ -288,15 +296,12 @@ func (h *Hub) pump() {
 // with no payload — they refetch what they need.
 func (h *Hub) fanout(ev reconcile.Event) {
 	h.mu.Lock()
-	var r *room
 	var members []*conn
-	if ev.Kind != reconcile.EventChanged {
-		r = h.rooms[ev.NoteID]
-		if r != nil {
-			members = make([]*conn, 0, len(r.members))
-			for c := range r.members {
-				members = append(members, c)
-			}
+	r := h.rooms[ev.NoteID]
+	if r != nil {
+		members = make([]*conn, 0, len(r.members))
+		for c := range r.members {
+			members = append(members, c)
 		}
 	}
 	watched := len(h.watchers) > 0
@@ -325,7 +330,7 @@ func (h *Hub) fanout(ev reconcile.Event) {
 		if ev.Kind == reconcile.EventUpdate {
 			h.updates.Add(1)
 		}
-		c.trySend(ServerMessage{Type: msgChanged, Note: ev.NoteID, Path: ev.Path})
+		c.trySend(ServerMessage{Type: msgChanged, Note: ev.NoteID, Path: ev.Path, Hash: ev.Hash})
 	}
 	if r == nil {
 		return
@@ -333,6 +338,10 @@ func (h *Hub) fanout(ev reconcile.Event) {
 
 	var msg ServerMessage
 	switch ev.Kind {
+	case reconcile.EventChanged:
+		// Only a note with no document loaded changes this way: a
+		// drawing's relay-only room hears that its file moved on.
+		msg = ServerMessage{Type: msgChanged, Note: ev.NoteID, Path: ev.Path, Hash: ev.Hash}
 	case reconcile.EventUpdate:
 		msg = ServerMessage{Type: msgUpdate, Note: ev.NoteID, Update: ev.Update, Author: ev.Author}
 	case reconcile.EventMoved:
@@ -423,8 +432,11 @@ func (h *Hub) unwatchAll(c *conn) {
 
 // join adds c to the note's room, pins the note while the room is live, and
 // returns the subscribed reply carrying everything the client's state
-// vector is missing. It runs on the connection's read loop.
-func (h *Hub) join(ctx context.Context, c *conn, noteID string, sv []byte, role string) (ServerMessage, error) {
+// vector is missing. A relay-only join (a drawing) neither pins nor
+// diffs: its room exists for dr, aw and chg frames alone, and is pinned
+// only if a document client joins it too. It runs on the connection's
+// read loop.
+func (h *Hub) join(ctx context.Context, c *conn, noteID string, sv []byte, role string, relay bool) (ServerMessage, error) {
 	h.mu.Lock()
 	if len(c.rooms) >= h.opts.MaxRoomsPerConn {
 		h.mu.Unlock()
@@ -433,17 +445,23 @@ func (h *Hub) join(ctx context.Context, c *conn, noteID string, sv []byte, role 
 
 	r := h.rooms[noteID]
 	if r == nil {
+		r = &room{id: noteID, members: map[*conn]struct{}{}}
+	}
+	if r.unpin == nil && !relay {
 		unpin, err := h.rec.Pin(ctx, noteID)
 		if err != nil {
 			h.mu.Unlock()
 			return ServerMessage{}, mapRecErr(err)
 		}
-		r = &room{id: noteID, members: map[*conn]struct{}{}, unpin: unpin}
-		h.rooms[noteID] = r
+		r.unpin = unpin
 	}
+	h.rooms[noteID] = r
 	r.members[c] = struct{}{}
 	c.rooms[noteID] = roomRole{role: role}
 	h.mu.Unlock()
+	if relay {
+		return ServerMessage{Type: msgSubscribed, Note: noteID}, nil
+	}
 
 	// The client may already receive live updates for this note before the
 	// diff lands in its queue. That is fine: CRDT updates are idempotent
@@ -469,7 +487,7 @@ func (h *Hub) leave(c *conn, noteID string) {
 	delete(c.rooms, noteID)
 	h.mu.Unlock()
 	if r != nil && len(r.members) == 0 {
-		r.unpin()
+		r.release()
 	}
 }
 
@@ -499,32 +517,34 @@ func (h *Hub) removeConn(c *conn) {
 	delete(h.conns, c)
 	h.mu.Unlock()
 	for _, r := range rooms {
-		r.unpin()
+		r.release()
 	}
 }
 
-// broadcastAwareness relays a presence payload to the note's other members.
-// It never touches the reconciliation loop or the log.
-func (h *Hub) broadcastAwareness(c *conn, noteID string, payload []byte) {
+// broadcast relays a payload (aw, dr) to the note's other members and
+// returns how many it reached. It never touches the reconciliation loop
+// or the log.
+func (h *Hub) broadcast(c *conn, msg ServerMessage) int64 {
 	h.mu.Lock()
-	r := h.rooms[noteID]
+	r := h.rooms[msg.Note]
 	if r == nil {
 		h.mu.Unlock()
-		return
+		return 0
 	}
 	members := make([]*conn, 0, len(r.members))
 	for m := range r.members {
 		members = append(members, m)
 	}
 	h.mu.Unlock()
-	msg := ServerMessage{Type: msgAwareness, Note: noteID, Payload: payload}
+	var n int64
 	for _, m := range members {
 		if m == c {
 			continue
 		}
-		h.awareness.Add(1)
+		n++
 		m.trySend(msg)
 	}
+	return n
 }
 
 var errRoomLimit = errors.New("rt: too many rooms on this connection")

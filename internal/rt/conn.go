@@ -176,7 +176,7 @@ func (c *conn) handle(ctx context.Context, msg ClientMessage) bool {
 			c.replyError(msgSubscribe, msg.Note, errForbidden, err.Error())
 			return true
 		}
-		subd, err := c.hub.join(ctx, c, msg.Note, msg.SV, role)
+		subd, err := c.hub.join(ctx, c, msg.Note, msg.SV, role, msg.Relay)
 		if err != nil {
 			code, reason := errReply(err)
 			c.replyError(msgSubscribe, msg.Note, code, reason)
@@ -285,10 +285,37 @@ func (c *conn) handle(ctx context.Context, msg ClientMessage) bool {
 			return true
 		}
 		if c.hub.limiter.Allow(c.author) {
-			c.hub.broadcastAwareness(c, msg.Note, msg.Payload)
+			c.hub.awareness.Add(c.hub.broadcast(c, ServerMessage{Type: msgAwareness, Note: msg.Note, Payload: msg.Payload}))
 		} else {
 			c.hub.updDropped.Add(1)
 		}
+		return true
+
+	case msgScene:
+		// A drawing's scene delta: relayed to the room's other members
+		// and nothing else. It never reaches the reconciliation loop; the
+		// drawing reaches the disk through its save.
+		if !validNoteID(msg.Note) || len(msg.Payload) == 0 {
+			c.replyError(msgScene, msg.Note, errInvalid, "dr needs a note id and a payload")
+			return true
+		}
+		c.hub.mu.Lock()
+		rr, member := c.rooms[msg.Note]
+		c.hub.mu.Unlock()
+		if !member {
+			c.replyError(msgScene, msg.Note, errForbidden, "subscribe before sending changes")
+			return true
+		}
+		if rr.role != RoleOwner && rr.role != RoleEditor {
+			c.replyError(msgScene, msg.Note, errForbidden, "this space is read-only for your account")
+			return true
+		}
+		if !c.hub.limiter.Allow(c.author) {
+			c.hub.updDropped.Add(1)
+			c.replyError(msgScene, msg.Note, errRateLimited, "change rate exceeded; batch more per message")
+			return true
+		}
+		c.hub.updates.Add(c.hub.broadcast(c, ServerMessage{Type: msgScene, Note: msg.Note, Payload: msg.Payload}))
 		return true
 
 	default:

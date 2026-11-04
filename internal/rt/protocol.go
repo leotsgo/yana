@@ -10,6 +10,7 @@ const (
 	msgUnsubscribe = "unsub"
 	msgUpdate      = "upd" // CRDT payload, relayed and recorded
 	msgAwareness   = "aw"  // presence payload, relayed only
+	msgScene       = "dr"  // drawing scene delta, relayed only; writers send it
 	msgPing        = "ping"
 	msgWatch       = "watch" // client → server: hear about changes in a space
 
@@ -48,11 +49,16 @@ type ClientMessage struct {
 	// Author is the sender's identity for upd ("user:<name>" or
 	// "agent:<label>") and optionally declares it for sub.
 	Author string `msgpack:"a,omitempty"`
-	// Payload is the opaque awareness state for aw: cursor, selection,
-	// user colour. Relayed as-is, never persisted.
+	// Payload is the opaque awareness state for aw (cursor, selection,
+	// user colour) and the opaque scene delta for dr. Relayed as-is,
+	// never persisted.
 	Payload []byte `msgpack:"p,omitempty"`
 	// Space names the space a watch message asks to hear about.
 	Space string `msgpack:"s,omitempty"`
+	// Relay asks sub for a relay-only room: no document is loaded and
+	// subd carries no update. Drawings join this way; their deltas and
+	// cursors travel as dr and aw, and file changes arrive as chg.
+	Relay bool `msgpack:"rl,omitempty"`
 }
 
 // ServerMessage is one framed message to a client.
@@ -63,10 +69,14 @@ type ServerMessage struct {
 	// missing) and upd (a relayed update).
 	Update []byte `msgpack:"u,omitempty"`
 	Author string `msgpack:"a,omitempty"`
-	// Payload is the opaque awareness state for aw.
+	// Payload is the opaque awareness state for aw and the scene delta
+	// for dr.
 	Payload []byte `msgpack:"p,omitempty"`
 	// Path is the note's new relative path for moved.
-	Path   string `msgpack:"path,omitempty"`
+	Path string `msgpack:"path,omitempty"`
+	// Hash is the file's content hash after the change, on chg when the
+	// relay knows it.
+	Hash   string `msgpack:"h,omitempty"`
 	Space  string `msgpack:"s,omitempty"`
 	Code   string `msgpack:"c,omitempty"`
 	Reason string `msgpack:"r,omitempty"`

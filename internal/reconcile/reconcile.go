@@ -147,6 +147,9 @@ type Event struct {
 	// Source is whatever the caller of ApplyUpdate passed so that a relay
 	// can skip the connection the update came from. Nil for file edits.
 	Source any
+	// Hash is the indexed content hash of the file, for EventChanged on
+	// a known note: a client that saved that very file can skip a refetch.
+	Hash string
 }
 
 // Stats is a snapshot of the loop's counters.
@@ -1242,7 +1245,11 @@ func (r *Reconciler) unloadedChanged(ctx context.Context, id, rel string) {
 		r.log.Info("note returned; sidecar restored from retention", "id", id, "path", rel)
 	}
 	r.reindex(ctx, rel)
-	r.emit(Event{NoteID: id, Kind: EventChanged, Path: rel})
+	ev := Event{NoteID: id, Kind: EventChanged, Path: rel}
+	if row, err := r.db.GetNote(ctx, id); err == nil {
+		ev.Hash = row.ContentHash
+	}
+	r.emit(ev)
 }
 
 // assetChanged refreshes the index rows for one file under _assets: the
