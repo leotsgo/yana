@@ -35,9 +35,10 @@ edit and **Esc** to go back to reading; on a phone tap **Edit** and
 Type `[[` and start typing a note's name; pick it from the list and the
 link is finished. The Link button does the same. To show different text,
 `[[Note name|the words to show]]`. A link to a note that does not exist
-yet is shown dashed; click it and the note is created. Details (the
-panel button above the note) lists every note that links to the one you
-are reading.
+yet is shown dashed; click it and the note is created. Every note that
+links to the one you are reading is listed under Linked mentions at the
+bottom of the note, each with the line the link sits on; Details (the
+panel button above the note) lists them too.
 
 A note can answer to other names: an `aliases: [Mom]` line in its
 frontmatter (the `key: value` block at the top of the file) makes

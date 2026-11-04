@@ -19,9 +19,9 @@ Open <http://localhost:8080>. Put markdown files under `./notes/<space>/`
 and they are indexed on the next scan.
 
 To use a prebuilt image instead of building locally, remove the `build:`
-block. Images are published to `ghcr.io/madeofpendletonwool/yana`, tagged
-with the commit SHA and `latest` on every merge to `main`, and with the
-version on release tags.
+block. Images are published to `ghcr.io/leotsgo/yana`, tagged with the
+commit SHA and `latest` on every push to `main`, and with the version
+(`0.1.0`, no `v`) on release tags; see [Releases](#releases).
 
 `.env` carries two host-side keys compose reads directly (`YANA_PORT`,
 `YANA_DATA`) and the `YANA_*` keys that are passed into the container. See
@@ -150,6 +150,30 @@ by root. Once the directory is yours, you can drop root altogether with
   (both read from the repository and the remotes table, so they survive
   a restart), how many backup remotes are enabled, and the error count
   since the server started with the newest error's message.
+
+## Releases
+
+Versions follow [semver](https://semver.org). While the major version is
+0, a minor bump marks new features and a patch bump marks fixes;
+anything that breaks a promise in the README's list bumps the minor
+version and says so in the changelog. To cut a release:
+
+1. Move the entries under `## Unreleased` in `CHANGELOG.md` into a new
+   `## X.Y.Z — YYYY-MM-DD` section, leaving Unreleased empty, and
+   commit that on `main`.
+2. Tag the commit and push the tag:
+
+   ```sh
+   git tag -a vX.Y.Z -m vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+The `image` workflow builds the tag and publishes
+`ghcr.io/leotsgo/yana:X.Y.Z`, with the version baked in (`yana version`
+and `GET /api/status` report it). Deployments pinned to a version pick
+it up from there. Pushes to `main` between releases only move `latest`
+and add a SHA tag, and `feat/*` and `development` branches publish a
+preview image named after the branch.
 
 ## Reverse proxy
 

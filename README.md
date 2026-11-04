@@ -167,8 +167,8 @@ Notes live in `./notes` next to the compose file; drop `.md` files into
 `./notes/<space>/` and they appear on the next scan. Files stay owned by
 you.
 
-Prebuilt images: `ghcr.io/madeofpendletonwool/yana` (`latest`, or a commit
-SHA). Copy `.env.example` to `.env` to change the ports or point the
+Prebuilt images: `ghcr.io/leotsgo/yana` (a release such as `0.1.0`,
+`latest`, or a commit SHA; see [CHANGELOG.md](CHANGELOG.md)). Copy `.env.example` to `.env` to change the ports or point the
 volume at a folder of markdown you already have. HTML notes render from a
 second port (`8081` by default); behind a reverse proxy give it its own
 hostname ([docs/deployment.md](docs/deployment.md)).

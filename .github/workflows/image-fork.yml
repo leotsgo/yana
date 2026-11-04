@@ -1,9 +1,11 @@
 name: image-fork
 
+# Preview images for feature branches; main and release tags go through
+# image.yml.
+
 on:
   push:
-    branches: ["feat/**", "development", "main"]
-    tags: ["v*"]
+    branches: ["feat/**", "development"]
   workflow_dispatch:
 
 permissions:
@@ -28,7 +30,6 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha,format=long,prefix=
-            type=raw,value=v0.0.{{date 'YYYYMMDDHHmm' tz='UTC'}}
       - uses: docker/build-push-action@v6
         with:
           context: .

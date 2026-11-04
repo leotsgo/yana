@@ -1,6 +1,40 @@
 # Changelog
 
+This fork versions itself with [semver](https://semver.org): a release
+is a `vX.Y.Z` tag on `main`, and its image is
+`ghcr.io/leotsgo/yana:X.Y.Z`. While the major version is 0, a minor
+bump marks new features and a patch bump marks fixes. Changes land
+under Unreleased until the next tag; see
+[docs/deployment.md](docs/deployment.md#releases).
+
 ## Unreleased
+
+## 0.1.0 — 2026-11-04
+
+The first release of the fork, cut from upstream's `main` as of
+2026-10-02 (aliases and embeds, Phase 29) plus the changes below.
+
+- Linked mentions at the foot of every note. The read view (and the
+  preview in split) closes with the notes linking here, Obsidian style:
+  one collapsible group per linking note with its count, each link's
+  line in a card with the `[[link]]` marked; a click opens the note.
+  Hidden when nothing links here. The Details panel keeps its list.
+- Per-folder sort in the sidebar. A folder's menu has a Sort group —
+  title, created and modified, ascending or descending — remembered
+  per browser beside the tree's open and closed state. The server's
+  order, the PWA cache and exports are unchanged; a folder without a
+  choice sorts by title.
+- `upload_asset` MCP tool. An agent sends a base64 file (a `data:` URL
+  works too) and the note it belongs to; the file lands in the note's
+  `_assets/` under a free name, is indexed at once, and the result
+  carries the markdown link to put in the note.
+- Images are published to `ghcr.io/leotsgo/yana`: `latest` and the
+  commit SHA on every push to `main`, `X.Y.Z` on release tags, and a
+  branch-named preview for `feat/*` and `development`.
+
+## Before the fork
+
+Upstream's history up to the fork point, as it was written there.
 
 - Templates with variables (Phase 26). Any note in a space's
   `templates/` folder is now a template, the way the daily note's

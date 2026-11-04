@@ -284,6 +284,12 @@ folder, Rename or move by path, and Delete. A folder has New note here,
 New folder inside, Pin, Rename, Move to a folder, and Delete. A space
 heading has New note here and New folder, and carries both as buttons.
 
+A folder's menu also has Sort: title, created or modified, ascending or
+descending. The choice belongs to that folder and is remembered in this
+browser, beside which folders are open; it applies when the tree is
+drawn, so the server's order, the offline cache and exports stay as they
+are. A folder with no choice sorts by title.
+
 New folder and Rename happen in the tree: an input row where the folder
 is, or the folder's own name turned into one. Enter keeps it, Escape
 drops it, and a click elsewhere keeps it too. A double-click on a folder
@@ -382,7 +388,9 @@ so wikilinks follow. A note whose title comes from its file name (no
 heading) is only renamed. Escape puts the old title back.
 
 Path, dates and size live in the Details drawer beside the note, with the
-backlinks and the history; the tags sit under the title.
+backlinks and the history; the tags sit under the title. The backlinks
+also close the read view, under the note's last line, as Linked
+mentions (`docs/links.md`).
 
 ## Read, edit, split
 

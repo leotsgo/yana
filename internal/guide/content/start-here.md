@@ -27,7 +27,7 @@ How to make one:
 - **Desktop:** click the Link button in the bar above the editor, or type `[[` and start typing a name. A list of your notes appears; pick one and the link is finished for you. You can also drag a note out of the sidebar into the editor.
 - **Phone:** tap Link on the bar above the keyboard, or type `[[` and pick from the list.
 
-Every note that links here is listed under **Backlinks** in Details (the panel button in the bar above the note). Rename or move a note and every link to it is rewritten.
+Every note that links here is listed under **Linked mentions** at the bottom of the note, and under **Backlinks** in Details (the panel button in the bar above the note). Rename or move a note and every link to it is rewritten.
 
 A note can answer to other names. Put an `aliases` list in its frontmatter — the block of `key: value` lines at the top of the file — and a link by any of those names finds it:
 
