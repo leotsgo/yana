@@ -396,9 +396,14 @@ kbd {
 
 /* --- home -------------------------------------------------------------- */
 
+/* The page scrolls across the whole pane (its scrollbar at the pane's
+   edge); the padding keeps the content to the measure, centered or
+   against the left edge as Center the text says. */
 .home {
-  flex: 1; overflow-y: auto; padding: 56px var(--page-x) 80px; max-width: calc(var(--measure) + 2 * var(--page-x)); width: 100%;
+  flex: 1; overflow-y: auto; width: 100%;
+  padding: 56px max(var(--page-x), calc(100% - var(--measure) - var(--page-x))) 80px var(--page-x);
 }
+:root:not([data-align="left"]) .home { padding-inline: max(var(--page-x), calc((100% - var(--measure)) / 2)); }
 .home-mark { display: block; width: 96px; height: 96px; margin: 0 0 8px -6px; }
 .home-title { font: 600 32px/1.1 var(--mono); letter-spacing: 0.02em; margin: 0; }
 .home-sub { margin: 6px 0 24px; color: var(--ink-2); }

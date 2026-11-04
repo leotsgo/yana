@@ -9,6 +9,12 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+## 0.3.2 — 2026-11-04
+
+- The home page scrolls across the whole pane, its scrollbar at the
+  edge instead of halfway across, and its content follows Center the
+  text like a note's body.
+
 ## 0.3.1 — 2026-11-04
 
 - Center the text centers only the note's body. The header (folder,
