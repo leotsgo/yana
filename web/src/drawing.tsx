@@ -132,14 +132,14 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
       } finally {
         busy = false
         if (inflight.get(id) === done) inflight.delete(id)
+        // A closed page saves the rest at once, before release, so a page
+        // opened meanwhile waits for it too; no timer outlives the page.
+        if (again) {
+          if (alive) schedule()
+          else void save()
+        }
+        release()
       }
-      // A closed page saves the rest at once, before release, so a page
-      // opened meanwhile waits for it too; no timer outlives the page.
-      if (again) {
-        if (alive) schedule()
-        else void save()
-      }
-      release()
     }
 
     const onChange = (scene: string) => {
@@ -181,8 +181,16 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
 
     const open = async () => {
       // The note this page was given may predate a save the page before
-      // it made: wait for that save, then take the server's copy.
-      for (let p = inflight.get(id); p; p = inflight.get(id)) await p
+      // it made: wait for that save, then take the server's copy. A save
+      // that hangs is waited for 15 s at most.
+      let late = false
+      const deadline = new Promise<void>((r) =>
+        window.setTimeout(() => {
+          late = true
+          r()
+        }, 15_000),
+      )
+      for (let p = inflight.get(id); p && !late; p = inflight.get(id)) await Promise.race([p, deadline])
       const last = confirmed.get(id)
       if (last && last.hash !== base) {
         try {
@@ -194,6 +202,8 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
           saved = fresh.scene
           base = fresh.content_hash
           links = fresh.links
+          // Newer than this tab's last save: an offline open falls back to it.
+          confirmed.set(id, { scene: saved, hash: base })
         } catch {
           saved = last.scene
           base = last.hash
@@ -301,11 +311,11 @@ export function renderDrawingEmbeds(root: HTMLElement, onOpen: OpenNote): void {
     if (block.dataset['drawn']) continue
     block.dataset['drawn'] = '1'
     const id = block.dataset['id'] ?? ''
-    const put = (svg: SVGSVGElement | null) => {
-      if (!svg) return
-      block.prepend(svg.cloneNode(true))
+    const put = (got: Embed | null) => {
+      if (!got) return
+      block.prepend(got.svg.cloneNode(true))
       block.classList.add('drawn')
-      block.title = 'Open the drawing'
+      block.title = `Open ${got.title}`
       block.addEventListener('click', (ev) => {
         // The link inside opens it already.
         if ((ev.target as Element).closest('a')) return
@@ -314,7 +324,7 @@ export function renderDrawingEmbeds(root: HTMLElement, onOpen: OpenNote): void {
     }
     const e = embedSvg(id, isDark())
     // Drawn before: in at once, so a live re-render does not jump.
-    if (e.svg !== undefined) put(e.svg)
+    if (e.got !== undefined) put(e.got)
     else e.ready.then(put, () => {})
   }
 }
@@ -324,20 +334,24 @@ export function renderDrawingEmbeds(root: HTMLElement, onOpen: OpenNote): void {
 // stays), and a failed fetch is forgotten so the next render tries again.
 // ponytail: a save from another device shows after a reload; drop the
 // entry on the relay's change notice if that matters.
-const embeds = new Map<string, { ready: Promise<SVGSVGElement | null>; svg?: SVGSVGElement | null }>()
+interface Embed {
+  svg: SVGSVGElement
+  title: string
+}
+const embeds = new Map<string, { ready: Promise<Embed | null>; got?: Embed | null }>()
 
 function embedSvg(id: string, dark: boolean) {
   const key = `${id}:${dark}`
   let e = embeds.get(key)
   if (!e) {
-    const entry: { ready: Promise<SVGSVGElement | null>; svg?: SVGSVGElement | null } = {
+    const entry: { ready: Promise<Embed | null>; got?: Embed | null } = {
       ready: api.note(id).then(async (n) => {
         if (n.scene === undefined || n.scene_error) return null
-        return (await loadDrawing()).renderSvg(n.scene, dark)
+        return { svg: await (await loadDrawing()).renderSvg(n.scene, dark), title: n.title }
       }),
     }
     entry.ready.then(
-      (svg) => (entry.svg = svg),
+      (got) => (entry.got = got),
       () => embeds.delete(key),
     )
     embeds.set(key, entry)

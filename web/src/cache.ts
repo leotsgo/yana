@@ -55,6 +55,7 @@ async function tx<T>(store: string, mode: IDBTransactionMode, run: (s: IDBObject
     const req = run(t.objectStore(store))
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => resolve(null)
+    t.onabort = () => resolve(null) // quota exceeded and the like
   })
 }
 
