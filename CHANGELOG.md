@@ -9,6 +9,18 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+## 0.3.0 — 2026-11-04
+
+- Centered text. The note's column sits in the middle of the page,
+  reading and editing alike, with the title lined up above it. Center
+  the text in Appearance turns it off. On by default.
+- The open mode follows you. Switching a note to read, edit or split
+  (the toolbar, `e`, Escape, `Mod+E`) also makes that the mode the next
+  note opens in, as the Open notes setting would; a new note still opens
+  in the editor without changing it.
+- A click on the rendered text no longer opens the editor, so selecting
+  text while reading stays in read mode. The pencil and `e` still edit.
+
 ## 0.2.2 — 2026-11-04
 
 - A drawing also reopens with the tool that was in hand, and its lock.

@@ -570,6 +570,22 @@ kbd {
 .reader, .preview { flex: 1; min-width: 0; overflow-y: auto; padding: 18px var(--page-x) 40vh; }
 .preview { border-left: 1px solid var(--line); background: var(--bg-2); }
 .reader > .markdown > :first-child, .preview > .markdown > :first-child { margin-top: 0; }
+/* Center the text (Appearance, on unless data-align="left"): the column
+   sits in the middle of its pane, reading and editing alike. The editor's
+   lines carry their own page-x padding, so its column is that much wider
+   to put the text where the rendered text is. The header lines up with
+   the reading column; in split it keeps the left edge. */
+:root:not([data-align="left"]) .reader > .markdown,
+:root:not([data-align="left"]) .reader > .page-backlinks,
+:root:not([data-align="left"]) .preview > .markdown,
+:root:not([data-align="left"]) .preview > .page-backlinks { margin-inline: auto; }
+:root:not([data-align="left"]) .editor .cm-content { max-width: calc(var(--measure) + 2 * var(--page-x)); margin-inline: auto; }
+:root:not([data-align="left"]) .page:not(.split):has(> .page-body > :is(.reader, .editor)) > .note-header {
+  padding-inline: max(var(--page-x), calc((100% - var(--measure)) / 2));
+}
+:root:not([data-align="left"]) .page:not(.split):has(> .page-body > :is(.reader, .editor)):has(> .page-body > .details) > .note-header {
+  padding-inline: max(var(--page-x), calc((100% - var(--details) - var(--measure)) / 2)) var(--page-x);
+}
 .cm-ySelectionInfo { font-family: var(--mono); }
 
 /* the formatting bar above the phone keyboard */

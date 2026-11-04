@@ -51,7 +51,7 @@ home page.
 Light and dark themes follow the system unless picked in the account menu
 (top right) or on the Appearance page in settings, which also sets the
 text size (small, normal, large), the line width (narrow, normal, wide),
-the mode notes open in, the hide-syntax switch, and the sidebar density.
+whether the text is centered, the mode notes open in, the hide-syntax switch, and the sidebar density.
 Those, the sidebar state, what the tree has open, the open tabs, the display name, the default spaces and the
 recently opened notes are kept per browser in `localStorage` under
 `yana.*`; nothing else is stored there. Everything in `prefs.ts` reads
@@ -458,15 +458,22 @@ start of the body after any frontmatter); the client checks that line
 still holds a marker in the expected state before writing, and re-renders
 instead if the text has moved underneath.
 
-Edit is the source editor. Get there with the pencil, by pressing `e`, or
-on a desktop by clicking the body of the note anywhere that is not a link
-or a box (a drag to select text does not count). Escape, or Done on a
+Edit is the source editor. Get there with the pencil or by pressing `e`;
+a click on the rendered text does nothing but place the selection, so
+reading and selecting never drop into the editor. Escape, or Done on a
 phone, goes back to reading. Split shows the editor and the render side
 by side and is for screens 720px and wider; `Mod+E` toggles it.
 
 The mode a note opens in — read, edit, or split — is a preference in the
-account menu, the palette and settings. A note you just created always opens in
-the editor with the caret ready. A phone never opens in split; it reads.
+account menu, the palette and settings, and switching a note's mode (the
+toolbar, `e`, Escape, `Mod+E`) sets it too: the mode you last chose is the
+one the next note opens in. A note you just created always opens in the
+editor with the caret ready, without changing the preference. A phone
+never opens in split; it reads.
+
+The text column is centered in the page by default, reading and editing
+alike, with the title above it lined up to the same edge. Center the text
+in Appearance turns that off and puts the column against the left edge.
 
 Presence chips in the toolbar list the other people who have the note
 open, one chip per person, in any mode. Your own account in another tab

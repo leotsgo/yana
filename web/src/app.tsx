@@ -247,10 +247,20 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // Titles by note id, from the tree: a tab shows one before its note loads.
   const titles = useRef(new Map<string, string>())
 
-  const setMode = useCallback((m: prefs.OpenMode) => {
-    const t = workspace.activeTab()
-    if (t) workspace.setMode(t.key, m)
+  // Choosing how a tab shows its note also chooses how notes open from
+  // then on, the way the Open notes setting would.
+  const chooseMode = useCallback((key: string, m: prefs.OpenMode) => {
+    workspace.setMode(key, m)
+    prefs.setOpenMode(m)
   }, [])
+
+  const setMode = useCallback(
+    (m: prefs.OpenMode) => {
+      const t = workspace.activeTab()
+      if (t) chooseMode(t.key, m)
+    },
+    [chooseMode],
+  )
 
   // A note opens in the preview tab unless asked otherwise, in the
   // preferred mode; a new one opens in a tab of its own, in the editor.
@@ -1243,8 +1253,8 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     const t = workspace.activeTab()
     if (!t || isPage(t.id)) return
     const m = t.mode
-    workspace.setMode(t.key, layout === 'phone' ? (m === 'edit' ? 'read' : 'edit') : m === 'split' ? 'edit' : 'split')
-  }, [layout])
+    chooseMode(t.key, layout === 'phone' ? (m === 'edit' ? 'read' : 'edit') : m === 'split' ? 'edit' : 'split')
+  }, [layout, chooseMode])
 
   // --- tabs --------------------------------------------------------------
 
@@ -1896,7 +1906,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         layout={layout}
         focused={i === ws.focus}
         mode={tab.mode}
-        onMode={(m) => workspace.setMode(tab.key, m)}
+        onMode={(m) => chooseMode(tab.key, m)}
         live={live}
         onEditing={setEditing}
         onOpen={navigate}

@@ -98,6 +98,17 @@ export function setLineWidth(v: LineWidth): void {
   applyAppearance()
 }
 
+/** Whether the note's column sits in the middle of the page (the default)
+ * or against its left edge. */
+export function centered(): boolean {
+  return read('align') !== 'left'
+}
+
+export function setCentered(on: boolean): void {
+  write('align', on ? null : 'left')
+  applyAppearance()
+}
+
 export function density(): Density {
   return read('density') === 'compact' ? 'compact' : 'comfortable'
 }
@@ -117,6 +128,7 @@ export function applyAppearance(): void {
   }
   stamp('size', textSize(), 'normal')
   stamp('measure', lineWidth(), 'normal')
+  stamp('align', centered() ? 'center' : 'left', 'center')
   stamp('density', density(), 'comfortable')
 }
 

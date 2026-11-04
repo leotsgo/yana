@@ -1673,6 +1673,7 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
   const [theme, setTheme] = useState(prefs.theme)
   const [size, setSize] = useState(prefs.textSize)
   const [width, setWidth] = useState(prefs.lineWidth)
+  const [centered, setCentered] = useState(prefs.centered)
   const [open, setOpen] = useState(prefs.openMode)
   const [live, setLive] = useState(prefs.livePreview)
   const [density, setDensity] = useState(prefs.density)
@@ -1720,6 +1721,15 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
           onChange={(v) => {
             prefs.setLineWidth(v)
             setWidth(v)
+          }}
+        />
+        <Toggle
+          label="Center the text"
+          hint="The column sits in the middle of the page instead of against its left edge."
+          on={centered}
+          onChange={(v) => {
+            prefs.setCentered(v)
+            setCentered(v)
           }}
         />
       </Block>

@@ -27,7 +27,6 @@ import { isEditable } from './hotkeys'
 import { HtmlNote } from './htmlnote'
 import { Icon } from './icons'
 import { ConflictDialog, isConflictName } from './conflict'
-import { coarsePointer } from './layout'
 import type { Layout } from './layout'
 import type { MenuSpec } from './menu'
 import { backlinksPanel, historyPanel, rewriteRelative, wireWikiLinks } from './panels'
@@ -600,7 +599,6 @@ export function NotePage(props: NotePageProps) {
             onTag={onTag}
             highlight={hitShown}
             taskLine={shown === 'read' ? taskLine : null}
-            onEdit={!split && layout === 'desktop' && !coarsePointer && !readOnly ? () => onMode('edit') : undefined}
             phone={phone}
           />
         )}
@@ -831,8 +829,6 @@ interface ReaderProps {
   /** A task line to scroll to and mark: the tasks page opens a note at
    * the box it came from. */
   taskLine: number | null
-  /** A click on the body (not a link or a box) opens the editor. */
-  onEdit?: () => void
   /** True on a phone: an attachment card opens the system viewer instead
    * of expanding an inline preview. */
   phone: boolean
@@ -842,7 +838,7 @@ interface ReaderProps {
 // it matches every other render (same goldmark, same wikilink handling);
 // a short debounce keeps it from rendering every keystroke. Task boxes
 // carry the line their marker is on and flip it through the CRDT.
-function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, highlight, taskLine, onEdit, phone }: ReaderProps) {
+function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, highlight, taskLine, phone }: ReaderProps) {
   const host = useRef<HTMLDivElement>(null)
   // The search hit is marked on every render (the live one replaces the
   // first) and scrolled to once, on whichever render lands first. So is
@@ -906,20 +902,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, hi
   }, [sync, note, readOnly, onOpen])
 
   return (
-    <div
-      class={cls}
-      aria-label={cls === 'preview' ? 'preview' : 'note'}
-      onClick={
-        onEdit &&
-        ((ev) => {
-          const t = ev.target as HTMLElement
-          if (t.closest('a, input, button, summary, .wikilink, .tag, .page-backlinks')) return
-          // A drag to select text is not a request to edit.
-          if (!(window.getSelection()?.isCollapsed ?? true)) return
-          onEdit()
-        })
-      }
-    >
+    <div class={cls} aria-label={cls === 'preview' ? 'preview' : 'note'}>
       <div class="markdown" ref={host} />
       <PageBacklinks noteId={note.id} onOpen={onOpen} />
     </div>
