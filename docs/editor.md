@@ -378,6 +378,11 @@ Undo, which takes the line out again wherever it now sits. Offline, the
 line queues in the outbox and lands when the connection returns. The
 share target ([pwa.md](pwa.md)) uses the same code path.
 
+`yana today "text"` on the command line ([using.md](using.md#today-and-capture))
+lands the same `- text` through `POST /api/notes/{id}/append`, which
+adds text at the end of a markdown note on its own line, through the
+document, for any account that may write to the note's space.
+
 ## Tags
 
 A `#tag` in a note body is a tag: letters, digits, `_`, `/` and `-`,

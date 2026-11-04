@@ -388,3 +388,60 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"html": string(html)})
 }
+
+// handleNoteAppend adds text at the end of a note, on its own line, the
+// way append_note does for agents; the command line's `yana today` uses
+// it. It goes through the note's document, so it merges with whoever is
+// typing in the note.
+func (s *Server) handleNoteAppend(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.Root.Limits().MaxNoteSize+1<<10)).Decode(&body); err != nil || body.Content == "" {
+		writeError(w, http.StatusBadRequest, "body must be JSON with a content field")
+		return
+	}
+	space, role, ok := s.noteRole(w, r, id)
+	if !ok {
+		return
+	}
+	if role == "viewer" || !s.mayWrite(w, r, space) {
+		return
+	}
+	if s.Sync == nil {
+		writeError(w, http.StatusNotImplemented, "realtime editing is off on this server")
+		return
+	}
+	n, err := s.DB.GetNote(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if n.Kind != "md" {
+		writeError(w, http.StatusBadRequest, "only markdown notes take appends")
+		return
+	}
+	author := tickAuthor
+	if !s.open() {
+		author = s.ident(r).Author()
+	}
+	cur, err := s.Sync.Text(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	next := body.Content
+	if cur != "" {
+		next = strings.TrimRight(cur, "\n") + "\n" + body.Content
+	}
+	if int64(len(next)) > s.Root.Limits().MaxNoteSize {
+		writeError(w, http.StatusRequestEntityTooLarge, "the append would put the note over its size limit")
+		return
+	}
+	if err := s.Sync.SetText(r.Context(), id, next, author); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "path": n.RelPath})
+}

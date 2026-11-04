@@ -118,21 +118,19 @@ In the Shortcuts app, build "Add to YANA" with these actions:
    and keep `tokens.access_token`.
 2. **Get Contents of URL** — `POST https://your-server/api/notes/daily`,
    JSON body `{"space": "", "date": "<Shortcut: Format Date, YYYY-MM-DD>"}`,
-   header `Authorization: Bearer <the token from step 1>`. Keep
-   `id` and `markdown` from the response.
-3. **Text** — the note's markdown from step 2, a blank line, then the
-   shared text: `- [Shortcut: Clipboard](Shortcut: Clipboard)` when the
-   clipboard is a URL, otherwise `- ` and the clipboard.
-4. **Get Contents of URL** — `PUT
-   https://your-server/api/notes/<the id>/source`, JSON body
-   `{"source": <the text from step 3>, "base_hash": <Shortcut: Hash, the
-   content_hash from the note>}`, same Authorization header.
+   header `Authorization: Bearer <the token from step 1>`. Keep `id`
+   from the response.
+3. **Text** — the shared text: `- [Shortcut: Clipboard](Shortcut:
+   Clipboard)` when the clipboard is a URL, otherwise `- ` and the
+   clipboard.
+4. **Get Contents of URL** — `POST
+   https://your-server/api/notes/<the id>/append`, JSON body
+   `{"content": <the text from step 3>}`, same Authorization header.
 
 Run it from the share sheet (accepts text and URLs). The credentials and
 the server URL live in the shortcut; the login is per-run, so nothing
-persistent is handed around. The base hash makes the save collide safely:
-if the note changed under you, the server keeps the overwritten copy
-beside the note rather than losing either.
+persistent is handed around. The append merges with whatever the note
+holds, an edit open on another device included.
 
 ## Updates
 

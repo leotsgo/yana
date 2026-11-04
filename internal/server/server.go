@@ -172,6 +172,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/attachments/{path...}", s.authed(s.handleAttachmentGet))
 	s.mux.HandleFunc("GET /api/assets/orphans", s.authed(s.handleAssetOrphans))
 	s.mux.HandleFunc("POST /api/notes/daily", s.authed(s.handleDailyNote))
+	s.mux.HandleFunc("POST /api/notes/{id}/append", s.authed(s.handleNoteAppend))
 	s.mux.HandleFunc("POST /api/templates/{id}/expand", s.authed(s.handleTemplateExpand))
 	s.mux.HandleFunc("POST /api/guide", s.authed(s.handleGuide))
 	s.mux.HandleFunc("POST /api/render", s.authed(s.handleRender))

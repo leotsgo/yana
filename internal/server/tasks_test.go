@@ -69,11 +69,16 @@ func newSyncEnv(t *testing.T) (*env, *reconcile.Reconciler, string) {
 
 func (e *env) patch(t *testing.T, path string, body any) int {
 	t.Helper()
+	return e.send(t, http.MethodPatch, path, body)
+}
+
+func (e *env) send(t *testing.T, method, path string, body any) int {
+	t.Helper()
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(body); err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequest(http.MethodPatch, e.ts.URL+path, &buf)
+	req, err := http.NewRequest(method, e.ts.URL+path, &buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,4 +220,22 @@ func findNoteID(nodes []*TreeNode) string {
 		}
 	}
 	return ""
+}
+
+// An append lands on its own line at the end, through the document.
+func TestNoteAppend(t *testing.T) {
+	e, rec, id := newSyncEnv(t)
+	if code := e.send(t, http.MethodPost, "/api/notes/"+id+"/append", map[string]string{"content": "- from the shell"}); code != 200 {
+		t.Fatalf("append %d", code)
+	}
+	if err := rec.Flush(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(e.dir, "home", "list.md"))
+	if !strings.HasSuffix(strings.TrimRight(string(raw), "\n"), "\n- from the shell") {
+		t.Fatalf("file:\n%s", raw)
+	}
+	if code := e.send(t, http.MethodPost, "/api/notes/"+id+"/append", map[string]string{"content": ""}); code != 400 {
+		t.Fatalf("empty append %d", code)
+	}
 }

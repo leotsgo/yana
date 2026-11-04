@@ -100,6 +100,14 @@ notes by tag when you type `#`.
 takes one line and appends it to today's note without opening it, which
 is the quickest way to write something down on a phone.
 
+From a terminal, the `yana` binary does the same. Sign in once with
+`yana login https://your-server` (it asks for the username and password
+and keeps the session in `~/.config/yana/session.json`, readable by you
+only), then `yana today "call the bank"` adds `- call the bank` to
+today's note. `yana today -` (or a pipe) reads the lines from stdin;
+`--space` picks a space other than the one set under Settings →
+Defaults. `yana whoami` and `yana logout` do what they say.
+
 ## Find things
 
 The search box in the sidebar searches titles and bodies (on a phone,

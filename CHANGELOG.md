@@ -9,6 +9,10 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- `yana login`, then `yana today "text"` from a terminal adds a line to
+  today's note, like Capture; `yana whoami` and `yana logout` round it
+  out. Behind it, `POST /api/notes/{id}/append` adds text at the end of
+  a note for any account that may write to it.
 - A Drawing button beside New starts a drawing in the folder new notes
   go to.
 - Drawings are live: several people or devices draw on one drawing at

@@ -5,6 +5,8 @@
 //	yana version    print the version
 //	yana drawings convert [--apply]
 //	                convert Obsidian Excalidraw files in place
+//	yana login | logout | whoami | today "text"
+//	                use a yana server from the shell (client.go)
 //
 // Configuration comes from YANA_* environment variables and an optional
 // YAML file named by YANA_CONFIG. See docs/deployment.md.
@@ -50,9 +52,11 @@ func main() {
 		return
 	case "drawings":
 		os.Exit(drawingsMain(os.Args[2:]))
+	case "login", "logout", "whoami", "today":
+		os.Exit(clientMain(cmd, os.Args[2:]))
 	case "serve", "scan":
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q (use serve, scan, drawings, or version)\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q (use serve, scan, drawings, login, logout, whoami, today, or version)\n", cmd)
 		os.Exit(2)
 	}
 

@@ -1,0 +1,354 @@
+// The command line's client side: sign in to a yana server once, then
+// write to it from the shell.
+//
+//	yana login [server]   sign in; the session is kept in the user's config dir
+//	yana logout           end the session
+//	yana whoami           the server and account signed in
+//	yana today [--space name] text...
+//	                      append a line to today's note ("-" reads stdin)
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"golang.org/x/term"
+)
+
+// session is what login keeps: the server and the account's tokens. The
+// file is the account's key, so it is written readable by the user only.
+type session struct {
+	Server   string `json:"server"`
+	Username string `json:"username"`
+	Access   string `json:"access_token"`
+	Refresh  string `json:"refresh_token"`
+}
+
+type tokens struct {
+	Access  string `json:"access_token"`
+	Refresh string `json:"refresh_token"`
+}
+
+func sessionPath() (string, error) {
+	if p := os.Getenv("YANA_CLI_SESSION"); p != "" {
+		return p, nil
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "yana", "session.json"), nil
+}
+
+func loadSession() (*session, error) {
+	p, err := sessionPath()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, errors.New("not signed in; run yana login")
+	}
+	if err != nil {
+		return nil, err
+	}
+	var s session
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, fmt.Errorf("%s: %w", p, err)
+	}
+	return &s, nil
+}
+
+func (s *session) save() error {
+	p, err := sessionPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	raw, _ := json.MarshalIndent(s, "", "  ")
+	return os.WriteFile(p, raw, 0o600)
+}
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
+// apiError is the server's {"error": "..."} answer.
+type apiError struct {
+	Status int
+	Msg    string
+}
+
+func (e *apiError) Error() string {
+	if e.Msg == "" {
+		return fmt.Sprintf("the server answered %d", e.Status)
+	}
+	return e.Msg
+}
+
+func call(server, method, path, token string, body, out any) error {
+	var rd io.Reader
+	if body != nil {
+		raw, _ := json.Marshal(body)
+		rd = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequest(method, strings.TrimRight(server, "/")+path, rd)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if resp.StatusCode >= 300 {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		return &apiError{Status: resp.StatusCode, Msg: e.Error}
+	}
+	if out != nil {
+		return json.Unmarshal(raw, out)
+	}
+	return nil
+}
+
+// do is call with the session's token, refreshing it once when it has
+// expired and keeping the new pair.
+func (s *session) do(method, path string, body, out any) error {
+	err := call(s.Server, method, path, s.Access, body, out)
+	var ae *apiError
+	if !errors.As(err, &ae) || ae.Status != http.StatusUnauthorized {
+		return err
+	}
+	var res struct {
+		Tokens tokens `json:"tokens"`
+	}
+	if call(s.Server, http.MethodPost, "/api/auth/refresh", "", map[string]string{"refresh_token": s.Refresh}, &res) != nil {
+		return errors.New("the session has ended; run yana login")
+	}
+	s.Access = res.Tokens.Access
+	if res.Tokens.Refresh != "" {
+		s.Refresh = res.Tokens.Refresh
+	}
+	if err := s.save(); err != nil {
+		return err
+	}
+	return call(s.Server, method, path, s.Access, body, out)
+}
+
+func clientMain(cmd string, args []string) int {
+	var err error
+	switch cmd {
+	case "login":
+		err = login(args)
+	case "logout":
+		err = logout()
+	case "whoami":
+		err = whoami()
+	case "today":
+		err = today(args)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "yana:", err)
+		return 1
+	}
+	return 0
+}
+
+func login(args []string) error {
+	in := bufio.NewReader(os.Stdin)
+	ask := func(prompt, def string) string {
+		if def != "" {
+			prompt += " [" + def + "]"
+		}
+		fmt.Fprint(os.Stderr, prompt+": ")
+		line, _ := in.ReadString('\n')
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+		return def
+	}
+	var server string
+	if len(args) > 0 {
+		server = args[0]
+	} else {
+		def := ""
+		if s, err := loadSession(); err == nil {
+			def = s.Server
+		}
+		server = ask("Server", def)
+	}
+	if server == "" {
+		return errors.New("a server address is needed, like https://notes.example.com")
+	}
+	if !strings.Contains(server, "://") {
+		server = "https://" + server
+	}
+	server = strings.TrimRight(server, "/")
+	user := ask("Username", os.Getenv("USER"))
+	fmt.Fprint(os.Stderr, "Password: ")
+	var pw []byte
+	var err error
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		pw, err = term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(os.Stderr)
+	} else {
+		var line string
+		line, err = in.ReadString('\n')
+		pw = []byte(strings.TrimRight(line, "\r\n"))
+		if errors.Is(err, io.EOF) && len(pw) > 0 {
+			err = nil
+		}
+	}
+	if err != nil {
+		return err
+	}
+	host, _ := os.Hostname()
+	var res struct {
+		User struct {
+			Username string `json:"username"`
+		} `json:"user"`
+		Tokens tokens `json:"tokens"`
+	}
+	body := map[string]string{"username": user, "password": string(pw), "label": "yana cli on " + host}
+	if err := call(server, http.MethodPost, "/api/auth/login", "", body, &res); err != nil {
+		return err
+	}
+	s := session{Server: server, Username: res.User.Username, Access: res.Tokens.Access, Refresh: res.Tokens.Refresh}
+	if err := s.save(); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Signed in to %s as %s.\n", server, s.Username)
+	return nil
+}
+
+func logout() error {
+	s, err := loadSession()
+	if err != nil {
+		return err
+	}
+	// The server forgets the session; the file goes either way.
+	_ = call(s.Server, http.MethodPost, "/api/auth/logout", "", map[string]string{"refresh_token": s.Refresh}, nil)
+	p, _ := sessionPath()
+	if err := os.Remove(p); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "Signed out.")
+	return nil
+}
+
+func whoami() error {
+	s, err := loadSession()
+	if err != nil {
+		return err
+	}
+	var res struct {
+		User struct {
+			Username string `json:"username"`
+		} `json:"user"`
+	}
+	if err := s.do(http.MethodGet, "/api/auth/state", nil, &res); err != nil {
+		return err
+	}
+	fmt.Printf("%s on %s\n", res.User.Username, s.Server)
+	return nil
+}
+
+func today(args []string) error {
+	fs := flag.NewFlagSet("today", flag.ContinueOnError)
+	space := fs.String("space", "", "the space whose daily note to write to (default: the one set in Settings)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	text := strings.Join(fs.Args(), " ")
+	if text == "-" || (text == "" && !term.IsTerminal(int(os.Stdin.Fd()))) {
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		text = string(raw)
+	}
+	text = strings.TrimRight(text, "\n")
+	if strings.TrimSpace(text) == "" {
+		return errors.New(`nothing to write: yana today "text"`)
+	}
+	s, err := loadSession()
+	if err != nil {
+		return err
+	}
+	// Each line a list item, the way Capture in the app writes it.
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "* ") || strings.HasPrefix(l, "+ ") {
+			lines[i] = "  " + l
+		} else {
+			lines[i] = "- " + l
+		}
+	}
+	text = strings.Join(lines, "\n")
+
+	// Where today's note goes: --space, else the defaults the owner set
+	// (the daily folder, then the daily space, then the space for new
+	// notes), else the account's first space.
+	target := map[string]any{"space": *space, "date": time.Now().Format("2006-01-02")}
+	if *space == "" {
+		var d struct {
+			Space       string `json:"space"`
+			DailySpace  string `json:"daily_space"`
+			DailyFolder string `json:"daily_folder"`
+		}
+		if err := s.do(http.MethodGet, "/api/defaults", nil, &d); err != nil {
+			return err
+		}
+		switch sp, folder, _ := strings.Cut(d.DailyFolder, "/"); {
+		case d.DailyFolder != "":
+			target["space"], target["folder"] = sp, folder
+		case d.DailySpace != "":
+			target["space"] = d.DailySpace
+		case d.Space != "":
+			target["space"] = d.Space
+		default:
+			var list struct {
+				Spaces []struct {
+					Name string `json:"name"`
+				} `json:"spaces"`
+			}
+			if err := s.do(http.MethodGet, "/api/spaces", nil, &list); err != nil {
+				return err
+			}
+			if len(list.Spaces) == 0 {
+				return errors.New("this account has no space to write to")
+			}
+			target["space"] = list.Spaces[0].Name
+		}
+	}
+	var note struct {
+		ID   string `json:"id"`
+		Path string `json:"path"`
+	}
+	if err := s.do(http.MethodPost, "/api/notes/daily", target, &note); err != nil {
+		return err
+	}
+	if err := s.do(http.MethodPost, "/api/notes/"+note.ID+"/append", map[string]string{"content": text}, nil); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Added to %s.\n", note.Path)
+	return nil
+}
