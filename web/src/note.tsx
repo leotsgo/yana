@@ -725,58 +725,58 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLoca
 
   return (
     <header class="note-header">
-      <div class="note-line">
-        <nav class="crumbs" aria-label="folder">
-          <button
-            type="button"
-            class="crumbs-btn"
-            title={readOnly ? 'The folder this note is in' : 'Move to another folder'}
-            disabled={readOnly}
-            onClick={onLocation}
-          >
-            <Icon name="folder" />
-            {crumbs.length === 0 ? (
-              <span>/</span>
-            ) : (
-              crumbs.map((p, i) => (
-                <span key={i}>
-                  {i > 0 && <span class="crumb-sep">/</span>}
-                  {p}
-                </span>
-              ))
-            )}
-            {!readOnly && <Icon name="chevron-down" class="crumbs-caret" size={12} />}
-          </button>
-          {note.public && (
-            <button type="button" class="public-mark" title="A public link to this note is live" onClick={onShare}>
-              <Icon name="globe" size={13} />
-              Public
-            </button>
-          )}
-          {(note.conflict_count ?? 0) > 0 && (
-            <button
-              type="button"
-              class="conflict-chip"
-              title="Resolve the conflict copies parked beside this note"
-              onClick={onConflicts}
-            >
-              <Icon name="alert" size={13} />
-              {note.conflict_count} {note.conflict_count === 1 ? 'conflict' : 'conflicts'}
-            </button>
-          )}
-        </nav>
-        {note.tags.length > 0 && (
-          <div class="note-tags" aria-label="tags">
-            {note.tags.map((t) => (
-              <a key={t} class="tag" href={`/tags/${encodeURIComponent(t)}`} onClick={(ev) => { ev.preventDefault(); onTag(t) }}>
-                #{t}
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
       <div class="note-headline">
         <div class="note-titlebox">
+        <div class="note-line">
+          <nav class="crumbs" aria-label="folder">
+            <button
+              type="button"
+              class="crumbs-btn"
+              title={readOnly ? 'The folder this note is in' : 'Move to another folder'}
+              disabled={readOnly}
+              onClick={onLocation}
+            >
+              <Icon name="folder" />
+              {crumbs.length === 0 ? (
+                <span>/</span>
+              ) : (
+                crumbs.map((p, i) => (
+                  <span key={i}>
+                    {i > 0 && <span class="crumb-sep">/</span>}
+                    {p}
+                  </span>
+                ))
+              )}
+              {!readOnly && <Icon name="chevron-down" class="crumbs-caret" size={12} />}
+            </button>
+            {note.public && (
+              <button type="button" class="public-mark" title="A public link to this note is live" onClick={onShare}>
+                <Icon name="globe" size={13} />
+                Public
+              </button>
+            )}
+            {(note.conflict_count ?? 0) > 0 && (
+              <button
+                type="button"
+                class="conflict-chip"
+                title="Resolve the conflict copies parked beside this note"
+                onClick={onConflicts}
+              >
+                <Icon name="alert" size={13} />
+                {note.conflict_count} {note.conflict_count === 1 ? 'conflict' : 'conflicts'}
+              </button>
+            )}
+          </nav>
+          {note.tags.length > 0 && (
+            <div class="note-tags" aria-label="tags">
+              {note.tags.map((t) => (
+                <a key={t} class="tag" href={`/tags/${encodeURIComponent(t)}`} onClick={(ev) => { ev.preventDefault(); onTag(t) }}>
+                  #{t}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
         <h1
           ref={el}
           class={'note-title' + (readOnly ? ' static' : '')}

@@ -487,8 +487,9 @@ kbd {
 
 .page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .note-header { flex: none; padding: 8px var(--page-x); border-bottom: 1px solid var(--line); }
-/* The folder and the tags on one small line; under it the title, with the
-   page's toolbar beside it while there is room and under it when not. */
+/* The folder and the tags on one small line, the title and the sync state
+   under it; the page's toolbar beside the three, centred, while there is
+   room and under them when not. */
 .note-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0 12px; min-width: 0; }
 .note-headline { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; }
 .crumbs { display: flex; align-items: center; min-width: 0; font: 12px var(--mono); color: var(--ink-3); margin-left: -6px; }
