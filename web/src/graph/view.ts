@@ -133,8 +133,9 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
     if (e.data.pos.length !== keys.length * 2) return
     pos = e.data.pos
     r.setPositions(pos)
-    // Keep the graph framed as it spreads, until it first settles.
-    if (!fitted && !moved) fit()
+    // Keep the graph framed as it spreads, until it first settles; not under
+    // a held pointer, or a dragged node would slide away from it.
+    if (!fitted && !moved && !gesture) fit()
     if (e.data.settled && keys.length) fitted = true
     redraw()
   }
