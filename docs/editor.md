@@ -31,7 +31,10 @@ and spaces open, and what was opened is remembered per browser
 spaces closed, so an empty store is the default). Opening a note by any
 way other than a click in the tree (search, a wikilink, the switcher,
 the URL) opens its space and the folders above it and scrolls the row
-into view; a click in the tree never reopens what was just closed. A
+into view; a click in the tree never reopens what was just closed.
+Reveal the open note, under Sidebar in Appearance, turns that off: the
+tree then stays as you left it while you follow links (`yana.tree.reveal`
+is `0`). A
 space's menu collapses or expands every folder in it, and the palette
 does the same across the tree. A drag held over a closed folder or
 space for a moment opens it.

@@ -95,13 +95,19 @@ export function Tree(props: TreeProps) {
   // revealed: its space and the folders above it open, and its row is
   // scrolled into view. A click in the tree never reopens what the
   // person just closed. A note the tree does not hold yet (one just
-  // made, indexed a moment later) is revealed once it shows up.
+  // made, indexed a moment later) is revealed once it shows up. Reveal
+  // the open note (Settings, Appearance, Sidebar) turns this off, so
+  // following links through a zettelkasten leaves the tree as it was.
   const clicked = useRef<string | null>(null)
   const revealed = useRef<string | null>(null)
   useEffect(() => {
     if (!selected || revealed.current === selected) return
     if (clicked.current === selected) {
       clicked.current = null
+      revealed.current = selected
+      return
+    }
+    if (!prefs.revealInTree()) {
       revealed.current = selected
       return
     }

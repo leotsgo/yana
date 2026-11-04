@@ -196,6 +196,16 @@ export function setSidebarCollapsed(c: boolean): void {
   write('sidebar', c ? '0' : null)
 }
 
+/** Whether a note opened from anywhere but the tree opens the folders
+ * above it there and scrolls to its row. On unless turned off. */
+export function revealInTree(): boolean {
+  return read('tree.reveal') !== '0'
+}
+
+export function setRevealInTree(on: boolean): void {
+  write('tree.reveal', on ? null : '0')
+}
+
 // --- recents -------------------------------------------------------------
 
 export function recents(): string[] {

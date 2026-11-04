@@ -9,6 +9,13 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+## 0.4.0 — 2026-11-04
+
+- Reveal the open note can be turned off (Settings, Appearance,
+  Sidebar). On, as before, a note opened from a link, search, the
+  switcher or a tab opens the folders above it in the tree and scrolls
+  to it; off, the tree stays as you left it while you follow links.
+
 ## 0.3.2 — 2026-11-04
 
 - The home page scrolls across the whole pane, its scrollbar at the

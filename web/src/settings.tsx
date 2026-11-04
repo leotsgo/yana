@@ -1677,6 +1677,7 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
   const [open, setOpen] = useState(prefs.openMode)
   const [live, setLive] = useState(prefs.livePreview)
   const [density, setDensity] = useState(prefs.density)
+  const [reveal, setReveal] = useState(prefs.revealInTree)
   const [suggest, setSuggest] = useState(prefs.suggestNames)
 
   return (
@@ -1777,6 +1778,15 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
           onChange={(v) => {
             prefs.setDensity(v)
             setDensity(v)
+          }}
+        />
+        <Toggle
+          label="Reveal the open note"
+          hint="A note opened from a link, search or a tab opens the folders above it in the tree and scrolls to it."
+          on={reveal}
+          onChange={(v) => {
+            prefs.setRevealInTree(v)
+            setReveal(v)
           }}
         />
       </Block>
