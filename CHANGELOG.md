@@ -9,6 +9,13 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+## 0.2.1 — 2026-11-04
+
+- A drawing reopens at the scroll position and zoom it was left at.
+  The view is kept per drawing in the browser, not in the file, so
+  panning and zooming never save; a first visit still scrolls to fit
+  the content.
+
 ## 0.2.0 — 2026-11-04
 
 Drawings: Excalidraw canvases as notes.

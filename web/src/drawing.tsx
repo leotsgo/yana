@@ -18,6 +18,7 @@ import { loadDrawing } from './drawing-load'
 import { Icon } from './icons'
 import { createPathFor } from './panels'
 import type { OpenNote } from './panels'
+import * as prefs from './prefs'
 import { isDark } from './rich-load'
 import { howFrom } from './workspace'
 
@@ -68,6 +69,19 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
     let saved = note.scene // what the server holds, as far as this page knows
     let pending: string | null = null // a scene the server has not confirmed
     let busy = false
+    // Scroll and zoom are this browser's, kept apart from the file so
+    // panning never saves; written a moment after the canvas settles.
+    let view: prefs.DrawingView | null = null
+    let viewTimer: ReturnType<typeof setTimeout> | undefined
+    const keepView = () => {
+      clearTimeout(viewTimer)
+      if (view) prefs.setDrawingView(id, view)
+    }
+    const onView = (v: prefs.DrawingView) => {
+      view = v
+      clearTimeout(viewTimer)
+      viewTimer = setTimeout(keepView, 400)
+    }
     let timer = 0
     let links = note.links
     let status: SaveState = 'saved'
@@ -232,7 +246,15 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
       }
       if (!alive) return
       try {
-        editor = mod.mountEditor(el, { sceneJSON: scene, dark: isDark(), viewOnly, onChange, onLink: (l, ev) => void onLink(l, ev) })
+        editor = mod.mountEditor(el, {
+          sceneJSON: scene,
+          dark: isDark(),
+          viewOnly,
+          onChange,
+          onLink: (l, ev) => void onLink(l, ev),
+          view: prefs.drawingView(id),
+          onView,
+        })
       } catch {
         setNotice('This drawing could not be read. It is left as it is.')
       }
@@ -243,7 +265,9 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
     const theme = new MutationObserver(() => editor?.setDark(isDark()))
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     const onHide = () => {
-      if (document.visibilityState === 'hidden') void save()
+      if (document.visibilityState !== 'hidden') return
+      keepView()
+      void save()
     }
     const onUnload = (ev: BeforeUnloadEvent) => {
       if (pending === null) return
@@ -260,6 +284,7 @@ export function DrawingNote({ note, onOpen, onToast, children }: DrawingNoteProp
       document.removeEventListener('visibilitychange', onHide)
       window.removeEventListener('beforeunload', onUnload)
       window.removeEventListener('online', onOnline)
+      keepView()
       void save()
       editor?.unmount()
     }

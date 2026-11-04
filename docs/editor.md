@@ -269,6 +269,12 @@ Not saved when the server refused the save (a drawing over the size
 limit, say) and the message says why. Editing is whole-file, one editor
 at a time; there is no live co-drawing.
 
+A drawing reopens where you left it: the scroll position and zoom are
+remembered per drawing in this browser, beside the other preferences,
+and never written to the file, so panning around saves nothing. A
+drawing opened for the first time in a browser scrolls to fit its
+content.
+
 The editor is a separate download, fetched the first time a drawing is
 opened (or a note embeds one) and not before, so notes without drawings
 never pay for it. It is not part of the offline precache: a drawing

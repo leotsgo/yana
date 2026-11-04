@@ -23,6 +23,17 @@ export interface EditorOptions {
   onChange: (sceneJSON: string) => void
   /** A clicked element link; the editor has already prevented Excalidraw's default for [[…]] links. */
   onLink: (link: string, ev: MouseEvent | undefined) => void
+  /** Where the canvas was left; without one it scrolls to the content. */
+  view?: View | null
+  /** Fires when the scroll position or zoom changes. Never saved to the file. */
+  onView?: (view: View) => void
+}
+
+/** The canvas position: scroll offsets and zoom factor. */
+export interface View {
+  scrollX: number
+  scrollY: number
+  zoom: number
 }
 
 export interface EditorHandle {
@@ -42,14 +53,32 @@ export function mountEditor(host: HTMLElement, opts: EditorOptions): EditorHandl
   // background colour is the one appState change worth a save.
   let version = getSceneVersion(scene.elements)
   let background = scene.appState.viewBackgroundColor
+  let view = opts.view ?? null
+  const initialData = view
+    ? {
+        ...scene,
+        appState: {
+          ...scene.appState,
+          scrollX: view.scrollX,
+          scrollY: view.scrollY,
+          zoom: { value: view.zoom as typeof scene.appState.zoom.value },
+        },
+      }
+    : { ...scene, scrollToContent: true }
   const root = createRoot(host)
   const render = (dark: boolean) =>
     root.render(
       createElement(Excalidraw, {
-        initialData: { ...scene, scrollToContent: true },
+        initialData,
         theme: dark ? 'dark' : 'light',
         viewModeEnabled: opts.viewOnly,
         onChange: (elements, appState, files) => {
+          const { scrollX, scrollY } = appState
+          const zoom = appState.zoom.value
+          if (!view || view.scrollX !== scrollX || view.scrollY !== scrollY || view.zoom !== zoom) {
+            view = { scrollX, scrollY, zoom }
+            opts.onView?.(view)
+          }
           const next = getSceneVersion(elements)
           if (next === version && appState.viewBackgroundColor === background) return
           version = next

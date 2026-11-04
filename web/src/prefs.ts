@@ -552,3 +552,29 @@ export function isSearchSaved(query: string): boolean {
   const q = query.trim()
   return q !== '' && savedSearches().some((s) => s.query === q)
 }
+
+// --- drawing views -------------------------------------------------------
+
+/** Where a drawing's canvas was left: scroll offsets and zoom. */
+export type DrawingView = { scrollX: number; scrollY: number; zoom: number }
+
+/** The view a drawing was left at in this browser, or null for a first visit. */
+export function drawingView(id: string): DrawingView | null {
+  try {
+    const v = JSON.parse(read('drawing.view.' + id) ?? 'null') as DrawingView | null
+    return v && [v.scrollX, v.scrollY, v.zoom].every(Number.isFinite) ? v : null
+  } catch {
+    return null
+  }
+}
+
+// ponytail: one key per drawing ever opened, never pruned; fine for a
+// personal vault, prune by age if drawings ever number in the thousands.
+/** Remembers the view; written quietly, scrolling must not wake the shell. */
+export function setDrawingView(id: string, v: DrawingView): void {
+  try {
+    localStorage.setItem(PREFIX + 'drawing.view.' + id, JSON.stringify(v))
+  } catch {
+    // Nothing to do; the view just does not persist.
+  }
+}
