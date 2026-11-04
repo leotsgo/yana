@@ -628,7 +628,7 @@ kbd {
 .hit-mark { background: var(--mark); color: inherit; padding: 0 1px; border-radius: 2px; box-shadow: 0 0 0 2px var(--mark); }
 .details-layer { position: absolute; inset: 0; z-index: 12; display: flex; justify-content: flex-end; }
 .details-layer .scrim { position: absolute; inset: 0; background: var(--scrim); }
-.details-layer .details { position: relative; height: 100%; box-shadow: var(--shadow-3); border-left: 1px solid var(--line); animation: slide-left 160ms ease-out; }
+.details-layer .details { position: relative; z-index: 10; height: 100%; box-shadow: var(--shadow-3); border-left: 1px solid var(--line); animation: slide-left 160ms ease-out; }
 @keyframes slide-left { from { transform: translateX(24px); opacity: 0; } }
 
 /* --- rendered markdown ------------------------------------------------- */
