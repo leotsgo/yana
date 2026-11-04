@@ -118,6 +118,25 @@ const drawingOut = (re) => '/' + Object.keys(drawing.metafile.outputs).find((o) 
 const drawingJS = drawingOut(/assets\/drawing\/editor-[^/]+\.js$/)
 const drawingCSS = drawingOut(/assets\/drawing\/editor-[^/]+\.css$/)
 
+// The graph view (WebGL renderer and input) and its d3-force worker as
+// their own bundle under assets/graph/, loaded by graph-load.ts the first
+// time the graph opens; like assets/drawing/ it stays out of the precache.
+// Built first so the app bundle can carry its names.
+const graph = await esbuild.build({
+  entryPoints: { view: 'src/graph/view.ts', worker: 'src/graph/worker.ts' },
+  entryNames: '[name]-[hash]',
+  bundle: true,
+  minify: true,
+  target: ['es2022'],
+  format: 'esm',
+  outdir: 'dist/assets/graph',
+  metafile: true,
+  logLevel: 'warning',
+})
+const graphOut = (re) => '/' + Object.keys(graph.metafile.outputs).find((o) => re.test(o)).replace(/^dist\//, '')
+const graphJS = graphOut(/assets\/graph\/view-[^/]+\.js$/)
+const graphWorker = graphOut(/assets\/graph\/worker-[^/]+\.js$/)
+
 const ctx = await esbuild.context({
   entryPoints: { app: 'src/main.tsx' },
   entryNames: '[name]-[hash]',
@@ -138,6 +157,8 @@ const ctx = await esbuild.context({
     __KATEX_CSS__: JSON.stringify(katexCSSPath),
     __DRAWING_JS__: JSON.stringify(drawingJS),
     __DRAWING_CSS__: JSON.stringify(drawingCSS),
+    __GRAPH_JS__: JSON.stringify(graphJS),
+    __GRAPH_WORKER__: JSON.stringify(graphWorker),
   },
   plugins: [html],
 })
@@ -239,8 +260,9 @@ writeFileSync('dist/manifest.webmanifest', JSON.stringify(manifest, null, 2) + '
 // Every file directly under assets/ is precached: the app bundle, the
 // mermaid and KaTeX chunks, and the KaTeX stylesheet and fonts, so a note
 // with a diagram or an equation renders offline even if none was opened
-// before. assets/drawing/ is left out (too large); the cacheFirst rule for
-// /assets/ keeps it once a drawing has been opened.
+// before. assets/drawing/ is left out (too large), and so is assets/graph/
+// (only the graph view needs it); the cacheFirst rule for /assets/ keeps
+// each once a drawing or the graph has been opened.
 function writeServiceWorker() {
   const names = readdirSync('dist/assets', { withFileTypes: true })
     .filter((d) => d.isFile())

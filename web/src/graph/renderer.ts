@@ -37,7 +37,7 @@ void main() {
 }`
 
 const NODE_FS = `#version 300 es
-precision mediump float;
+precision highp float; // mediump (fp16 on phones) overflows rad and local at high zoom
 in vec2 local;
 in float rad;
 in vec4 col;
