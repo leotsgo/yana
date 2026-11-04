@@ -252,11 +252,11 @@ function Choice<T extends string>({ label, value, options, onChange }: ChoicePro
 
 /** A folder of one space, its top first. A stored folder the tree no
  * longer has stays on offer; the next note made there makes it again. */
-function FolderSelect({ id, space, value, folders, none, onChange }: { id: string; space: string; value: string; folders: string[]; none: string; onChange: (v: string) => void }) {
+function FolderSelect({ id, space, value, folders, none, disabled, onChange }: { id: string; space: string; value: string; folders: string[]; none: string; disabled?: boolean; onChange: (v: string) => void }) {
   const inside = folders.filter((f) => f.startsWith(space + '/'))
   const gone = value !== '' && value !== space && !inside.includes(value)
   return (
-    <select id={id} class="select" value={value} onChange={(ev) => onChange((ev.target as HTMLSelectElement).value)}>
+    <select id={id} class="select" value={value} disabled={disabled} onChange={(ev) => onChange((ev.target as HTMLSelectElement).value)}>
       <option value="">{none}</option>
       <option value={space}>the top of {space}</option>
       {inside.map((f) => (
@@ -281,10 +281,11 @@ function Toggle({ label, hint, on, onChange }: { label: string; hint?: string; o
   )
 }
 
-function SpaceSelect({ value, spaces, any, onChange, id }: { id?: string; value: string; spaces: SpaceInfo[]; any: string; onChange: (v: string) => void }) {
+function SpaceSelect({ value, spaces, any, disabled, onChange, id }: { id?: string; value: string; spaces: SpaceInfo[]; any: string; disabled?: boolean; onChange: (v: string) => void }) {
   return (
-    <select id={id} class="select" value={value} onChange={(ev) => onChange((ev.target as HTMLSelectElement).value)}>
+    <select id={id} class="select" value={value} disabled={disabled} onChange={(ev) => onChange((ev.target as HTMLSelectElement).value)}>
       <option value="">{any}</option>
+      {value !== '' && !spaces.some((s) => s.name === value) && <option value={value}>{value}</option>}
       {spaces.map((s) => (
         <option key={s.name} value={s.name}>
           {s.name === '' ? 'the root' : s.label || s.name}
@@ -688,23 +689,23 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
   const [newName, setNewName] = useState('')
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
-  const [defSpace, setDefSpace] = useState(prefs.defaultSpace)
-  const [dailySpace, setDailySpace] = useState(prefs.dailySpace)
   const [start, setStart] = useState(prefs.newNoteStart)
-  const [newFolder, setNewFolder] = useState(prefs.newNoteFolder)
-  const [dailyFolder, setDailyFolder] = useState(prefs.dailyFolder)
-  // A folder belongs to one space; picking another space lets it go.
-  const keepNewFolder = (space: string) => {
-    if (newFolder && spaceOfDir(newFolder) !== space) {
-      prefs.setNewNoteFolder('')
-      setNewFolder('')
-    }
-  }
-  const keepDailyFolder = (space: string) => {
-    if (dailyFolder && spaceOfDir(dailyFolder) !== space) {
-      prefs.setDailyFolder('')
-      setDailyFolder('')
-    }
+  // The defaults live in .yana/defaults.json; this follows the copy the
+  // shell fetched, and only the owner changes it.
+  usePrefs()
+  const owner = auth.user()?.is_owner ?? true
+  const { space: defSpace, folder: newFolder, daily_space: dailySpace, daily_folder: dailyFolder } = prefs.defaults()
+  const saveDefaults = (patch: Partial<prefs.Defaults>) => {
+    const prev = prefs.defaults()
+    const next = { ...prev, ...patch }
+    // A folder belongs to one space; picking another space lets it go.
+    if (next.folder && spaceOfDir(next.folder) !== next.space) next.folder = ''
+    if (next.daily_folder && spaceOfDir(next.daily_folder) !== (next.daily_space || next.space)) next.daily_folder = ''
+    prefs.setDefaults(next)
+    api.saveDefaults(next).catch((err: unknown) => {
+      prefs.setDefaults(prev)
+      say(msgOf(err, 'Could not save the defaults.'))
+    })
   }
   // The space the daily folder is picked in: its own, else new notes'.
   const dailyIn = dailySpace || defSpace
@@ -808,7 +809,13 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
         </form>
         {msg && <p class="form-msg">{msg}</p>}
       </Block>
-      <Block title="Defaults" lead="Where new notes and the daily note go. Kept in this browser.">
+      <Block
+        title="Defaults"
+        lead={
+          'Where new notes and the daily note go, on every device and for every account. Kept with the notes in .yana/defaults.json.' +
+          (owner ? '' : ' The owner account sets them.')
+        }
+      >
         <div class="pref-row">
           <label class="pref-label" for="pref-space">
             Space for new notes
@@ -818,12 +825,8 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
             value={defSpace}
             spaces={list ?? []}
             any="the open note's space, else the first"
-            onChange={(v) => {
-              prefs.setDefaultSpace(v)
-              setDefSpace(v)
-              keepNewFolder(v)
-              if (!dailySpace) keepDailyFolder(v)
-            }}
+            disabled={!owner}
+            onChange={(v) => saveDefaults({ space: v })}
           />
         </div>
         {defSpace && (
@@ -838,10 +841,8 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
               value={newFolder}
               folders={ctx.folders}
               none="none, see where new notes start"
-              onChange={(v) => {
-                prefs.setNewNoteFolder(v)
-                setNewFolder(v)
-              }}
+              disabled={!owner}
+              onChange={(v) => saveDefaults({ folder: v })}
             />
           </div>
         )}
@@ -874,11 +875,8 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
             value={dailySpace}
             spaces={list ?? []}
             any="same as new notes"
-            onChange={(v) => {
-              prefs.setDailySpace(v)
-              setDailySpace(v)
-              keepDailyFolder(v || defSpace)
-            }}
+            disabled={!owner}
+            onChange={(v) => saveDefaults({ daily_space: v })}
           />
         </div>
         {dailyIn && (
@@ -897,10 +895,8 @@ function SpacesSection({ ctx }: { ctx: Ctx }) {
               value={dailyFolder}
               folders={ctx.folders}
               none="as the server's pattern says"
-              onChange={(v) => {
-                prefs.setDailyFolder(v)
-                setDailyFolder(v)
-              }}
+              disabled={!owner}
+              onChange={(v) => saveDefaults({ daily_folder: v })}
             />
           </div>
         )}

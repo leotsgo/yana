@@ -214,23 +214,41 @@ export function setDisplayName(name: string): void {
 
 // --- spaces --------------------------------------------------------------
 
+// Where new notes and the daily note go. The owner sets them and they are
+// kept with the notes in .yana/defaults.json (GET /api/defaults); these
+// keys hold the last copy fetched, for offline.
+
+/** .yana/defaults.json. Folders are full paths with their space first;
+ * empty means not chosen. */
+export interface Defaults {
+  space: string
+  folder: string
+  daily_space: string
+  daily_folder: string
+}
+
+export function defaults(): Defaults {
+  return { space: defaultSpace(), folder: newNoteFolder(), daily_space: dailySpace(), daily_folder: dailyFolder() }
+}
+
+/** Keeps the server's copy; null (no file yet) clears it. */
+export function setDefaults(d: Partial<Record<keyof Defaults, unknown>> | null): void {
+  const str = (x: unknown) => (typeof x === 'string' && x !== '' ? x : null)
+  write('space', str(d?.space))
+  write('space.folder', str(d?.folder))
+  write('daily', str(d?.daily_space))
+  write('daily.folder', str(d?.daily_folder))
+}
+
 /** The space new notes land in when no note is open; empty picks the
  * open note's space, then the first one. */
 export function defaultSpace(): string {
   return read('space') ?? ''
 }
 
-export function setDefaultSpace(space: string): void {
-  write('space', space || null)
-}
-
 /** The space the daily note lives in; empty follows defaultSpace. */
 export function dailySpace(): string {
   return read('daily') ?? ''
-}
-
-export function setDailySpace(space: string): void {
-  write('daily', space || null)
 }
 
 /** The folder new notes land in when nothing names a place, as a full
@@ -239,18 +257,10 @@ export function newNoteFolder(): string {
   return read('space.folder') ?? ''
 }
 
-export function setNewNoteFolder(path: string): void {
-  write('space.folder', path || null)
-}
-
 /** The folder the daily note goes to, as a full path with its space
  * first; empty keeps the server's daily pattern. */
 export function dailyFolder(): string {
   return read('daily.folder') ?? ''
-}
-
-export function setDailyFolder(path: string): void {
-  write('daily.folder', path || null)
 }
 
 // --- layout --------------------------------------------------------------

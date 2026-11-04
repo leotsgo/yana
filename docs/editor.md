@@ -58,7 +58,9 @@ Frappé, Macchiato, Mocha), Gruvbox, Tokyo Night, Rosé Pine, Solarized,
 Nord, Dracula, One Dark, Everforest and Kanagawa. Your themes adds more,
 for every account and device: they are kept with the notes in
 `.yana/themes.json` at the notes root (out of the tree, in the git
-history), a JSON list the owner fills from settings or by hand. Each
+history), a JSON list the owner fills from settings or by hand. The
+same folder holds `defaults.json`, where new notes and the daily note
+go (below, with the new-note picker). Each
 theme has a `name`, a `mode` (`light` or `dark`) and hex `colors`;
 only `bg`, `ink` and `accent` are needed and the other tokens (`bg-2`,
 `bg-3`, `ink-2`, `ink-3`, `line`, `line-2`, `accent-ink`, `accent-soft`,
@@ -70,7 +72,7 @@ check out (a missing colour, one that is not hex) is left out. Drawings and diag
 light or dark, not the theme's colours. The Appearance page also sets the
 text size (small, normal, large), the line width (narrow, normal, wide),
 whether the text is centered, the mode notes open in, the hide-syntax switch, and the sidebar density.
-Those, the theme picked for each mode, the sidebar state, what the tree has open, the open tabs, the display name, the default spaces and folders and the
+Those, the theme picked for each mode, the sidebar state, what the tree has open, the open tabs, the display name and the
 recently opened notes are kept per browser in `localStorage` under
 `yana.*`; nothing else is stored there. Everything in `prefs.ts` reads
 the same keys, so a preference set in settings is what the shell and the
@@ -239,10 +241,29 @@ folder and New drawing, a name typed into the palette that matches no
 note, and a click on a link to a missing note written as a bare name
 (`[[idea]]`, when the folder is in the linking note's space; it still
 resolves, by file name). The `+` in the tree and "New note here" keep
-their folder. It is stored per browser (`yana.space.folder`, the full
-path with the space first), like the default spaces, so a phone needs it
-set again. A folder deleted since is made again by the next note in it;
-one whose space is gone, or a different space picked, drops the setting.
+their folder. A folder deleted since is made again by the next note in
+it; one whose space is gone, or a different space picked, drops the
+setting.
+
+The Defaults block (the space and folder for new notes, the space and
+folder for the daily note) is kept with the notes in
+`.yana/defaults.json` at the notes root, so every device and every
+account follows it:
+
+```json
+{ "space": "work", "folder": "work/inbox", "daily_space": "", "daily_folder": "work/daily" }
+```
+
+Folders are full paths with the space first; empty means not chosen.
+`GET /api/defaults` serves it to every signed-in account (`null` while
+there is no file) and `PUT /api/defaults`, owner only, writes it; the
+server turns away a path with `..` or a malformed space name. Other
+accounts see the values read-only, with a line saying the owner sets
+them; one that cannot see the space picked falls back as if none were
+set. The browser keeps the last copy (`yana.space`, `yana.space.folder`,
+`yana.daily`, `yana.daily.folder`) for offline. The first time the
+owner's browser finds no file, it writes the choices it held from when
+they were kept per browser.
 
 In a folder whose notes follow a pattern, the picker suggests the next
 name as grey text after the caret, while nothing is typed after the
@@ -834,8 +855,8 @@ Two settings shape it, both paths relative to the space:
 | `YANA_DAILY_PATTERN` | `journal/{YYYY}/{MM}/{YYYY}-{MM}-{DD}.md` | Where the note lives |
 | `YANA_DAILY_TEMPLATE` | `templates/daily.md` | A note whose body seeds a new daily note |
 
-Settings → Spaces → "Folder for the daily note" moves it, per browser
-(`yana.daily.folder`): the folders at the front of the pattern that carry
+Settings → Spaces → "Folder for the daily note" moves it, for everyone
+(`daily_folder` in `.yana/defaults.json`): the folders at the front of the pattern that carry
 no date token give way to the folder picked, and the dated part stays.
 With the default pattern and `1 daily`, today's note is
 `1 daily/2026/11/2026-11-04.md`; with a pattern of `journal/{date}.md` it

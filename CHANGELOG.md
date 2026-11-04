@@ -9,8 +9,10 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
-- Settings → Spaces picks the folder new notes go to and the folder for
-  the daily note, kept in the browser beside the default spaces.
+- Settings → Spaces → Defaults picks the space and folder new notes go
+  to and those of the daily note, kept with the notes in
+  `.yana/defaults.json` so every device and account follows them; the
+  owner sets them, other accounts see them read-only.
 - Dragging a note in the graph is smooth again: the note stays under the
   pointer every frame, and the layout no longer slows to half its pace
   while you drag.

@@ -3,6 +3,7 @@
 
 import { authFetch } from './auth'
 import type { GraphPayload } from './graph/model'
+import type { Defaults } from './prefs'
 
 export interface TreeNode {
   type: 'dir' | 'note'
@@ -655,6 +656,10 @@ export const api = {
   /** The owner's colour themes, kept in .yana/themes.json with the notes. */
   themes: () => get<unknown[]>('/api/themes'),
   saveThemes: (list: unknown[]) => post<unknown[]>('/api/themes', list, 'PUT'),
+  /** Where new notes and the daily note go, kept in .yana/defaults.json;
+   * null until the owner first sets them. */
+  defaults: () => get<Defaults | null>('/api/defaults'),
+  saveDefaults: (d: Defaults) => post<Defaults>('/api/defaults', d, 'PUT'),
 }
 
 /** Builds the query string of an activity request, dropping empties. */

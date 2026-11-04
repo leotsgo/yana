@@ -373,6 +373,19 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     api.themes().then(prefs.setCustomThemes, () => {})
   }, [])
 
+  // So do the defaults. With no file yet, the owner's browser brings
+  // over what it chose when they were kept per browser.
+  useEffect(() => {
+    api
+      .defaults()
+      .then((d) => {
+        const local = prefs.defaults()
+        if (d === null && (auth.user()?.is_owner ?? true) && Object.values(local).some(Boolean)) return api.saveDefaults(local).then(prefs.setDefaults)
+        prefs.setDefaults(d)
+      })
+      .catch(() => {})
+  }, [])
+
   // Back and forward: an entry made by a tab goes back to that tab, at
   // the note or page it showed then; one whose tab is closed opens again
   // (a note in the preview tab).
