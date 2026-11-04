@@ -23,7 +23,8 @@ const taskDoneWindow = 30 * 24 * time.Hour
 
 // readableSpaces is the spaces the caller may read, for endpoints that
 // span them: nil means every space (open mode, or an all-spaces role),
-// and a caller with no spaces gets a sentinel that matches nothing.
+// and a caller with no spaces gets an empty, non-nil list, which the
+// index reads as nothing (not as the owner-only vault root).
 // On failure it has already answered and ok is false.
 func (s *Server) readableSpaces(w http.ResponseWriter, r *http.Request) (allowed []string, ok bool) {
 	if s.open() {
@@ -37,8 +38,8 @@ func (s *Server) readableSpaces(w http.ResponseWriter, r *http.Request) (allowed
 	if isAll {
 		return nil, true
 	}
-	if len(member) == 0 {
-		return []string{""}, true // matches nothing
+	if member == nil {
+		member = []string{}
 	}
 	return member, true
 }

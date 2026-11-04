@@ -61,3 +61,28 @@ func TestGraphRespectsSpaces(t *testing.T) {
 		t.Fatalf("anonymous got %d", code)
 	}
 }
+
+// A user in no space must not see the vault root: root notes have space
+// "" and belong to the owner alone.
+func TestGraphAndTasksForUserWithoutSpaces(t *testing.T) {
+	f := newAuthFixture(t)
+	w := f.buildWorld(t)
+	f.writeNote(t, "rootTask.md", "- [ ] root-only task\n")
+	_, lonelyHdr := f.account(t, "lonely", "lonely-password1")
+
+	code, body := doGet(t, f.ts, "/api/graph", lonelyHdr)
+	if code != 200 {
+		t.Fatalf("graph %d", code)
+	}
+	if notes := body["notes"].([]any); len(notes) != 0 {
+		t.Fatalf("lonely sees %v", notes)
+	}
+	code, body = doGet(t, f.ts, "/api/tasks?count=1", lonelyHdr)
+	if code != 200 || body["count"] != float64(0) {
+		t.Fatalf("tasks count %d %v", code, body)
+	}
+	// Control: the owner does see the root task.
+	if _, body = doGet(t, f.ts, "/api/tasks?count=1", w.ownerHdr); body["count"] != float64(1) {
+		t.Fatalf("owner tasks %v", body)
+	}
+}
