@@ -88,6 +88,8 @@ func (d *Deps) PublicPage(ctx context.Context, n index.Note, refs PublicRefs) ([
 			}
 			return append([]byte(`<a href="`+esc(u)+`"`), tag[2:]...)
 		})
+	case "drawing":
+		body = []byte(drawingNote)
 	default:
 		return nil, fmt.Errorf("note %s has unknown kind %q", n.ID, n.Kind)
 	}

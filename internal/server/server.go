@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/auth"
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/git"
 	"github.com/madeofpendletonwool/yana/internal/index"
@@ -468,6 +469,10 @@ type NoteResponse struct {
 	// Conflicts is how many conflict copies point at this note, for
 	// the chip on its title bar.
 	Conflicts int `json:"conflict_count,omitempty"`
+	// Scene is a drawing's scene JSON. When the body cannot be read as
+	// one, SceneError says why instead, and the editor must not save.
+	Scene      string `json:"scene,omitempty"`
+	SceneError string `json:"scene_error,omitempty"`
 }
 
 func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
@@ -538,6 +543,12 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 		// Rendering happens on the separate content origin (see
 		// content.go); the API hands the editor the raw source.
 		resp.Source = string(bodyOf(raw))
+	case drawing.Kind:
+		if _, scene, err := drawing.Parse(bodyOf(raw)); err != nil {
+			resp.SceneError = "this drawing's scene could not be read: " + err.Error()
+		} else {
+			resp.Scene = string(scene)
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

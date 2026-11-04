@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
@@ -233,6 +234,11 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 	if err := s.Root.CheckCollision(clean); err != nil {
 		writeError(w, http.StatusBadRequest, "a note with a name equal after case folding exists here")
 		return
+	}
+	if drawing.Is(clean) {
+		if _, _, err := drawing.Parse([]byte(body.Content)); err != nil {
+			body.Content = string(drawing.Encode([]byte(drawing.EmptyScene)))
+		}
 	}
 	id := scanner.NewID(time.Now())
 	content, _, _ := frontmatter.EnsureID([]byte(body.Content), id, time.Now())

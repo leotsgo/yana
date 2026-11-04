@@ -259,6 +259,8 @@ func (d *Deps) sitePage(ctx context.Context, sn *siteNote, tree *siteTree, byID 
 			body = render.SanitizeHTML(body)
 		}
 		body = rewriteWikiAnchors(body, links, sn, byID)
+	case "drawing":
+		body = []byte(drawingNote)
 	default:
 		return nil, richNeeds{}, fmt.Errorf("note %s has unknown kind %q", sn.n.ID, sn.n.Kind)
 	}

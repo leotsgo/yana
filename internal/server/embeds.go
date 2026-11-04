@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/render"
 )
@@ -40,6 +41,11 @@ func (s *Server) inlineEmbeds(ctx context.Context, from index.Note, body []byte)
 			return wikilinkSpan(raw)
 		}
 		target, err := s.DB.GetNote(ctx, got.ToID)
+		if err == nil && target.Kind == drawing.Kind {
+			// The client mounts the drawing read-only in this div.
+			return []byte(`<div class="drawing-embed" data-id="` + html.EscapeString(target.ID) + `">` +
+				string(wikilinkSpanFor(raw, target.Title)) + `</div>`)
+		}
 		if err != nil || target.Kind != "md" {
 			return wikilinkSpan(raw)
 		}

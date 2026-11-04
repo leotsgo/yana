@@ -1,0 +1,156 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/madeofpendletonwool/yana/internal/drawing"
+	"github.com/madeofpendletonwool/yana/internal/frontmatter"
+)
+
+const textScene = `{"type":"excalidraw","version":2,"elements":[{"type":"text","text":"zebrafish","originalText":"zebrafish","isDeleted":false,"link":null}],"appState":{},"files":{}}`
+
+// newDrawing makes main/Map.excalidraw.md through the API and returns its id.
+func newDrawing(t *testing.T, e *linksEnv) string {
+	t.Helper()
+	var res struct{ ID string }
+	if code := e.post(t, "/api/notes", map[string]string{"path": "main/Map.excalidraw.md"}, &res); code != 201 {
+		t.Fatalf("create drawing: %d", code)
+	}
+	return res.ID
+}
+
+func TestDrawingPayload(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	id := newDrawing(t, e)
+	var n NoteResponse
+	if code := e.get(t, "/api/notes/"+id, &n); code != 200 {
+		t.Fatal(code)
+	}
+	if n.Kind != "drawing" || n.ContentHash == "" || n.SceneError != "" {
+		t.Fatalf("payload: %+v", n)
+	}
+	var sc struct{ Elements []any }
+	if err := json.Unmarshal([]byte(n.Scene), &sc); err != nil || len(sc.Elements) != 0 {
+		t.Fatalf("scene %q: %v", n.Scene, err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(e.dir, "main", "Map.excalidraw.md"))
+	if string(frontmatter.Parse(raw).Body) != string(drawing.Encode([]byte(drawing.EmptyScene))) {
+		t.Fatalf("created body: %q", raw)
+	}
+}
+
+func TestDrawingPayloadUnreadable(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	id := newDrawing(t, e)
+	p := filepath.Join(e.dir, "main", "Map.excalidraw.md")
+	if err := os.WriteFile(p, []byte("---\nid: "+id+"\n---\n# no\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.sc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var n NoteResponse
+	if code := e.get(t, "/api/notes/"+id, &n); code != 200 {
+		t.Fatal(code)
+	}
+	if n.Scene != "" || n.SceneError == "" {
+		t.Fatalf("payload: scene=%q err=%q", n.Scene, n.SceneError)
+	}
+}
+
+func TestDrawingSave(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	id := newDrawing(t, e)
+	p := filepath.Join(e.dir, "main", "Map.excalidraw.md")
+	before, _ := os.ReadFile(p)
+	var n NoteResponse
+	e.get(t, "/api/notes/"+id, &n)
+
+	code, out := putSource(t, e.env, id, map[string]any{"source": textScene, "base_hash": n.ContentHash})
+	if code != 200 || out["ok"] != true || out["conflict_copy"] != nil {
+		t.Fatalf("save %d %v", code, out)
+	}
+	raw, _ := os.ReadFile(p)
+	want := string(frontmatter.Parse(before).Head) + string(drawing.Encode([]byte(textScene)))
+	if string(raw) != want {
+		t.Fatalf("file:\n%q\nwant:\n%q", raw, want)
+	}
+	var found struct{ Hits []struct{ Note struct{ ID string } } }
+	e.get(t, "/api/search?q=zebrafish", &found)
+	if len(found.Hits) != 1 || found.Hits[0].Note.ID != id {
+		t.Fatalf("search: %+v", found)
+	}
+}
+
+func TestDrawingSaveRejectsNonScene(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	id := newDrawing(t, e)
+	p := filepath.Join(e.dir, "main", "Map.excalidraw.md")
+	before, _ := os.ReadFile(p)
+	if code, _ := putSource(t, e.env, id, map[string]any{"source": "hello"}); code != 400 {
+		t.Fatalf("save %d", code)
+	}
+	if after, _ := os.ReadFile(p); string(after) != string(before) {
+		t.Fatalf("file changed: %q", after)
+	}
+}
+
+func TestDrawingSaveConflictCopy(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	id := newDrawing(t, e)
+	code, out := putSource(t, e.env, id, map[string]any{"source": textScene, "base_hash": "stale"})
+	if code != 200 {
+		t.Fatalf("save %d %v", code, out)
+	}
+	conflict, _ := out["conflict_copy"].(string)
+	if !regexp.MustCompile(`^main/Map\.conflict-\d{8}-\d{6}\.excalidraw\.md$`).MatchString(conflict) {
+		t.Fatalf("conflict copy path: %v", out)
+	}
+	// Fresh files wait out the settle window before they take an id.
+	time.Sleep(10 * time.Millisecond)
+	if _, err := e.sc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c, err := e.db.GetNoteByPath(context.Background(), conflict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Kind != "drawing" || c.ConflictOf != id {
+		t.Fatalf("conflict copy: kind=%q of=%q", c.Kind, c.ConflictOf)
+	}
+}
+
+func TestDrawingSaveTooLarge(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	id := newDrawing(t, e)
+	p := filepath.Join(e.dir, "main", "Map.excalidraw.md")
+	before, _ := os.ReadFile(p)
+	big := `{"type":"excalidraw","pad":"` + strings.Repeat("x", int(e.srv.Root.Limits().MaxNoteSize)) + `"}`
+	if code, _ := putSource(t, e.env, id, map[string]any{"source": big}); code != 413 {
+		t.Fatalf("save %d", code)
+	}
+	if after, _ := os.ReadFile(p); string(after) != string(before) {
+		t.Fatal("file changed")
+	}
+}
+
+func TestDrawingEmbed(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	id := newDrawing(t, e)
+	var res struct{ ID string }
+	if code := e.post(t, "/api/notes", map[string]string{"path": "main/n.md", "content": "# N\n\n![[Map]]\n"}, &res); code != 201 {
+		t.Fatal(code)
+	}
+	var n NoteResponse
+	e.get(t, "/api/notes/"+res.ID, &n)
+	if !strings.Contains(n.HTML, `class="drawing-embed" data-id="`+id+`"`) || !strings.Contains(n.HTML, `data-target="Map"`) {
+		t.Fatalf("embed html:\n%s", n.HTML)
+	}
+}

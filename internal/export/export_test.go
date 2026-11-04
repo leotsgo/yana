@@ -523,3 +523,33 @@ func idN(i int) string {
 	n := strings.ToUpper(itoa(i))
 	return s[:26-len(n)] + n
 }
+
+func TestExportWithDrawing(t *testing.T) {
+	e := newExportEnv(t, map[string]string{
+		"home/d/Map.excalidraw.md": "---\nid: 01JQ8X4K2M9P7R3T5V6W8Y0Z1C\n---\n```excalidraw\n{\"type\":\"excalidraw\",\"elements\":[]}\n```\n",
+		"home/d/note.md":           "---\nid: 01JQ8X4K2M9P7R3T5V6W8Y0Z1D\n---\n# Note\n\nSee [[Map]] and ![[Map]].\n",
+	})
+	var buf bytes.Buffer
+	if _, err := e.deps.SiteZip(context.Background(), "home", "d", &buf); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	names := unzip(t, buf.Bytes(), dir)
+	if !contains(names, "Map.excalidraw.html") {
+		t.Fatalf("site files: %v", names)
+	}
+	if page := readSite(t, dir, "Map.excalidraw.html"); !strings.Contains(page, `<p class="x-drawing">Excalidraw drawing. Open it in yana to see it.</p>`) {
+		t.Fatalf("drawing page:\n%s", page)
+	}
+	checkHrefs(t, dir)
+
+	// The single-note export of a drawing works too.
+	n, err := e.db.GetNoteByPath(context.Background(), "home/d/Map.excalidraw.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := e.deps.SingleNote(context.Background(), n.ID)
+	if err != nil || !strings.Contains(string(one), `class="x-drawing"`) {
+		t.Fatalf("single: %v", err)
+	}
+}

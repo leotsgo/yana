@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/fsutil"
 	"github.com/madeofpendletonwool/yana/internal/index"
@@ -109,8 +110,8 @@ func (s *Server) handleNoteSource(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if n.Kind != "html" {
-		writeError(w, http.StatusBadRequest, "only html notes are edited by source save")
+	if n.Kind != "html" && n.Kind != drawing.Kind {
+		writeError(w, http.StatusBadRequest, "only html and drawing notes are edited by source save")
 		return
 	}
 	if !s.mayWrite(w, r, space) {
@@ -128,6 +129,14 @@ func (s *Server) handleNoteSource(w http.ResponseWriter, r *http.Request) {
 	if int64(len(body.Source)) > s.Root.Limits().MaxNoteSize {
 		writeError(w, http.StatusRequestEntityTooLarge, "content is over the note size limit")
 		return
+	}
+	text := []byte(body.Source)
+	if n.Kind == drawing.Kind {
+		if drawing.Validate(text) != nil {
+			writeError(w, http.StatusBadRequest, "source is not an excalidraw scene")
+			return
+		}
+		text = drawing.Encode(text)
 	}
 	abs, rel, err := s.Root.Resolve(n.RelPath)
 	if err != nil {
@@ -151,15 +160,15 @@ func (s *Server) handleNoteSource(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
-		loggerFrom(r.Context()).Warn("html note save over diverged file; conflict copy kept", "path", rel, "conflict", conflict)
+		loggerFrom(r.Context()).Warn(n.Kind+" note save over diverged file; conflict copy kept", "path", rel, "conflict", conflict)
 	}
 
 	// The frontmatter is the file's, not the editor's: id, created, and
 	// any user keys ride along untouched above the new body.
 	fm := frontmatter.Parse(current)
-	next := make([]byte, 0, len(fm.Head)+len(body.Source))
+	next := make([]byte, 0, len(fm.Head)+len(text))
 	next = append(next, fm.Head...)
-	next = append(next, body.Source...)
+	next = append(next, text...)
 	mode := fs.FileMode(0o644)
 	if fi, err := os.Stat(abs); err == nil {
 		mode = fi.Mode().Perm()
@@ -190,7 +199,7 @@ func (s *Server) handleNoteSource(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeConflictCopy parks the diverged on-disk version beside the note as
-// name.conflict-<ts>.html (-2, -3… if that name is taken). The copy ships
+// name.conflict-<ts>.<ext> (-2, -3… if that name is taken). The copy ships
 // without an id so the scanner treats it as the fresh note it is instead
 // of a duplicate that steals the original's id.
 func (s *Server) writeConflictCopy(abs, rel string, content []byte) (string, error) {
@@ -198,8 +207,7 @@ func (s *Server) writeConflictCopy(abs, rel string, content []byte) (string, err
 		content = stripped
 	}
 	dir, base := path.Split(rel)
-	ext := path.Ext(base)
-	stem := strings.TrimSuffix(base, ext)
+	stem, ext := drawing.SplitExt(base)
 	ts := time.Now().UTC().Format("20060102-150405")
 	final := ""
 	for i := 0; ; i++ {
@@ -207,7 +215,7 @@ func (s *Server) writeConflictCopy(abs, rel string, content []byte) (string, err
 		if i > 0 {
 			candidate += fmt.Sprintf("-%d", i+1)
 		}
-		candidate += ".html"
+		candidate += ext
 		clean, err := s.Root.Clean(candidate)
 		if err != nil {
 			return "", err

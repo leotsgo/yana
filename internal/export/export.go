@@ -85,6 +85,10 @@ func (d *Deps) body(ctx context.Context, id string) string {
 	return b
 }
 
+// drawingNote stands in for a drawing in every export: the scene is only
+// drawn by the app, so an export points back at it.
+const drawingNote = `<p class="x-drawing">Excalidraw drawing. Open it in yana to see it.</p>`
+
 // pagePath maps a note's tree path, relative to its space, to its page
 // in a static site: markdown notes trade their extension for .html,
 // HTML notes already have one.

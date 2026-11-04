@@ -46,6 +46,8 @@ func (d *Deps) SingleNote(ctx context.Context, id string) ([]byte, error) {
 		if !doc.Meta.Trusted {
 			body = render.SanitizeHTML(body)
 		}
+	case "drawing":
+		body = []byte(drawingNote)
 	default:
 		return nil, fmt.Errorf("note %s has unknown kind %q", id, n.Kind)
 	}
