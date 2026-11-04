@@ -3,12 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/drawing"
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
@@ -104,28 +103,51 @@ func TestDrawingSaveRejectsNonScene(t *testing.T) {
 	}
 }
 
-func TestDrawingSaveConflictCopy(t *testing.T) {
+// Two devices save from the same base: the second save merges with the
+// first instead of moving it to a conflict copy, and its reply carries the
+// merged scene, which the client did not have.
+func TestDrawingSaveMerges(t *testing.T) {
 	e := newLinksEnv(t, false, nil)
 	id := newDrawing(t, e)
-	code, out := putSource(t, e.env, id, map[string]any{"source": textScene, "base_hash": "stale"})
-	if code != 200 {
-		t.Fatalf("save %d %v", code, out)
+	p := filepath.Join(e.dir, "main", "Map.excalidraw.md")
+	var n NoteResponse
+	e.get(t, "/api/notes/"+id, &n)
+	rect := func(id string) string {
+		return fmt.Sprintf(`{"id":%q,"type":"rectangle","version":1,"versionNonce":1,"isDeleted":false,"index":"a%s"}`, id, id)
 	}
-	conflict, _ := out["conflict_copy"].(string)
-	if !regexp.MustCompile(`^main/Map\.conflict-\d{8}-\d{6}\.excalidraw\.md$`).MatchString(conflict) {
-		t.Fatalf("conflict copy path: %v", out)
+	sceneOf := func(els ...string) string {
+		return `{"type":"excalidraw","version":2,"elements":[` + strings.Join(els, ",") + `],"appState":{},"files":{}}`
 	}
-	// Fresh files wait out the settle window before they take an id.
-	time.Sleep(10 * time.Millisecond)
-	if _, err := e.sc.Scan(context.Background()); err != nil {
-		t.Fatal(err)
+
+	code, out := putSource(t, e.env, id, map[string]any{"source": sceneOf(rect("A")), "base_hash": n.ContentHash})
+	if code != 200 || out["scene"] != nil {
+		t.Fatalf("first save %d %v", code, out)
 	}
-	c, err := e.db.GetNoteByPath(context.Background(), conflict)
-	if err != nil {
-		t.Fatal(err)
+	code, out = putSource(t, e.env, id, map[string]any{"source": sceneOf(rect("B")), "base_hash": n.ContentHash})
+	if code != 200 || out["conflict_copy"] != nil {
+		t.Fatalf("second save %d %v", code, out)
 	}
-	if c.Kind != "drawing" || c.ConflictOf != id {
-		t.Fatalf("conflict copy: kind=%q of=%q", c.Kind, c.ConflictOf)
+	scene, _ := out["scene"].(string)
+	if !strings.Contains(scene, `"A"`) || !strings.Contains(scene, `"B"`) {
+		t.Fatalf("reply scene: %q", scene)
+	}
+	raw, _ := os.ReadFile(p)
+	if strings.Count(string(raw), `"id": "A"`) != 1 || strings.Count(string(raw), `"id": "B"`) != 1 {
+		t.Fatalf("file:\n%s", raw)
+	}
+	if out["hash"] != hashContent(raw) {
+		t.Fatalf("hash %v is not the file's", out["hash"])
+	}
+	if matches, _ := filepath.Glob(filepath.Join(e.dir, "main", "*conflict*")); len(matches) != 0 {
+		t.Fatalf("conflict copies: %v", matches)
+	}
+	// A body that is not a scene is still refused, merge or not.
+	bad := `{"type":"excalidraw","elements":[{"id":"x","version":"one"}]}`
+	if code, _ := putSource(t, e.env, id, map[string]any{"source": bad}); code != 400 {
+		t.Fatalf("bad elements: %d", code)
+	}
+	if after, _ := os.ReadFile(p); string(after) != string(raw) {
+		t.Fatal("a refused save changed the file")
 	}
 }
 

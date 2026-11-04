@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/madeofpendletonwool/yana/internal/drawing"
@@ -90,11 +91,13 @@ func (s *Server) ContentPort() string {
 // errNoteMissing aliases the index sentinel for the handlers here.
 var errNoteMissing = index.ErrNotFound
 
-// handleNoteSource saves an HTML note's source. Editing is save-based
-// last-write-wins: the incoming text always lands, and when it does not
-// build on what is on disk (the client's base hash is stale) the
-// overwritten version is kept beside it as name.conflict-<ts>.html, which
-// the scanner indexes like any other note.
+// handleNoteSource saves an HTML note's or a drawing's source. An HTML
+// note is save-based last-write-wins: the incoming text always lands, and
+// when it does not build on what is on disk (the client's base hash is
+// stale) the overwritten version is kept beside it as
+// name.conflict-<ts>.html, which the scanner indexes like any other note.
+// A drawing merges with the disk instead (drawing.Merge); when the merge
+// brought in elements the client lacked, the reply carries the scene.
 func (s *Server) handleNoteSource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	space, ok := s.noteAuthz(w, r, id)
@@ -156,6 +159,39 @@ func (s *Server) handleNoteSource(w http.ResponseWriter, r *http.Request) {
 	// The frontmatter is the file's, not the editor's: id, created, and
 	// any user keys ride along untouched above the new body.
 	fm := frontmatter.Parse(current)
+
+	// A drawing merges, element by element, with what is on disk: a save
+	// from a stale base (another device, an offline draft) keeps both
+	// sides' strokes instead of parking one in a conflict copy. A drawing
+	// that does not parse is kept as a conflict copy whatever the base
+	// hash says: the save must never destroy what it cannot read.
+	unreadable, merged := false, ""
+	if n.Kind == drawing.Kind {
+		drawingSaveMu.Lock()
+		defer drawingSaveMu.Unlock()
+		// Read again under the lock: a save that finished meanwhile is
+		// merged too, not overwritten.
+		if current, err = os.ReadFile(abs); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		fm = frontmatter.Parse(current)
+		if _, disk, perr := drawing.Parse(fm.Body); perr != nil {
+			unreadable = true
+		} else {
+			scene, changed, err := drawing.Merge(disk, []byte(body.Source))
+			switch {
+			case errors.Is(err, drawing.ErrIncoming):
+				writeError(w, http.StatusBadRequest, "source is not an excalidraw scene")
+				return
+			case err != nil:
+				unreadable = true
+			case changed:
+				merged = string(scene)
+				text = drawing.Encode(scene)
+			}
+		}
+	}
 	next := make([]byte, 0, len(fm.Head)+len(text))
 	next = append(next, fm.Head...)
 	next = append(next, text...)
@@ -164,15 +200,9 @@ func (s *Server) handleNoteSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A drawing that does not parse is kept as a conflict copy whatever
-	// the base hash says: the save must never destroy what it cannot read.
-	unreadable := false
-	if n.Kind == drawing.Kind {
-		_, _, perr := drawing.Parse(fm.Body)
-		unreadable = perr != nil
-	}
 	conflict := ""
-	if unreadable || (body.BaseHash != "" && body.BaseHash != hashContent(current)) {
+	diverged := n.Kind != drawing.Kind && body.BaseHash != "" && body.BaseHash != hashContent(current)
+	if unreadable || diverged {
 		conflict, err = s.writeConflictCopy(abs, rel, current)
 		if err != nil {
 			s.fail(w, r, err)
@@ -206,8 +236,17 @@ func (s *Server) handleNoteSource(w http.ResponseWriter, r *http.Request) {
 	if conflict != "" {
 		resp["conflict_copy"] = conflict
 	}
+	if merged != "" {
+		// The client's scene lacked what the disk held: it takes this one.
+		resp["scene"] = merged
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+// drawingSaveMu makes a drawing save's read, merge and write one step, so
+// two saves landing together both keep their elements.
+// ponytail: one lock for every drawing; per-note locks if saves queue up.
+var drawingSaveMu sync.Mutex
 
 // writeConflictCopy parks the diverged on-disk version beside the note as
 // name.conflict-<ts>.<ext> (-2, -3… if that name is taken). The copy ships
