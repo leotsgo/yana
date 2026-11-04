@@ -157,7 +157,10 @@ function initialLoad(): boolean {
 /** Track a subscribe/get module state in a component. */
 function useExternal<T>(get: () => T, subscribe: (l: () => void) => () => void): T {
   const [value, setValue] = useState(get)
-  useEffect(() => subscribe(() => setValue(get())), [get, subscribe])
+  useEffect(() => {
+    setValue(get()) // a change between the first render and the subscribe (initialLoad)
+    return subscribe(() => setValue(get()))
+  }, [get, subscribe])
   return value
 }
 

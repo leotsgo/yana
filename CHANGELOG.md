@@ -9,6 +9,8 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- A page opened from the address bar (a reload, a bookmark) shows that
+  page, not the tab that was active before.
 - A Tasks button in the top bar, beside New, Capture and Today.
 - The tasks, activity and trash pages span the pane like the home page:
   the scrollbar at the edge, the content centered or left as Center the
