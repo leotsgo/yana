@@ -9,6 +9,8 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- A Drawing button beside New starts a drawing in the folder new notes
+  go to.
 - Drawings are live: several people or devices draw on one drawing at
   once, see each other's strokes as they happen and each other's named
   cursors, and saves merge shape by shape instead of making conflict

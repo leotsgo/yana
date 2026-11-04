@@ -2205,6 +2205,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               <Icon name="plus" />
               New
             </button>
+            <button type="button" class="btn" title={`New drawing in ${defaultDir() || 'the root'}`} onClick={() => newDrawingPrompt(defaultDir())}>
+              <Icon name="palette" />
+              Drawing
+            </button>
             <button type="button" class="btn" title={`Capture a line into today's note (${label(keys.capture)})`} onClick={capturePrompt}>
               <Icon name="capture" />
               Capture
