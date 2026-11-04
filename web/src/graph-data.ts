@@ -1,7 +1,8 @@
 // The graph payload, fetched once and shared by every graph on screen. While
 // one is subscribed, and for a minute after, the spaces in the payload are
-// watched over the relay and a change refetches it (debounced), handing
-// every subscriber the new one.
+// watched over the relay. A change refetches it (debounced) and hands every
+// subscriber the new one; with nobody subscribed it only marks the payload
+// stale, and the next subscribe refetches.
 
 import { api } from './api'
 import type { GraphPayload } from './graph/model'
@@ -19,7 +20,7 @@ const subs = new Set<(g: GraphPayload) => void>()
 let watch: SpaceWatch | null = null
 let timer: number | undefined
 let linger: number | undefined
-let stale = false // nobody watched for a while: refetch on the next subscribe
+let stale = false // the cache may be behind: refetch on the next subscribe
 
 function watchSpaces(g: GraphPayload): void {
   if (!watch) return
@@ -28,6 +29,11 @@ function watchSpaces(g: GraphPayload): void {
 }
 
 function refetch(): void {
+  // Nobody shows it (the watch is lingering): leave it to the next subscribe.
+  if (!subs.size) {
+    stale = true
+    return
+  }
   api
     .graph()
     .then((g) => {
@@ -61,10 +67,11 @@ export function onGraphData(fn: (g: GraphPayload) => void): () => void {
       window.clearTimeout(timer)
       timer = window.setTimeout(refetch, REFETCH_MS)
     })
-    if (stale) {
-      stale = false
-      refetch()
-    } else cache?.then(watchSpaces, () => {})
+    if (!stale) cache?.then(watchSpaces, () => {})
+  }
+  if (stale) {
+    stale = false
+    refetch()
   }
   return () => {
     subs.delete(fn)
@@ -75,7 +82,7 @@ export function onGraphData(fn: (g: GraphPayload) => void): () => void {
       window.clearTimeout(timer)
       watch.destroy()
       watch = null
-      stale = cache !== undefined
+      stale ||= cache !== undefined
     }, LINGER_MS)
   }
 }

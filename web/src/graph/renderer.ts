@@ -11,6 +11,14 @@ const DIM = 0.15
 const LABEL_MIN_PX = 8
 const LABEL_MAX = 300
 const LABEL_PX = 12
+/** Neighbour labels: one per this many CSS px² of canvas, within the bounds. */
+const LABEL_AREA = 6000
+const LABEL_NEIGHBOURS_MIN = 8
+const LABEL_NEIGHBOURS_MAX = 60
+/** The overlap grid's cell, in CSS px: a label skips any cell already taken. */
+const CELL = 8
+/** Room kept clear either side of a label, in CSS px. */
+const LABEL_GAP = 4
 
 // State per node while a focus is set.
 const PLAIN = 0, NEIGHBOUR = 1, FOCUS = 2
@@ -171,6 +179,14 @@ export class Renderer {
   private neighbours: number[] = []
   /** Node indices, highest degree first, for picking labels. */
   private byDegree = new Int32Array(0)
+  /** Label widths in CSS px, measured once per graph; -1 until then. */
+  private widths = new Float32Array(0)
+  /** Cells taken by this frame's labels, and the frame each node was labelled in. */
+  private cells = new Uint8Array(0)
+  private cols = 0
+  private rows = 0
+  private labelled = new Uint32Array(0)
+  private frame = 0
 
   constructor(canvas: HTMLCanvasElement, labels: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', { antialias: true, premultipliedAlpha: true })
@@ -233,6 +249,8 @@ export class Renderer {
     this.drawColors = new Float32Array(n * 4)
     this.edgeVerts = new Float32Array(view.links.length * 2)
     this.state = new Uint8Array(n)
+    this.widths = new Float32Array(n).fill(-1)
+    this.labelled = new Uint32Array(n)
     this.byDegree = Int32Array.from(view.nodes.keys()).sort((a, b) => view.nodes[b]!.degree - view.nodes[a]!.degree)
     this.focus = null
     this.neighbours = []
@@ -265,7 +283,9 @@ export class Renderer {
   /** Highlight `focus` and its neighbours; null clears. */
   setFocus(focus: number | null, neighbours: number[]): void {
     this.focus = focus
-    this.neighbours = focus === null ? [] : neighbours
+    // Highest degree first: they get the labels when not all of them fit.
+    const nodes = this.view.nodes
+    this.neighbours = focus === null ? [] : [...neighbours].sort((a, b) => nodes[b]!.degree - nodes[a]!.degree)
     this.state.fill(PLAIN)
     if (focus !== null) {
       for (const j of this.neighbours) this.state[j] = NEIGHBOUR
@@ -285,6 +305,9 @@ export class Renderer {
       c.height = Math.max(1, Math.round(this.h * this.dpr))
     }
     this.gl.viewport(0, 0, this.canvas.width, this.canvas.height)
+    this.cols = Math.ceil(this.w / CELL)
+    this.rows = Math.ceil(this.h / CELL)
+    this.cells = new Uint8Array(this.cols * this.rows)
   }
 
   draw(): void {
@@ -384,7 +407,9 @@ export class Renderer {
     if (lit) gl.bufferSubData(gl.ARRAY_BUFFER, (out.length - lit * 4) * 4, out, out.length - lit * 4, lit * 4)
   }
 
-  /** Labels for the focus and its neighbours, then the biggest on-screen nodes. */
+  /** Labels, greedily, none over another: the focus, its biggest neighbours
+   * (as many as the canvas area allows), then the biggest on-screen nodes
+   * big enough at this zoom, neighbours or not. */
   private drawLabels() {
     const ctx = this.ctx, { k } = this.camera
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
@@ -393,19 +418,25 @@ export class Renderer {
     ctx.fillStyle = this.labelStyle
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
+    this.cells.fill(0)
+    this.frame++
 
+    const dim = this.focus !== null ? DIM * 2 : 1
     if (this.focus !== null) {
       ctx.globalAlpha = 1
-      this.label(this.focus)
-      for (const j of this.neighbours) this.label(j)
+      this.label(this.focus, true)
+      const cap = Math.min(LABEL_NEIGHBOURS_MAX, Math.max(LABEL_NEIGHBOURS_MIN, Math.round((this.w * this.h) / LABEL_AREA)))
+      let lit = 0
+      for (let n = 0; n < this.neighbours.length && lit < cap; n++) {
+        if (this.label(this.neighbours[n]!, false)) lit++
+      }
     }
-    ctx.globalAlpha = this.focus !== null ? DIM * 2 : 1
     let shown = 0
     for (let n = 0; n < this.byDegree.length && shown < LABEL_MAX; n++) {
       const i = this.byDegree[n]!
-      if (this.radii[i]! * k < LABEL_MIN_PX || this.state[i] !== PLAIN || !this.onScreen(i)) continue
-      this.label(i)
-      shown++
+      if (this.labelled[i] === this.frame || this.radii[i]! * k < LABEL_MIN_PX || !this.onScreen(i)) continue
+      ctx.globalAlpha = this.state[i] === PLAIN ? dim : 1
+      if (this.label(i, false)) shown++
     }
     ctx.globalAlpha = 1
   }
@@ -420,11 +451,27 @@ export class Renderer {
     return sx > -m && sx < this.w + m && sy > -m && sy < this.h + m
   }
 
-  private label(i: number) {
-    if (this.inst[3 * i + 2] === 0) return
+  /** Draws node i's label unless it would overlap one already drawn (or
+   * `always`); says whether it drew. */
+  private label(i: number, always: boolean): boolean {
+    this.labelled[i] = this.frame
+    if (this.inst[3 * i + 2] === 0) return false
     const { x, y, k } = this.camera
     const sx = (this.inst[3 * i]! - x) * k + this.w / 2
-    const sy = (this.inst[3 * i + 1]! - y) * k + this.h / 2
-    this.ctx.fillText(this.view.nodes[i]!.label, sx, sy + Math.max(this.radii[i]! * k, 1) + 2)
+    const sy = (this.inst[3 * i + 1]! - y) * k + this.h / 2 + Math.max(this.radii[i]! * k, 1) + 2
+    const text = this.view.nodes[i]!.label
+    let w = this.widths[i]!
+    if (w < 0) w = this.widths[i] = this.ctx.measureText(text).width
+    const half = w / 2 + LABEL_GAP
+    const c0 = Math.max(0, Math.floor((sx - half) / CELL)), c1 = Math.min(this.cols - 1, Math.floor((sx + half) / CELL))
+    const r0 = Math.max(0, Math.floor(sy / CELL)), r1 = Math.min(this.rows - 1, Math.floor((sy + LABEL_PX) / CELL))
+    if (c0 > c1 || r0 > r1) return false // off screen
+    const cells = this.cells, cols = this.cols
+    if (!always) {
+      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (cells[r * cols + c]) return false
+    }
+    for (let r = r0; r <= r1; r++) cells.fill(1, r * cols + c0, r * cols + c1 + 1)
+    this.ctx.fillText(text, sx, sy)
+    return true
   }
 }
