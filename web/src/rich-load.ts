@@ -13,7 +13,7 @@ let mermaidLoad: Promise<MermaidLike> | undefined
 let katexLoad: Promise<KatexLike> | undefined
 let watching = false
 
-function isDark(): boolean {
+export function isDark(): boolean {
   return document.documentElement.dataset['theme'] === 'dark'
 }
 

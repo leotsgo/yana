@@ -14,7 +14,7 @@
 // hashed bundle names and a version stamp baked into its precache list.
 import * as esbuild from 'esbuild'
 import { createHash } from 'node:crypto'
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 
 const watch = process.argv.includes('--watch')
 
@@ -70,6 +70,54 @@ const katexCSS = await esbuild.build({
 })
 const katexCSSPath = '/' + Object.keys(katexCSS.metafile.outputs).find((o) => /assets\/katex-[^/]+\.css$/.test(o)).replace(/^dist\//, '')
 
+// Excalidraw's fonts fall back to esm.sh when the copy under
+// EXCALIDRAW_ASSET_PATH fails; drop that fallback so a drawing never
+// reaches a third-party CDN. The build fails if the code it patches moves.
+const noCDN = {
+  name: 'excalidraw-no-cdn',
+  setup(build) {
+    let patched = false
+    build.onLoad({ filter: /@excalidraw[\\/]excalidraw[\\/]dist[\\/]prod[\\/][^\\/]+\.js$/ }, (args) => {
+      const code = readFileSync(args.path, 'utf8')
+      const out = code.replace(/\w+\.push\(new URL\(\w+,\w+\.ASSETS_FALLBACK_URL\)\)/, '0')
+      if (out !== code) patched = true
+      return { contents: out, loader: 'js' }
+    })
+    build.onEnd(() => {
+      if (!patched) throw new Error('excalidraw-no-cdn: ASSETS_FALLBACK_URL push not found')
+    })
+  },
+}
+
+// The Excalidraw editor (React with it) as its own bundle under
+// assets/drawing/, loaded by drawing-load.ts the first time a drawing
+// opens. It sits in a subdirectory so the service worker does not
+// precache it (about 9 MB of scripts, mostly lazy chunks, and 13 MB of
+// fonts); the fonts are copied beside it for EXCALIDRAW_ASSET_PATH. Built
+// first so the app bundle can carry its names.
+const drawing = await esbuild.build({
+  entryPoints: { editor: 'src/drawing-editor/editor.ts' },
+  entryNames: '[name]-[hash]',
+  chunkNames: '[name]-[hash]',
+  assetNames: '[name]-[hash]',
+  bundle: true,
+  splitting: true,
+  minify: true,
+  target: ['es2022'],
+  format: 'esm',
+  conditions: ['production'],
+  define: { 'process.env.NODE_ENV': '"production"' },
+  loader: { '.woff2': 'file' },
+  outdir: 'dist/assets/drawing',
+  metafile: true,
+  logLevel: 'warning',
+  plugins: [noCDN],
+})
+cpSync('node_modules/@excalidraw/excalidraw/dist/prod/fonts', 'dist/assets/drawing/fonts', { recursive: true })
+const drawingOut = (re) => '/' + Object.keys(drawing.metafile.outputs).find((o) => re.test(o)).replace(/^dist\//, '')
+const drawingJS = drawingOut(/assets\/drawing\/editor-[^/]+\.js$/)
+const drawingCSS = drawingOut(/assets\/drawing\/editor-[^/]+\.css$/)
+
 const ctx = await esbuild.context({
   entryPoints: { app: 'src/main.tsx' },
   entryNames: '[name]-[hash]',
@@ -85,7 +133,12 @@ const ctx = await esbuild.context({
   outdir: 'dist/assets',
   metafile: true,
   logLevel: 'info',
-  define: { __PWA__: JSON.stringify(!watch), __KATEX_CSS__: JSON.stringify(katexCSSPath) },
+  define: {
+    __PWA__: JSON.stringify(!watch),
+    __KATEX_CSS__: JSON.stringify(katexCSSPath),
+    __DRAWING_JS__: JSON.stringify(drawingJS),
+    __DRAWING_CSS__: JSON.stringify(drawingCSS),
+  },
   plugins: [html],
 })
 
@@ -183,11 +236,15 @@ writeFileSync('dist/manifest.webmanifest', JSON.stringify(manifest, null, 2) + '
 
 // --- service worker -------------------------------------------------------
 
-// Every file under assets/ is precached: the app bundle, the mermaid and
-// KaTeX chunks, and the KaTeX stylesheet and fonts, so a note with a
-// diagram or an equation renders offline even if none was opened before.
+// Every file directly under assets/ is precached: the app bundle, the
+// mermaid and KaTeX chunks, and the KaTeX stylesheet and fonts, so a note
+// with a diagram or an equation renders offline even if none was opened
+// before. assets/drawing/ is left out (too large); the cacheFirst rule for
+// /assets/ keeps it once a drawing has been opened.
 function writeServiceWorker() {
-  const names = readdirSync('dist/assets')
+  const names = readdirSync('dist/assets', { withFileTypes: true })
+    .filter((d) => d.isFile())
+    .map((d) => d.name)
   const js = names.find((f) => /^app-[^/]+\.js$/.test(f))
   const css = names.find((f) => /^app-[^/]+\.css$/.test(f))
   if (!js || !css) throw new Error('hashed bundles not found for the service worker')
