@@ -47,7 +47,7 @@ export interface DrawingNoteProps {
   /** The page's own buttons (details, overflow), at the end of the toolbar. */
   children?: ComponentChildren
   /** The page's header, given this drawing's toolbar to carry. */
-  head: (actions: ComponentChildren) => ComponentChildren
+  head: (actions: ComponentChildren, status?: ComponentChildren) => ComponentChildren
   /** The details pane, beside the canvas. */
   aside: ComponentChildren
 }
@@ -299,6 +299,10 @@ export function DrawingNote({ note, onOpen, onToast, children, head, aside }: Dr
     <>
       {head(
         <div class="editor-toolbar">
+          <span class="spacer" />
+          {children}
+        </div>,
+        <>
           {viewOnly ? (
             <span class="role-badge" title="Your account reads this space">
               <Icon name="eye" />
@@ -313,9 +317,7 @@ export function DrawingNote({ note, onOpen, onToast, children, head, aside }: Dr
             )
           )}
           {notice && <span class="editor-notice">{notice}</span>}
-          <span class="spacer" />
-          {children}
-        </div>,
+        </>,
       )}
       <div class="page-body">
         <section class="drawing-note">

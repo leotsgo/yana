@@ -21,7 +21,7 @@ export interface HtmlNoteProps {
   details: boolean
   onToggleDetails: () => void
   /** The page's header, given this note's toolbar to carry. */
-  head: (actions: ComponentChildren) => ComponentChildren
+  head: (actions: ComponentChildren, status?: ComponentChildren) => ComponentChildren
   /** The details pane, beside the frame. */
   aside: ComponentChildren
 }
@@ -120,20 +120,9 @@ export function HtmlNote({ note, onOpen, onToast, onMore, details, onToggleDetai
     <>
       {head(
         <div class="editor-toolbar">
-          <span class={'trust-badge ' + (trusted ? 'trusted' : 'sandboxed')} title={trusted
-            ? 'Rendered as written, scripts and all, on the content origin.'
-            : 'Sanitized: scripts, event handlers and external loads are stripped before rendering.'}>
-            <Icon name={trusted ? 'shield-off' : 'shield'} />
-            {trusted ? 'Unsanitized' : 'Sanitized'}
-          </span>
-          {notice && <span class="editor-notice">{notice}</span>}
           <span class="spacer" />
           {editing && (
             <>
-              <span class={'sync-status ' + (dirty ? 'offline' : 'synced')}>
-                <span class="sync-dot" />
-                <span class="sync-label">{dirty ? 'Unsaved' : 'Saved'}</span>
-              </span>
               <button type="button" class="btn primary" disabled={!dirty || saving} onClick={save}>
                 <Icon name="save" />
                 Save
@@ -161,6 +150,21 @@ export function HtmlNote({ note, onOpen, onToast, onMore, details, onToggleDetai
             <Icon name="more" size={18} />
           </button>
         </div>,
+        <>
+          <span class={'trust-badge ' + (trusted ? 'trusted' : 'sandboxed')} title={trusted
+            ? 'Rendered as written, scripts and all, on the content origin.'
+            : 'Sanitized: scripts, event handlers and external loads are stripped before rendering.'}>
+            <Icon name={trusted ? 'shield-off' : 'shield'} />
+            {trusted ? 'Unsanitized' : 'Sanitized'}
+          </span>
+          {editing && (
+            <span class={'sync-status ' + (dirty ? 'offline' : 'synced')}>
+              <span class="sync-dot" />
+              <span class="sync-label">{dirty ? 'Unsaved' : 'Saved'}</span>
+            </span>
+          )}
+          {notice && <span class="editor-notice">{notice}</span>}
+        </>,
       )}
       <div class="page-body html-body">
         <section class={'html-note' + (editing ? ' editing' : '')}>

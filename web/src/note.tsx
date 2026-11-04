@@ -406,8 +406,9 @@ export function NotePage(props: NotePageProps) {
 
   // The header carries the page's toolbar on the title's line; each kind
   // of note brings its own.
-  const head = (actions: ComponentChildren) => (
+  const head = (actions: ComponentChildren, status?: ComponentChildren) => (
     <NoteHeader
+      status={status}
       note={note}
       onCommit={commitTitle}
       readOnly={note.role === 'viewer'}
@@ -515,21 +516,6 @@ export function NotePage(props: NotePageProps) {
     <article ref={article} class={'page' + (split ? ' split' : '') + (details ? ' with-details' : '') + (editing ? ' editing' : ' reading')}>
       {head(
         <div class="editor-toolbar">
-          <span class={'sync-status ' + status} title={statusTitle(status)}>
-            <span class="sync-dot" />
-            <span class="sync-label">{statusLabel(status)}</span>
-          </span>
-          {others.length > 0 && (
-            <div class="presence" aria-label="also here">
-              {others.map((u, i) => (
-                <span key={`${u.name}-${i}`} class="presence-chip" title={`${u.name} has this note open`}>
-                  <span class="presence-dot" style={`background:${u.color}`} />
-                  {u.name}
-                </span>
-              ))}
-            </div>
-          )}
-          {notice && <span class="editor-notice">{notice}</span>}
           {!phone && editing && !readOnly && note.role !== 'viewer' && <FormatBar view={view} note={note} onToast={onToast} compact />}
           <span class="spacer" />
           {phone ? (
@@ -569,6 +555,23 @@ export function NotePage(props: NotePageProps) {
             <Icon name="more" size={18} />
           </button>
         </div>,
+        <>
+          <span class={'sync-status ' + status} title={statusTitle(status)}>
+            <span class="sync-dot" />
+            <span class="sync-label">{statusLabel(status)}</span>
+          </span>
+          {others.length > 0 && (
+            <div class="presence" aria-label="also here">
+              {others.map((u, i) => (
+                <span key={`${u.name}-${i}`} class="presence-chip" title={`${u.name} has this note open`}>
+                  <span class="presence-dot" style={`background:${u.color}`} />
+                  {u.name}
+                </span>
+              ))}
+            </div>
+          )}
+          {notice && <span class="editor-notice">{notice}</span>}
+        </>,
       )}
       <div class="page-body">
         {editing &&
@@ -673,11 +676,13 @@ interface NoteHeaderProps {
   /** Open the dialog that resolves this note's conflict copies. */
   onConflicts: () => void
   hasDir: (path: string) => boolean
+  /** The sync state and who else is here, on a line under the title. */
+  status?: ComponentChildren
   /** The page's toolbar, on the title's line while there is room. */
   children: ComponentChildren
 }
 
-function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLocation, onShare, onConflicts, hasDir, children }: NoteHeaderProps) {
+function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLocation, onShare, onConflicts, hasDir, status, children }: NoteHeaderProps) {
   const el = useRef<HTMLHeadingElement>(null)
   const dir = dirOf(note.path)
   // What the title says while it is being typed; a slash in it places
@@ -757,6 +762,7 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLoca
         )}
       </div>
       <div class="note-headline">
+        <div class="note-titlebox">
         <h1
           ref={el}
           class={'note-title' + (readOnly ? ' static' : '')}
@@ -796,6 +802,8 @@ function NoteHeader({ note, onCommit, readOnly, autofocus, onNext, onTag, onLoca
             onCommit(v)
           }}
         />
+        {status && <div class="note-status">{status}</div>}
+        </div>
         {children}
       </div>
       {target && (
