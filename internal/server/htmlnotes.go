@@ -153,8 +153,26 @@ func (s *Server) handleNoteSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The frontmatter is the file's, not the editor's: id, created, and
+	// any user keys ride along untouched above the new body.
+	fm := frontmatter.Parse(current)
+	next := make([]byte, 0, len(fm.Head)+len(text))
+	next = append(next, fm.Head...)
+	next = append(next, text...)
+	if int64(len(next)) > s.Root.Limits().MaxNoteSize {
+		writeError(w, http.StatusRequestEntityTooLarge, "content is over the note size limit")
+		return
+	}
+
+	// A drawing that does not parse is kept as a conflict copy whatever
+	// the base hash says: the save must never destroy what it cannot read.
+	unreadable := false
+	if n.Kind == drawing.Kind {
+		_, _, perr := drawing.Parse(fm.Body)
+		unreadable = perr != nil
+	}
 	conflict := ""
-	if body.BaseHash != "" && body.BaseHash != hashContent(current) {
+	if unreadable || (body.BaseHash != "" && body.BaseHash != hashContent(current)) {
 		conflict, err = s.writeConflictCopy(abs, rel, current)
 		if err != nil {
 			s.fail(w, r, err)
@@ -162,13 +180,6 @@ func (s *Server) handleNoteSource(w http.ResponseWriter, r *http.Request) {
 		}
 		loggerFrom(r.Context()).Warn(n.Kind+" note save over diverged file; conflict copy kept", "path", rel, "conflict", conflict)
 	}
-
-	// The frontmatter is the file's, not the editor's: id, created, and
-	// any user keys ride along untouched above the new body.
-	fm := frontmatter.Parse(current)
-	next := make([]byte, 0, len(fm.Head)+len(text))
-	next = append(next, fm.Head...)
-	next = append(next, text...)
 	mode := fs.FileMode(0o644)
 	if fi, err := os.Stat(abs); err == nil {
 		mode = fi.Mode().Perm()

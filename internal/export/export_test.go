@@ -541,6 +541,9 @@ func TestExportWithDrawing(t *testing.T) {
 	if page := readSite(t, dir, "Map.excalidraw.html"); !strings.Contains(page, `<p class="x-drawing">Excalidraw drawing. Open it in yana to see it.</p>`) {
 		t.Fatalf("drawing page:\n%s", page)
 	}
+	if note := readSite(t, dir, "note.html"); !strings.Contains(note, `class="wikilink" href="Map.excalidraw.html"`) {
+		t.Fatalf("note page does not link the drawing:\n%s", note)
+	}
 	checkHrefs(t, dir)
 
 	// The single-note export of a drawing works too.

@@ -82,7 +82,9 @@ func TestDrawingSave(t *testing.T) {
 	if string(raw) != want {
 		t.Fatalf("file:\n%q\nwant:\n%q", raw, want)
 	}
-	var found struct{ Hits []struct{ Note struct{ ID string } } }
+	var found struct {
+		Hits []struct{ Note struct{ ID string } }
+	}
 	e.get(t, "/api/search?q=zebrafish", &found)
 	if len(found.Hits) != 1 || found.Hits[0].Note.ID != id {
 		t.Fatalf("search: %+v", found)
@@ -152,5 +154,50 @@ func TestDrawingEmbed(t *testing.T) {
 	e.get(t, "/api/notes/"+res.ID, &n)
 	if !strings.Contains(n.HTML, `class="drawing-embed" data-id="`+id+`"`) || !strings.Contains(n.HTML, `data-target="Map"`) {
 		t.Fatalf("embed html:\n%s", n.HTML)
+	}
+}
+
+// A drawing on disk that does not parse is never overwritten unseen: the
+// save parks it as a conflict copy even when the base hash matches.
+func TestDrawingSaveKeepsUnreadable(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	id := newDrawing(t, e)
+	p := filepath.Join(e.dir, "main", "Map.excalidraw.md")
+	old := []byte("# no scene here\n")
+	if err := os.WriteFile(p, old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out := putSource(t, e.env, id, map[string]any{"source": textScene, "base_hash": hashContent(old)})
+	conflict, _ := out["conflict_copy"].(string)
+	if code != 200 || conflict == "" {
+		t.Fatalf("save %d %v", code, out)
+	}
+	kept, _ := os.ReadFile(filepath.Join(e.dir, filepath.FromSlash(conflict)))
+	if string(kept) != string(old) {
+		t.Fatalf("conflict copy: %q", kept)
+	}
+	raw, _ := os.ReadFile(p)
+	if string(raw) != string(drawing.Encode([]byte(textScene))) {
+		t.Fatalf("file: %q", raw)
+	}
+}
+
+// The cap applies to the file that gets written, frontmatter included.
+func TestDrawingSaveFileOverCap(t *testing.T) {
+	e := newLinksEnv(t, false, nil)
+	id := newDrawing(t, e)
+	p := filepath.Join(e.dir, "main", "Map.excalidraw.md")
+	before, _ := os.ReadFile(p)
+	max := int(e.srv.Root.Limits().MaxNoteSize)
+	// Under the cap as a source, over it once the fence and head are added.
+	src := `{"type":"excalidraw","pad":"` + strings.Repeat("x", max-60) + `"}`
+	if len(src) > max {
+		t.Fatal("test source must fit the source cap")
+	}
+	if code, _ := putSource(t, e.env, id, map[string]any{"source": src}); code != 413 {
+		t.Fatalf("save %d", code)
+	}
+	if after, _ := os.ReadFile(p); string(after) != string(before) {
+		t.Fatal("file changed")
 	}
 }
