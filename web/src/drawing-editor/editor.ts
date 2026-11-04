@@ -25,16 +25,22 @@ export interface EditorOptions {
   onLink: (link: string, ev: MouseEvent | undefined) => void
   /** Where the canvas was left; without one it scrolls to the content. */
   view?: View | null
-  /** Fires when the scroll position or zoom changes. Never saved to the file. */
+  /** Fires when the scroll position, zoom or tool changes. Never saved to the file. */
   onView?: (view: View) => void
 }
 
-/** The canvas position: scroll offsets and zoom factor. */
+/** Where the canvas was left: scroll offsets, zoom factor, and the tool in hand. */
 export interface View {
   scrollX: number
   scrollY: number
   zoom: number
+  tool?: string
+  locked?: boolean
 }
+
+// Tools that are one-off actions rather than a mode to come back to:
+// the image tool opens a file picker, the rest need context to exist.
+const TRANSIENT_TOOLS = new Set(['image', 'custom', 'embeddable', 'eraser', 'laser', 'magicframe'])
 
 export interface EditorHandle {
   setDark(dark: boolean): void
@@ -62,6 +68,16 @@ export function mountEditor(host: HTMLElement, opts: EditorOptions): EditorHandl
           scrollX: view.scrollX,
           scrollY: view.scrollY,
           zoom: { value: view.zoom as typeof scene.appState.zoom.value },
+          ...(view.tool && !opts.viewOnly
+            ? {
+                activeTool: {
+                  ...scene.appState.activeTool,
+                  type: view.tool,
+                  customType: null,
+                  locked: view.locked ?? false,
+                } as typeof scene.appState.activeTool,
+              }
+            : {}),
         },
       }
     : { ...scene, scrollToContent: true }
@@ -75,8 +91,21 @@ export function mountEditor(host: HTMLElement, opts: EditorOptions): EditorHandl
         onChange: (elements, appState, files) => {
           const { scrollX, scrollY } = appState
           const zoom = appState.zoom.value
-          if (!view || view.scrollX !== scrollX || view.scrollY !== scrollY || view.zoom !== zoom) {
-            view = { scrollX, scrollY, zoom }
+          // A viewer's canvas is always on the hand; keep whatever tool the
+          // view already remembers rather than recording that.
+          const { type, locked } = appState.activeTool
+          const keepTool = opts.viewOnly || TRANSIENT_TOOLS.has(type)
+          const tool = keepTool ? view?.tool : type
+          const lock = keepTool ? view?.locked : locked
+          if (
+            !view ||
+            view.scrollX !== scrollX ||
+            view.scrollY !== scrollY ||
+            view.zoom !== zoom ||
+            view.tool !== tool ||
+            view.locked !== lock
+          ) {
+            view = { scrollX, scrollY, zoom, tool, locked: lock }
             opts.onView?.(view)
           }
           const next = getSceneVersion(elements)

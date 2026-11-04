@@ -9,6 +9,12 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+## 0.2.2 — 2026-11-04
+
+- A drawing also reopens with the tool that was in hand, and its lock.
+  One-off tools (image, eraser, laser) are not remembered; the drawing
+  comes back with the tool used before them.
+
 ## 0.2.1 — 2026-11-04
 
 - A drawing reopens at the scroll position and zoom it was left at.

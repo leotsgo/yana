@@ -555,8 +555,8 @@ export function isSearchSaved(query: string): boolean {
 
 // --- drawing views -------------------------------------------------------
 
-/** Where a drawing's canvas was left: scroll offsets and zoom. */
-export type DrawingView = { scrollX: number; scrollY: number; zoom: number }
+/** Where a drawing's canvas was left: scroll offsets, zoom and the tool in hand. */
+export type DrawingView = { scrollX: number; scrollY: number; zoom: number; tool?: string; locked?: boolean }
 
 /** The view a drawing was left at in this browser, or null for a first visit. */
 export function drawingView(id: string): DrawingView | null {

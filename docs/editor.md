@@ -269,9 +269,12 @@ Not saved when the server refused the save (a drawing over the size
 limit, say) and the message says why. Editing is whole-file, one editor
 at a time; there is no live co-drawing.
 
-A drawing reopens where you left it: the scroll position and zoom are
-remembered per drawing in this browser, beside the other preferences,
-and never written to the file, so panning around saves nothing. A
+A drawing reopens where you left it: the scroll position, the zoom and
+the tool in hand (with its lock) are remembered per drawing in this
+browser, beside the other preferences, and never written to the file,
+so panning around saves nothing. One-off tools such as the image
+picker, the eraser and the laser are not remembered; the drawing comes
+back with the tool used before them. A
 drawing opened for the first time in a browser scrolls to fit its
 content.
 
