@@ -19,6 +19,8 @@ import { Icon } from './icons'
 import type { IconName } from './icons'
 import type { Layout } from './layout'
 import * as prefs from './prefs'
+import { exportTheme, parseTheme, swatch } from './themes'
+import type { Mode, ThemeDef } from './themes'
 
 export type Section = 'account' | 'people' | 'spaces' | 'agents' | 'appearance' | 'data'
 
@@ -1669,6 +1671,118 @@ function RestoreBlock({ user, say, onChanged, onStatus }: { user: auth.User | nu
 
 // --- appearance --------------------------------------------------------------
 
+/** Re-renders on any preference change, so pickers follow each other. */
+function usePrefs(): void {
+  const [, bump] = useState(0)
+  useEffect(() => prefs.onChange(() => bump((n) => n + 1)), [])
+}
+
+function ThemePicker({ mode }: { mode: Mode }) {
+  usePrefs()
+  const current = prefs.themeFor(mode).id
+  const list = prefs.themes().filter((d) => d.mode === mode)
+  const label = mode === 'light' ? 'Light theme' : 'Dark theme'
+  return (
+    <div class="theme-pick">
+      <span class="pref-label">{label}</span>
+      <div class="theme-grid" role="radiogroup" aria-label={label}>
+        {list.map((d) => {
+          const [bg, ink, accent] = swatch(d)
+          return (
+            <button
+              key={d.id}
+              type="button"
+              role="radio"
+              aria-checked={d.id === current}
+              class={'theme-swatch' + (d.id === current ? ' on' : '')}
+              onClick={() => {
+                // Picking a theme shows it, unless the system decides the mode.
+                if (prefs.theme() !== 'system') prefs.setTheme(mode)
+                prefs.setThemeFor(mode, d.id)
+              }}
+            >
+              <span class="theme-swatch-preview" style={{ background: bg }}>
+                <i style={{ background: ink }} />
+                <i style={{ background: accent }} />
+              </span>
+              <span class="theme-swatch-name">{d.name}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function OwnThemes() {
+  usePrefs()
+  const [text, setText] = useState('')
+  const [msg, setMsg] = useState('')
+  const own = prefs.customThemes()
+
+  function add(): void {
+    const def = parseTheme(text)
+    if (typeof def === 'string') {
+      setMsg(def)
+      return
+    }
+    prefs.addTheme(def)
+    if (prefs.theme() !== 'system') prefs.setTheme(def.mode)
+    prefs.setThemeFor(def.mode, def.id)
+    setText('')
+    setMsg('')
+  }
+
+  function startFromCurrent(): void {
+    const mode = document.documentElement.dataset['theme'] === 'dark' ? 'dark' : 'light'
+    setText(exportTheme(prefs.themeFor(mode), document.documentElement))
+    setMsg('')
+  }
+
+  return (
+    <div class="theme-own">
+      <span class="pref-label">Your themes</span>
+      <p class="settings-lead">
+        Paste a theme as JSON: a name, a mode (light or dark) and hex colours. Only bg, ink and accent are needed; the
+        rest are mixed from them. Kept in this browser.
+      </p>
+      {own.length > 0 && (
+        <ul class="theme-list">
+          {own.map((d: ThemeDef) => (
+            <li key={d.id}>
+              <span>
+                {d.name} <span class="pref-hint">{d.mode}</span>
+              </span>
+              <button type="button" class="btn" onClick={() => prefs.removeTheme(d.id)}>
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <textarea
+        class="input theme-paste"
+        spellcheck={false}
+        rows={8}
+        placeholder={'{\n  "name": "My theme",\n  "mode": "dark",\n  "colors": { "bg": "#1e1e2e", "ink": "#cdd6f4", "accent": "#cba6f7" }\n}'}
+        value={text}
+        onInput={(ev) => setText((ev.target as HTMLTextAreaElement).value)}
+      />
+      <p class="form-msg" role="status">
+        {msg}
+      </p>
+      <div class="form-actions">
+        <button type="button" class="btn primary" disabled={!text.trim()} onClick={add}>
+          Add theme
+        </button>
+        <button type="button" class="btn" onClick={startFromCurrent}>
+          Start from the current theme
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
   const [theme, setTheme] = useState(prefs.theme)
   const [size, setSize] = useState(prefs.textSize)
@@ -1679,6 +1793,8 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
   const [density, setDensity] = useState(prefs.density)
   const [reveal, setReveal] = useState(prefs.revealInTree)
   const [suggest, setSuggest] = useState(prefs.suggestNames)
+  // Picking a theme can switch the mode too.
+  useEffect(() => prefs.onChange(() => setTheme(prefs.theme())), [])
 
   return (
     <>
@@ -1696,6 +1812,9 @@ function AppearanceSection({ ctx: _ctx }: { ctx: Ctx }) {
             setTheme(v)
           }}
         />
+        <ThemePicker mode="light" />
+        <ThemePicker mode="dark" />
+        <OwnThemes />
       </Block>
       <Block title="Text" lead="The note body, reading and editing alike.">
         <Choice

@@ -309,9 +309,9 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
   const resize = new ResizeObserver(() => { r.resize(); fitIfDue(); redraw() })
   resize.observe(host)
 
-  // The theme lives in <html data-theme> and, for "system", the media query.
+  // The theme lives in <html data-theme data-palette> and, for "system", the media query.
   const theme = new MutationObserver(paint)
-  theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+  theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-palette'] })
   const dark = window.matchMedia('(prefers-color-scheme: dark)')
   dark.addEventListener('change', paint)
 

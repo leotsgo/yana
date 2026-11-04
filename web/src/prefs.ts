@@ -11,6 +11,8 @@
 import type { ColorBy } from './graph/model'
 import { DEFAULT_FORCES, FORCE_RANGES } from './graph/protocol'
 import type { Forces } from './graph/protocol'
+import { BUILTIN, TOKENS, YANA_DARK, YANA_LIGHT, themeVars } from './themes'
+import type { Mode, ThemeDef } from './themes'
 
 export type Theme = 'light' | 'dark' | 'system'
 /** How a note opens: rendered, as source, or both side by side. */
@@ -67,13 +69,74 @@ export function setTheme(t: Theme): void {
 
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
 
-/** Resolves the preference against the system and stamps the root. */
+/** Every theme on offer: the built-ins, then the ones added here. */
+export function themes(): ThemeDef[] {
+  return [...BUILTIN, ...customThemes()]
+}
+
+/** The theme used in one mode; Yana's own unless another was picked. */
+export function themeFor(mode: Mode): ThemeDef {
+  const id = read('theme.' + mode)
+  return themes().find((d) => d.id === id && d.mode === mode) ?? (mode === 'dark' ? YANA_DARK : YANA_LIGHT)
+}
+
+export function setThemeFor(mode: Mode, id: string): void {
+  write('theme.' + mode, id === (mode === 'dark' ? YANA_DARK : YANA_LIGHT).id ? null : id)
+  applyTheme()
+}
+
+export function customThemes(): ThemeDef[] {
+  try {
+    const v = JSON.parse(read('themes') ?? '[]') as ThemeDef[]
+    return Array.isArray(v) ? v : []
+  } catch {
+    return []
+  }
+}
+
+/** Adds a theme, replacing one of the same id (a re-paste after an edit). */
+export function addTheme(def: ThemeDef): void {
+  write('themes', JSON.stringify([...customThemes().filter((d) => d.id !== def.id), def]))
+}
+
+export function removeTheme(id: string): void {
+  const rest = customThemes().filter((d) => d.id !== id)
+  write('themes', rest.length ? JSON.stringify(rest) : null)
+  applyTheme()
+}
+
+/** CSS text of a theme's tokens, for the root's inline style. */
+function cssText(def: ThemeDef): string {
+  return Object.entries(themeVars(def)).map(([k, v]) => `--${k}:${v}`).join(';')
+}
+
+/**
+ * Resolves the preference against the system and stamps the root: the
+ * mode as data-theme, the theme's colours as inline custom properties.
+ * Both modes' colours are kept under yana.palette.* so the script in
+ * index.html paints the right ones before the app boots.
+ */
 export function applyTheme(): void {
   const t = theme()
   const dark = t === 'dark' || (t === 'system' && darkQuery.matches)
-  document.documentElement.dataset['theme'] = dark ? 'dark' : 'light'
+  const def = themeFor(dark ? 'dark' : 'light')
+  const root = document.documentElement
+  for (const k of [...TOKENS, 'hover']) root.style.removeProperty('--' + k)
+  const css = cssText(def)
+  if (css) root.style.cssText += ';' + css
+  try {
+    for (const m of ['light', 'dark'] as const) {
+      const c = cssText(themeFor(m))
+      if (c) localStorage.setItem(PREFIX + 'palette.' + m, c)
+      else localStorage.removeItem(PREFIX + 'palette.' + m)
+    }
+  } catch {
+    // The pre-paint script then shows Yana's colours until the app boots.
+  }
+  root.dataset['palette'] = def.id
+  root.dataset['theme'] = dark ? 'dark' : 'light'
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-  if (meta) meta.content = dark ? '#1c1a17' : '#f3efe7'
+  if (meta) meta.content = themeVars(def)['bg-2'] ?? (dark ? '#1c1a17' : '#f3efe7')
 }
 
 darkQuery.addEventListener('change', () => {

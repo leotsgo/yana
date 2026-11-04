@@ -18,6 +18,8 @@
     var t = localStorage.getItem('yana.theme');
     var dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    var palette = localStorage.getItem('yana.palette.' + (dark ? 'dark' : 'light'));
+    if (palette) document.documentElement.style.cssText = palette;
     // Text size, measure and density the same way, so nothing reflows.
     var d = document.documentElement.dataset;
     var size = localStorage.getItem('yana.size'); if (size) d.size = size;
