@@ -12,8 +12,8 @@
 // browser (prefs). Opening a note from anywhere but the tree itself
 // reveals it: its space and every folder above it open.
 
-import type { ComponentChildren } from 'preact'
-import { useEffect, useRef, useState } from 'preact/hooks'
+import type { ComponentChildren, VNode } from 'preact'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 
 import type { SpaceTree, TreeNode } from './api'
 import { baseOf, dirOf } from './api'
@@ -65,10 +65,38 @@ export interface TreeProps {
 
 const LONG_PRESS_MS = 450
 
+/** The tree redraws when what it shows changes, not with the shell around
+ * it (a tab opening, a toast): a big space has thousands of rows. The
+ * handlers go through to the latest props, so they never go stale. */
 export function Tree(props: TreeProps) {
+  const p = useRef(props)
+  p.current = props
+  const on = useMemo(
+    (): Omit<TreeProps, 'spaces' | 'selected' | 'pins' | 'edit'> => ({
+      onOpen: (id, how) => p.current.onOpen(id, how),
+      onOpenTitle: (id) => p.current.onOpenTitle(id),
+      onMove: (id, from, toDir) => p.current.onMove(id, from, toDir),
+      onMoveDir: (path, toDir) => p.current.onMoveDir(path, toDir),
+      onNew: (dir) => p.current.onNew(dir),
+      onNewFolder: (parent) => p.current.onNewFolder(parent),
+      onRenameFolder: (node) => p.current.onRenameFolder(node),
+      onCreateDir: (path) => p.current.onCreateDir(path),
+      onRenameDir: (node, name) => p.current.onRenameDir(node, name),
+      onEditDone: () => p.current.onEditDone(),
+      onContext: (target, anchor, at) => p.current.onContext(target, anchor, at),
+    }),
+    [],
+  )
+  const { spaces, selected, pins, edit } = props
+  // The same vnode back tells Preact to skip the rows.
+  return useMemo(() => <TreeRows spaces={spaces} selected={selected} pins={pins} edit={edit} {...on} />, [spaces, selected, pins, edit, on])
+}
+
+function TreeRows(props: TreeProps) {
   const { spaces, selected, pins, onOpen, onOpenTitle, onMove, onMoveDir, onNew, onNewFolder, onRenameFolder, edit, onCreateDir, onRenameDir, onEditDone, onContext } = props
   const [dropOn, setDropOn] = useState<string | null>(null)
   const [, bump] = useState(0)
+  const rows = useRef(new WeakMap<TreeNode, { k: string; v: VNode }>())
   const spaceNames = new Set(spaces.map((s) => s.name))
 
   // Open state lives in prefs; a change there (a click here, a palette
@@ -254,7 +282,19 @@ export function Tree(props: TreeProps) {
     )
   }
 
-  function noteRow(n: TreeNode, depth = 0) {
+  /** A note's row as last drawn, and what it was drawn with: the same
+   * vnode back lets Preact skip the row. keepSame (app) keeps a note's
+   * object while it is unchanged; the handlers inside are all stable. */
+  function noteRow(n: TreeNode, depth = 0): VNode {
+    const k = `${n.id === selected} ${dropOn === dirOf(n.path)} ${depth}`
+    const hit = rows.current.get(n)
+    if (hit?.k === k) return hit.v
+    const v = drawNote(n, depth)
+    rows.current.set(n, { k, v })
+    return v
+  }
+
+  function drawNote(n: TreeNode, depth: number): VNode {
     const id = n.id ?? ''
     const target: TreeTarget = { kind: 'note', node: n }
     const row = (

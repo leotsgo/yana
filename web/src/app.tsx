@@ -56,6 +56,7 @@ import { FromTemplate, spaceOfDir, templatesIn } from './templates'
 import { TrashPage } from './trash'
 import { TAB_DRAG, TabStrip } from './tabstrip'
 import type { TabInfo } from './tabstrip'
+import { keepSame } from './keep-same'
 import { Tree, flatten, folders } from './tree'
 import type { FlatNote, TreeEdit, TreeTarget } from './tree'
 import * as workspace from './workspace'
@@ -193,6 +194,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   // The phone's search screen, the one view that is not a tab.
   const [phoneSearch, setPhoneSearch] = useState(initialLoad)
   const [spaces, setSpaces] = useState<SpaceTree[] | null>(null)
+  const shownTree = useRef<SpaceTree[] | null>(null) // spaces as last set, for keepSame
   const [spaceList, setSpaceList] = useState<SpaceInfo[] | null>(null)
   const [treeError, setTreeError] = useState<string | null>(null)
   const [staleTree, setStaleTree] = useState(false) // the tree is the last saved copy
@@ -445,15 +447,22 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const loadTree = useCallback(async () => {
     try {
       const { spaces } = await api.tree()
-      setSpaces(spaces)
       setTreeError(null)
       setStaleTree(false)
-      void cache.putTree(spaces)
+      // The 30 s poll mostly finds nothing new: unchanged notes keep their
+      // objects, so the tree redraws only the rows that changed, if any.
+      // A big space has thousands; redrawing them all is a visible hitch.
+      const next = keepSame(shownTree.current, spaces)
+      if (next === shownTree.current) return
+      shownTree.current = next
+      setSpaces(next)
+      void cache.putTree(next)
     } catch (err) {
       // Offline, the last saved tree stands in for the server's.
       if (cache.networkDown(err)) {
         const cached = await cache.getTree()
         if (cached) {
+          shownTree.current = cached
           setSpaces(cached)
           setStaleTree(true)
           return

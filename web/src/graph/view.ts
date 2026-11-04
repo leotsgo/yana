@@ -345,10 +345,13 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
   seen.observe(host)
   document.addEventListener('visibilitychange', syncPause)
 
-  init(o.view)
+  // The view goes in a task of its own: with the WebGL setup above it is
+  // one long task on a phone with a big vault.
+  const first = window.setTimeout(() => init(o.view))
 
   return {
     update(next, c) {
+      window.clearTimeout(first)
       if (c !== center) moved = false // another note's neighbourhood: frame it
       center = c
       init(next)
@@ -358,6 +361,7 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
       send({ t: 'forces', forces: f })
     },
     destroy() {
+      window.clearTimeout(first)
       worker.terminate()
       resize.disconnect()
       theme.disconnect()

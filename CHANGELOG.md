@@ -18,6 +18,10 @@ under Unreleased until the next tag; see
   forces, all remembered per browser. `/graph?note=<id>` is a note's
   local graph, also in the note's details under Graph, with a depth
   slider and Open as tab. The page follows edits live.
+- With thousands of notes in a space, the app no longer hitches every
+  30 seconds (most visible while panning the graph) or when a tab opens:
+  the sidebar tree redraws only the rows that changed, and none when a
+  refresh finds nothing new.
 - The details sheet on a tablet or phone takes taps again: its backdrop
   had covered it, so a tap closed it.
 - A page opened from the address bar (a reload, a bookmark) shows that
