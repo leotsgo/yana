@@ -3,6 +3,8 @@
 //	yana            serve (default)
 //	yana scan       rebuild the index once and exit
 //	yana version    print the version
+//	yana drawings convert [--apply]
+//	                convert Obsidian Excalidraw files in place
 //
 // Configuration comes from YANA_* environment variables and an optional
 // YAML file named by YANA_CONFIG. See docs/deployment.md.
@@ -46,9 +48,11 @@ func main() {
 	case "version", "-v", "--version":
 		fmt.Println("yana " + version)
 		return
+	case "drawings":
+		os.Exit(drawingsMain(os.Args[2:]))
 	case "serve", "scan":
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q (use serve, scan, or version)\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q (use serve, scan, drawings, or version)\n", cmd)
 		os.Exit(2)
 	}
 
