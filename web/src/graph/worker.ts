@@ -29,6 +29,7 @@ function post(done: boolean) {
 }
 
 function step() {
+  timer = undefined
   if (!sim) return
   const t = performance.now()
   sim.tick()
@@ -38,16 +39,21 @@ function step() {
   if (!settled) timer = setTimeout(step, Math.max(0, STEP_MS - (performance.now() - t)))
 }
 
-/** Start (or continue) the animated loop. */
+/** Start the animated loop, or leave it running: a drag sends a message
+ * per pointer move, and restarting the wait on each one starves the steps. */
 function run() {
-  clearTimeout(timer)
   settled = false
-  timer = setTimeout(step, STEP_MS)
+  timer ??= setTimeout(step, STEP_MS)
+}
+
+function stop() {
+  clearTimeout(timer)
+  timer = undefined
 }
 
 /** Tick to rest synchronously and post once (reduced motion). */
 function settleNow() {
-  clearTimeout(timer)
+  stop()
   for (let k = 0; k < MAX_STATIC_TICKS && sim!.alpha() >= sim!.alphaMin(); k++) sim!.tick()
   settled = true
   post(true)
@@ -68,7 +74,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   const m = e.data
   switch (m.t) {
     case 'init': {
-      clearTimeout(timer)
+      stop()
       animate = m.animate
       let carried = false
       nodes = Array.from({ length: m.n }, (_, i) => {
@@ -111,7 +117,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
       break
     }
     case 'pause':
-      clearTimeout(timer)
+      stop()
       break
     case 'resume':
       if (sim && !settled) run()

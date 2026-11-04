@@ -240,6 +240,12 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
     if (g.node !== null) {
       const w = toWorld(p.x, p.y)
       send({ t: 'drag', i: g.node, x: w.x, y: w.y })
+      // The node stays under the pointer every frame; its neighbours follow
+      // at the worker's pace.
+      pos[2 * g.node] = w.x
+      pos[2 * g.node + 1] = w.y
+      r.setPositions(pos)
+      redraw()
     } else {
       const k = r.camera.k
       r.camera = { x: g.cx - dx / k, y: g.cy - dy / k, k }

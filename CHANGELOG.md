@@ -9,6 +9,9 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- Dragging a note in the graph is smooth again: the note stays under the
+  pointer every frame, and the layout no longer slows to half its pace
+  while you drag.
 - Colour themes, one for light and one for dark (Settings → Appearance):
   Catppuccin Latte, Frappé, Macchiato and Mocha, Gruvbox Light and Dark,
   Tokyo Night and Night Day, Rosé Pine and Dawn, Solarized Light and
