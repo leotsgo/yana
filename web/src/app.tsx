@@ -49,6 +49,7 @@ import { SettingsPage, isSection } from './settings'
 import type { Section } from './settings'
 import { SharePage } from './share'
 import { appendToNote, composeShareBlock, today } from './sharelib'
+import { GraphPage } from './graph-page'
 import { TagPage, TagsIndex } from './tags'
 import { TasksPage } from './tasks'
 import { FromTemplate, spaceOfDir, templatesIn } from './templates'
@@ -79,6 +80,7 @@ type Route =
   | { kind: 'trash' }
   | { kind: 'tags' }
   | { kind: 'tag'; tag: string }
+  | { kind: 'graph'; note: string; depth: number }
   | { kind: 'search' }
   | { kind: 'tasks'; space: string; tag: string; path: string }
   | { kind: 'activity'; space: string; path: string }
@@ -93,6 +95,10 @@ function parseRoute(url = location.pathname + location.search): Route {
   if (path === '/links') return { kind: 'links' }
   if (path === '/trash') return { kind: 'trash' }
   if (path === '/tags') return { kind: 'tags' }
+  if (path === '/graph') {
+    const d = Number(q.get('depth'))
+    return { kind: 'graph', note: q.get('note') ?? '', depth: d >= 1 && d <= 3 ? Math.round(d) : 1 }
+  }
   if (path === '/search') return { kind: 'search' }
   if (path === '/tasks') return { kind: 'tasks', space: q.get('space') ?? '', tag: q.get('tag') ?? '', path: q.get('path') ?? '' }
   if (path === '/activity') return { kind: 'activity', space: q.get('space') ?? '', path: q.get('path') ?? '' }
@@ -119,6 +125,8 @@ function pageLabel(r: Route): { title: string; icon: IconName } {
       return { title: 'Tags', icon: 'tag' }
     case 'tag':
       return { title: '#' + r.tag, icon: 'tag' }
+    case 'graph':
+      return { title: 'Graph', icon: 'graph' }
     case 'links':
       return { title: 'Unresolved links', icon: 'unlink' }
     case 'trash':
@@ -318,6 +326,16 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
   const openTrash = useCallback((push = true) => openPage('/trash', push), [])
   const openTags = useCallback((push = true) => openPage('/tags', push), [])
   const openTag = useCallback((tag: string, push = true) => openPage(`/tags/${encodeURIComponent(tag)}`, push), [])
+  // The graph: the whole of it, or a note's local graph to a depth.
+  const openGraph = useCallback((note = '', depth = 1, push = true) => {
+    const q = new URLSearchParams()
+    if (note) {
+      q.set('note', note)
+      q.set('depth', String(depth))
+    }
+    const qs = q.toString()
+    openPage('/graph' + (qs ? '?' + qs : ''), push)
+  }, [])
   // The activity feed: every space by default, one space (or a folder in
   // it) from the tree's context menus and the filters on the page.
   const openActivity = useCallback(
@@ -1673,6 +1691,7 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
       }
     }
     items.push({ id: 'tags', label: 'Tags', detail: 'every #tag and the notes carrying it', run: () => openTags() })
+    items.push({ id: 'graph', label: 'Graph view', detail: 'how your notes link together', run: () => openGraph() })
     items.push({ id: 'links', label: 'Unresolved links', detail: 'every wikilink that points nowhere', run: () => openLinks() })
     items.push({ id: 'trash', label: 'Trash', detail: 'deleted notes, kept for 30 days', run: () => openTrash() })
     items.push({ id: 'settings', label: 'Settings', detail: 'account, people, spaces, agents, appearance, data', run: () => openSettings(narrow ? null : 'account') })
@@ -1984,6 +2003,9 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
         )}
         {r.kind === 'tags' && <TagsIndex onTag={openTag} />}
         {r.kind === 'tag' && <TagPage tag={r.tag} onOpen={navigate} onAll={() => openTags()} />}
+        {r.kind === 'graph' && (
+          <GraphPage key={r.note + ':' + r.depth} note={r.note} depth={r.depth} phone={layout === 'phone'} onOpen={navigate} onTag={openTag} />
+        )}
         {r.kind === 'tasks' && (
           <TasksPage
             key={r.space + ':' + r.tag + ':' + r.path}
@@ -2246,6 +2268,10 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
               <a class={'sidebar-link' + (route.kind === 'tags' || route.kind === 'tag' ? ' selected' : '')} href="/tags" onClick={(ev) => { ev.preventDefault(); openTags() }}>
                 <Icon name="tag" />
                 Tags
+              </a>
+              <a class={'sidebar-link' + (route.kind === 'graph' ? ' selected' : '')} href="/graph" onClick={(ev) => { ev.preventDefault(); openGraph() }}>
+                <Icon name="graph" />
+                Graph
               </a>
               <a class={'sidebar-link' + (route.kind === 'links' ? ' selected' : '')} href="/links" onClick={(ev) => { ev.preventDefault(); openLinks() }}>
                 <Icon name="unlink" />

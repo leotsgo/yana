@@ -9,6 +9,14 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- A graph view of how the notes link together (sidebar, palette): every
+  readable note as a dot and every link as a line, laid out by a live
+  force simulation, with hubs, clusters and orphans plain to see. Hover
+  or tap to light a note and its neighbours, click or tap again to open
+  it, drag, pan and zoom. A panel filters by text, shows orphans,
+  unresolved links and tags, colours by space or folder and tunes the
+  forces, all remembered per browser. `/graph?note=<id>` is a note's
+  local graph. The page follows edits live.
 - A page opened from the address bar (a reload, a bookmark) shows that
   page, not the tab that was active before.
 - A Tasks button in the top bar, beside New, Capture and Today.

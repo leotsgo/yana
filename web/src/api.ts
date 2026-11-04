@@ -2,6 +2,7 @@
 // access token and refreshes it once when it has expired.
 
 import { authFetch } from './auth'
+import type { GraphPayload } from './graph/model'
 
 export interface TreeNode {
   type: 'dir' | 'note'
@@ -647,6 +648,8 @@ export const api = {
   taskCount: () => get<{ count: number }>('/api/tasks?count=1'),
   tickTask: (note: string, line: number, done: boolean) =>
     post<{ ok: boolean; done: boolean }>('/api/tasks', { note, line, done }, 'PATCH'),
+  /** Every readable note and the links among them, for the graph view. */
+  graph: () => get<GraphPayload>('/api/graph'),
 }
 
 /** Builds the query string of an activity request, dropping empties. */

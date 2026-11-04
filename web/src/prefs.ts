@@ -8,6 +8,10 @@
 // made anywhere is announced through onChange so an open shell follows
 // the settings page without a reload.
 
+import type { ColorBy } from './graph/model'
+import { DEFAULT_FORCES, FORCE_RANGES } from './graph/protocol'
+import type { Forces } from './graph/protocol'
+
 export type Theme = 'light' | 'dark' | 'system'
 /** How a note opens: rendered, as source, or both side by side. */
 export type OpenMode = 'read' | 'edit' | 'split'
@@ -598,5 +602,60 @@ export function setDrawingView(id: string, v: DrawingView): void {
     localStorage.setItem(PREFIX + 'drawing.view.' + id, JSON.stringify(v))
   } catch {
     // Nothing to do; the view just does not persist.
+  }
+}
+
+// --- graph view ----------------------------------------------------------
+
+/** The graph view's filters, forces and panel, one JSON value per browser. */
+export interface GraphPrefs {
+  search: string
+  orphans: boolean
+  ghosts: boolean
+  tags: boolean
+  colorBy: ColorBy
+  forces: Forces
+  depth: number
+  localOpen: boolean
+  /** The filters panel; unset until toggled, open by default off the phone. */
+  panel?: boolean
+}
+
+export function graphPrefs(): GraphPrefs {
+  let v: Partial<Record<keyof GraphPrefs, unknown>> = {}
+  try {
+    const raw: unknown = JSON.parse(read('graph') ?? '{}')
+    if (raw && typeof raw === 'object') v = raw
+  } catch {
+    // Unreadable: the defaults.
+  }
+  const bool = (x: unknown, d: boolean) => (typeof x === 'boolean' ? x : d)
+  const f = (v.forces && typeof v.forces === 'object' ? v.forces : {}) as Record<string, unknown>
+  const forces = { ...DEFAULT_FORCES }
+  for (const k of Object.keys(FORCE_RANGES) as (keyof Forces)[]) {
+    const [min, max] = FORCE_RANGES[k]
+    const x = f[k]
+    if (typeof x === 'number' && Number.isFinite(x)) forces[k] = Math.min(max, Math.max(min, x))
+  }
+  const depth = v.depth
+  return {
+    search: typeof v.search === 'string' ? v.search : '',
+    orphans: bool(v.orphans, true),
+    ghosts: bool(v.ghosts, false),
+    tags: bool(v.tags, false),
+    colorBy: v.colorBy === 'space' || v.colorBy === 'folder' ? v.colorBy : 'none',
+    forces,
+    depth: typeof depth === 'number' && Number.isInteger(depth) && depth >= 1 && depth <= 3 ? depth : 1,
+    localOpen: bool(v.localOpen, false),
+    panel: typeof v.panel === 'boolean' ? v.panel : undefined,
+  }
+}
+
+/** Merges into the graph prefs; written quietly, a slider must not wake the shell. */
+export function setGraphPrefs(p: Partial<GraphPrefs>): void {
+  try {
+    localStorage.setItem(PREFIX + 'graph', JSON.stringify({ ...graphPrefs(), ...p }))
+  } catch {
+    // Nothing to do; the graph just forgets.
   }
 }

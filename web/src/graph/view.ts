@@ -13,6 +13,7 @@ export interface MountOptions {
   center?: string            // key kept labelled and highlighted (local graph)
   reducedMotion: boolean
   onOpen(node: ViewNode, newTab: boolean): void   // never called for ghosts
+  onError?(err: unknown): void // the worker failed to load or crashed
 }
 export interface GraphHandle { update(view: View): void; setForces(f: Forces): void; destroy(): void }
 
@@ -126,6 +127,16 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
     r.camera = { x: (x0 + x1) / 2, y: (y0 + y1) / 2, k: clampK(k) }
   }
 
+  // Keep the graph framed as it spreads, until it first settles; not under
+  // a held pointer, or a dragged node would slide away from it, and not in a
+  // host with no size yet (a hidden pane): that one fits once it has a size.
+  let settled = false
+  const fitIfDue = () => {
+    if (fitted || moved || gesture || !host.clientWidth || !host.clientHeight) return
+    fit()
+    if (settled && keys.length) fitted = true
+  }
+
   worker.onmessage = (e: MessageEvent<FromWorker>) => {
     // ponytail: a tick from before the last init is dropped only when the node
     // count changed; one of the same count shows for a frame. Add a generation
@@ -133,12 +144,12 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
     if (e.data.pos.length !== keys.length * 2) return
     pos = e.data.pos
     r.setPositions(pos)
-    // Keep the graph framed as it spreads, until it first settles; not under
-    // a held pointer, or a dragged node would slide away from it.
-    if (!fitted && !moved && !gesture) fit()
-    if (e.data.settled && keys.length) fitted = true
+    settled = e.data.settled
+    fitIfDue()
     redraw()
   }
+
+  worker.onerror = (e) => o.onError?.(e)
 
   // --- input ---------------------------------------------------------------
 
@@ -280,7 +291,7 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
 
   // --- environment ---------------------------------------------------------
 
-  const resize = new ResizeObserver(() => { r.resize(); redraw() })
+  const resize = new ResizeObserver(() => { r.resize(); fitIfDue(); redraw() })
   resize.observe(host)
 
   // The theme lives in <html data-theme> and, for "system", the media query.

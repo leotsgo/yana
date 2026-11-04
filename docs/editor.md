@@ -329,6 +329,54 @@ matches on tags too: type `#kiln` and the notes tagged kiln come up.
 Tags are not folders and do not move anything; a note's folder is where
 its file is.
 
+## Graph
+
+`/graph` (the sidebar's Graph link, or Graph view in the palette) draws
+every note you can read as a dot and every link between two notes as a
+line (`GET /api/graph`). A link counts once whichever way it points, and
+an embed counts like a link. A force layout spreads the dots and settles
+in a few seconds: notes that link to each other gather, a note with
+many links is a bigger dot with spokes, and notes with no links at all
+drift into a loose ring at the rim. Labels show when you zoom in, and
+always for the dot under the pointer and its neighbours. The layout runs
+in a worker and the drawing is WebGL; a browser without WebGL2 says so
+instead. With reduced motion asked for, the layout settles before it is
+drawn. The graph and its code load only when the page opens, and the
+page follows edits in your spaces: a change refetches the graph and the
+dots already placed stay where they are.
+
+The Filters button opens the panel at the top right (open by default on
+a desktop, closed on a phone):
+
+- **Search notes** keeps the notes whose title or path contains the text,
+  and the links among them; a folder path narrows to that folder.
+- **Orphans** shows the notes with no links (on by default).
+- **Unresolved links** adds a dim dot for each link target that does not
+  exist, joined to the notes linking to it (off by default).
+- **Tags** adds a dot for each tag, joined to the notes carrying it (off
+  by default).
+- **Colour by** colours the dots by space or by top folder (None by
+  default: one colour from the theme).
+- **Centre**, **Repel**, **Link strength** and **Link distance** tune the
+  layout, which moves as you drag them.
+
+On a desktop, hover a dot to light it and its neighbours; click it to
+open the note (Ctrl or Cmd, or the middle button, opens it in a new
+tab); drag it and its neighbours follow; drag the background to pan and
+use the wheel to zoom around the pointer. On a phone, one finger pans,
+two fingers pinch to zoom and dragging a dot pulls it; the first tap on
+a dot lights it and shows its name, a second tap opens it, and a tap on
+the background clears. A tag dot opens the tag's page; an unresolved
+link's dot only lights up.
+
+`/graph?note=<id>&depth=<1-3>` is a note's local graph: the note and
+the notes within that many links of it, either way, under the heading
+"Local graph — <title>" with a Depth slider. The filters apply after
+the walk.
+
+The filters, the forces, the depth and whether the panel is open are a
+preference of the browser: one JSON value under `yana.graph`.
+
 ## Tree actions
 
 Every row in the tree has actions: right-click, or the `⋯` that shows on
