@@ -6,7 +6,7 @@ import type { View } from './model.ts'
 /** screen = (world - camera) * k + size / 2, in CSS px. */
 export interface Camera { x: number; y: number; k: number }
 
-const EDGE_ALPHA = 0.35
+const EDGE_ALPHA = 0.15
 const DIM = 0.15
 const LABEL_MIN_PX = 8
 const LABEL_MAX = 300

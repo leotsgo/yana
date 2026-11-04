@@ -3,7 +3,9 @@
 
 export interface Forces { center: number; repel: number; link: number; distance: number }
 
-export const DEFAULT_FORCES: Forces = { center: 0.05, repel: 60, link: 1, distance: 40 }
+// Tuned on the 5,700-note fixture (scripts/graph-fixture.mjs): a round disc,
+// hubs in the middle with spokes, clusters as petals, orphans a ring outside.
+export const DEFAULT_FORCES: Forces = { center: 0.05, repel: 120, link: 1, distance: 30 }
 
 /** Slider bounds per force. */
 export const FORCE_RANGES: Record<keyof Forces, [min: number, max: number, step: number]> =

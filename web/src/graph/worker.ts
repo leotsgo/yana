@@ -30,10 +30,12 @@ function post(done: boolean) {
 
 function step() {
   if (!sim) return
+  const t = performance.now()
   sim.tick()
   settled = sim.alpha() < sim.alphaMin()
   post(settled)
-  if (!settled) timer = setTimeout(step, STEP_MS)
+  // At most one step per STEP_MS; a slow tick (a big vault) waits no more.
+  if (!settled) timer = setTimeout(step, Math.max(0, STEP_MS - (performance.now() - t)))
 }
 
 /** Start (or continue) the animated loop. */

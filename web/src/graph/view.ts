@@ -103,6 +103,7 @@ export function mountGraph(host: HTMLElement, o: MountOptions): GraphHandle {
     const focusKey = focus === null ? undefined : keys[focus]
     pos = carryPositions(keys, pos, nextKeys)
     keys = nextKeys
+    fitted = false // frame the new set as it settles, unless the person moved the camera
     view = next
     adj = adjacency(next)
     centerIdx = o.center === undefined ? -1 : nextKeys.indexOf(o.center)
