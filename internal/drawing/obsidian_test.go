@@ -86,7 +86,27 @@ func TestFromObsidianRejects(t *testing.T) {
 	if _, err := FromObsidian(obsidianFile("compressed-json", "!!!!")); err == nil {
 		t.Error("garbage compressed block: want error")
 	}
+	if _, err := FromObsidian(obsidianFile("json", `not json`)); err == nil {
+		t.Error("non-JSON scene: want error")
+	}
 	if _, err := FromObsidian(obsidianFile("json", `{"type":"other"}`)); err == nil {
 		t.Error("invalid scene: want error")
+	}
+}
+
+func TestDecompressFromBase64Wide(t *testing.T) {
+	const in = `N4IgLgngDgpiBcIYA8DGBDANgSwCYCd0B3EAGhADcZ8BnbAewDsEAmcmTGAWxkbBoQBtUHgTgWZcNDiIwKMJLnIFidAAJASYRqARmsC8G4AC9tYFPTQDTmawCgEa+gGtJ9fNgDm2RlgAq8seq27DJ8ytbSWwaABEOGDlcBAAzLBoYchxGO3hGAFdMTABfAF1ydCgoAGUwdDkEYBzyWOxOAXhqnKA`
+	const want = `{"type":"excalidraw","version":2,"elements":[{"id":"t2","type":"text","text":"a → b 🚀 日本 — ok","originalText":"a → b 🚀 日本 — ok","isDeleted":false,"link":null}],"appState":{},"files":{}}`
+	got, err := decompressFromBase64(in)
+	if err != nil || got != want {
+		t.Errorf("got %q, %v", got, err)
+	}
+}
+
+func TestDecompressFromBase64Cap(t *testing.T) {
+	defer func(n int) { maxDecodedUnits = n }(maxDecodedUnits)
+	maxDecodedUnits = 10
+	if _, err := decompressFromBase64(lzInput); err == nil {
+		t.Error("want error past the cap")
 	}
 }

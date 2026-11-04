@@ -46,6 +46,10 @@ func FromObsidian(content []byte) ([]byte, error) {
 	return append(bytes.Clone(head), Encode(scene)...), nil
 }
 
+// maxDecodedUnits caps the decoded UTF-16 units: a crafted stream can make
+// lz-string output grow quadratically. A var so a test can lower it.
+var maxDecodedUnits = 32 << 20
+
 const lzAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 
 // decompressFromBase64 is lz-string 1.5.0's decompressFromBase64. lz-string
@@ -130,6 +134,9 @@ func decompressFromBase64(s string) (string, error) {
 			entry = append(append([]uint16(nil), w...), w[0])
 		default:
 			return "", bad
+		}
+		if len(result)+len(entry) > maxDecodedUnits {
+			return "", errors.New("drawing: compressed-json data is too large")
 		}
 		result = append(result, entry...)
 		dict = append(dict, append(append([]uint16(nil), w...), entry[0]))
