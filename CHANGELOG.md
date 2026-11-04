@@ -13,7 +13,8 @@ under Unreleased until the next tag; see
   Catppuccin Latte, Frappé, Macchiato and Mocha, Gruvbox Light and Dark,
   Tokyo Night and Night Day, Rosé Pine and Dawn, Solarized Light and
   Dark, Nord, Dracula, One Dark, Everforest and Kanagawa beside Yana's
-  own. Add your own by pasting a theme as JSON; three colours are enough.
+  own. The owner adds more by pasting a theme as JSON (three colours are
+  enough); they are kept with the notes in `.yana/themes.json`.
 - A graph view of how the notes link together (sidebar, palette): every
   readable note as a dot and every link as a line, laid out by a live
   force simulation, with hubs, clusters and orphans plain to see. Hover

@@ -11,7 +11,7 @@
 import type { ColorBy } from './graph/model'
 import { DEFAULT_FORCES, FORCE_RANGES } from './graph/protocol'
 import type { Forces } from './graph/protocol'
-import { BUILTIN, TOKENS, YANA_DARK, YANA_LIGHT, themeVars } from './themes'
+import { BUILTIN, TOKENS, YANA_DARK, YANA_LIGHT, parseTheme, themeVars } from './themes'
 import type { Mode, ThemeDef } from './themes'
 
 export type Theme = 'light' | 'dark' | 'system'
@@ -85,6 +85,7 @@ export function setThemeFor(mode: Mode, id: string): void {
   applyTheme()
 }
 
+/** The owner's themes, as last fetched from .yana/themes.json. */
 export function customThemes(): ThemeDef[] {
   try {
     const v = JSON.parse(read('themes') ?? '[]') as ThemeDef[]
@@ -94,14 +95,13 @@ export function customThemes(): ThemeDef[] {
   }
 }
 
-/** Adds a theme, replacing one of the same id (a re-paste after an edit). */
-export function addTheme(def: ThemeDef): void {
-  write('themes', JSON.stringify([...customThemes().filter((d) => d.id !== def.id), def]))
-}
-
-export function removeTheme(id: string): void {
-  const rest = customThemes().filter((d) => d.id !== id)
-  write('themes', rest.length ? JSON.stringify(rest) : null)
+/**
+ * Keeps the server's theme list, each one checked as a pasted theme is,
+ * so a hand-edited file can only ever put hex colours on the page.
+ */
+export function setCustomThemes(list: unknown[]): void {
+  const defs = list.map((x) => parseTheme(JSON.stringify(x))).filter((d): d is ThemeDef => typeof d !== 'string')
+  write('themes', defs.length ? JSON.stringify(defs) : null)
   applyTheme()
 }
 

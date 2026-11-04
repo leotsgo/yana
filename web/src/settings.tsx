@@ -1718,7 +1718,26 @@ function OwnThemes() {
   usePrefs()
   const [text, setText] = useState('')
   const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
   const own = prefs.customThemes()
+  const owner = auth.user()?.is_owner ?? true
+
+  function save(list: ThemeDef[], pick?: ThemeDef): void {
+    setBusy(true)
+    api
+      .saveThemes(list.map(({ name, mode, colors }) => ({ name, mode, colors })))
+      .then((saved) => {
+        prefs.setCustomThemes(saved)
+        if (pick) {
+          if (prefs.theme() !== 'system') prefs.setTheme(pick.mode)
+          prefs.setThemeFor(pick.mode, pick.id)
+          setText('')
+        }
+        setMsg('')
+      })
+      .catch((err: unknown) => setMsg(err instanceof Error ? err.message : 'Could not save the themes.'))
+      .finally(() => setBusy(false))
+  }
 
   function add(): void {
     const def = parseTheme(text)
@@ -1726,11 +1745,7 @@ function OwnThemes() {
       setMsg(def)
       return
     }
-    prefs.addTheme(def)
-    if (prefs.theme() !== 'system') prefs.setTheme(def.mode)
-    prefs.setThemeFor(def.mode, def.id)
-    setText('')
-    setMsg('')
+    save([...own.filter((d) => d.id !== def.id), def], def)
   }
 
   function startFromCurrent(): void {
@@ -1743,42 +1758,50 @@ function OwnThemes() {
     <div class="theme-own">
       <span class="pref-label">Your themes</span>
       <p class="settings-lead">
-        Paste a theme as JSON: a name, a mode (light or dark) and hex colours. Only bg, ink and accent are needed; the
-        rest are mixed from them. Kept in this browser.
+        Kept with the notes in <code>.yana/themes.json</code>, so every device and account sees them.
+        {owner
+          ? ' Paste a theme as JSON: a name, a mode (light or dark) and hex colours. Only bg, ink and accent are needed; the rest are mixed from them.'
+          : ' The owner account adds them.'}
       </p>
       {own.length > 0 && (
         <ul class="theme-list">
-          {own.map((d: ThemeDef) => (
+          {own.map((d) => (
             <li key={d.id}>
               <span>
                 {d.name} <span class="pref-hint">{d.mode}</span>
               </span>
-              <button type="button" class="btn" onClick={() => prefs.removeTheme(d.id)}>
-                Remove
-              </button>
+              {owner && (
+                <button type="button" class="btn" disabled={busy} onClick={() => save(own.filter((o) => o.id !== d.id))}>
+                  Remove
+                </button>
+              )}
             </li>
           ))}
         </ul>
       )}
-      <textarea
-        class="input theme-paste"
-        spellcheck={false}
-        rows={8}
-        placeholder={'{\n  "name": "My theme",\n  "mode": "dark",\n  "colors": { "bg": "#1e1e2e", "ink": "#cdd6f4", "accent": "#cba6f7" }\n}'}
-        value={text}
-        onInput={(ev) => setText((ev.target as HTMLTextAreaElement).value)}
-      />
-      <p class="form-msg" role="status">
-        {msg}
-      </p>
-      <div class="form-actions">
-        <button type="button" class="btn primary" disabled={!text.trim()} onClick={add}>
-          Add theme
-        </button>
-        <button type="button" class="btn" onClick={startFromCurrent}>
-          Start from the current theme
-        </button>
-      </div>
+      {owner && (
+        <>
+          <textarea
+            class="input theme-paste"
+            spellcheck={false}
+            rows={8}
+            placeholder={'{\n  "name": "My theme",\n  "mode": "dark",\n  "colors": { "bg": "#1e1e2e", "ink": "#cdd6f4", "accent": "#cba6f7" }\n}'}
+            value={text}
+            onInput={(ev) => setText((ev.target as HTMLTextAreaElement).value)}
+          />
+          <p class="form-msg" role="status">
+            {msg}
+          </p>
+          <div class="form-actions">
+            <button type="button" class="btn primary" disabled={busy || !text.trim()} onClick={add}>
+              Add theme
+            </button>
+            <button type="button" class="btn" onClick={startFromCurrent}>
+              Start from the current theme
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

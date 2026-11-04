@@ -367,6 +367,11 @@ export function App({ onSignOut }: { onSignOut: () => void }) {
     [],
   )
 
+  // The owner's themes live with the notes; offline, the last list stays.
+  useEffect(() => {
+    api.themes().then(prefs.setCustomThemes, () => {})
+  }, [])
+
   // Back and forward: an entry made by a tab goes back to that tab, at
   // the note or page it showed then; one whose tab is closed opens again
   // (a note in the preview tab).

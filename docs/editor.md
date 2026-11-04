@@ -55,18 +55,22 @@ Light and dark follow the system unless picked in the account menu
 (top right) or on the Appearance page in settings. Each mode has its own
 colour theme, picked there from swatches: Yana's own, Catppuccin (Latte,
 Frappé, Macchiato, Mocha), Gruvbox, Tokyo Night, Rosé Pine, Solarized,
-Nord, Dracula, One Dark, Everforest and Kanagawa. Your themes adds more:
-paste JSON with a `name`, a `mode` (`light` or `dark`) and hex `colors`;
+Nord, Dracula, One Dark, Everforest and Kanagawa. Your themes adds more,
+for every account and device: they are kept with the notes in
+`.yana/themes.json` at the notes root (out of the tree, in the git
+history), a JSON list the owner fills from settings or by hand. Each
+theme has a `name`, a `mode` (`light` or `dark`) and hex `colors`;
 only `bg`, `ink` and `accent` are needed and the other tokens (`bg-2`,
 `bg-3`, `ink-2`, `ink-3`, `line`, `line-2`, `accent-ink`, `accent-soft`,
 `accent-text`, `mark`, `danger`, `danger-soft`, `ok`, `code-kw`,
 `code-str`, `code-fn`, `code-num`) are mixed from them unless given.
 "Start from the current theme" fills the box with the theme on screen,
-every token spelled out, to edit. Drawings and diagrams follow the mode,
+every token spelled out, to edit. A theme in the file that does not
+check out (a missing colour, one that is not hex) is left out. Drawings and diagrams follow the mode,
 light or dark, not the theme's colours. The Appearance page also sets the
 text size (small, normal, large), the line width (narrow, normal, wide),
 whether the text is centered, the mode notes open in, the hide-syntax switch, and the sidebar density.
-Those, the themes, the sidebar state, what the tree has open, the open tabs, the display name, the default spaces and the
+Those, the theme picked for each mode, the sidebar state, what the tree has open, the open tabs, the display name, the default spaces and the
 recently opened notes are kept per browser in `localStorage` under
 `yana.*`; nothing else is stored there. Everything in `prefs.ts` reads
 the same keys, so a preference set in settings is what the shell and the

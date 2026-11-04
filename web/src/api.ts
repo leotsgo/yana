@@ -650,6 +650,9 @@ export const api = {
     post<{ ok: boolean; done: boolean }>('/api/tasks', { note, line, done }, 'PATCH'),
   /** Every readable note and the links among them, for the graph view. */
   graph: () => get<GraphPayload>('/api/graph'),
+  /** The owner's colour themes, kept in .yana/themes.json with the notes. */
+  themes: () => get<unknown[]>('/api/themes'),
+  saveThemes: (list: unknown[]) => post<unknown[]>('/api/themes', list, 'PUT'),
 }
 
 /** Builds the query string of an activity request, dropping empties. */
