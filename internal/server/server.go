@@ -176,6 +176,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/guide", s.authed(s.handleGuide))
 	s.mux.HandleFunc("POST /api/render", s.authed(s.handleRender))
 	s.mux.HandleFunc("GET /api/notes/{id}/backlinks", s.authed(s.handleBacklinks))
+	s.mux.HandleFunc("GET /api/graph", s.authed(s.handleGraph))
 	s.mux.HandleFunc("GET /api/links/unresolved", s.authed(s.handleUnresolvedLinks))
 	s.mux.HandleFunc("POST /api/notes/{id}/move", s.authed(s.handleMove))
 	s.mux.HandleFunc("DELETE /api/notes/{id}", s.authed(s.handleDeleteNote))

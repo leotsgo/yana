@@ -21,6 +21,28 @@ const tickAuthor = "user:tasks"
 // taskDoneWindow is how far back the "show done" listing reaches.
 const taskDoneWindow = 30 * 24 * time.Hour
 
+// readableSpaces is the spaces the caller may read, for endpoints that
+// span them: nil means every space (open mode, or an all-spaces role),
+// and a caller with no spaces gets a sentinel that matches nothing.
+// On failure it has already answered and ok is false.
+func (s *Server) readableSpaces(w http.ResponseWriter, r *http.Request) (allowed []string, ok bool) {
+	if s.open() {
+		return nil, true
+	}
+	member, isAll, err := s.Auth.MemberSpaces(r.Context(), s.ident(r))
+	if err != nil {
+		s.fail(w, r, err)
+		return nil, false
+	}
+	if isAll {
+		return nil, true
+	}
+	if len(member) == 0 {
+		return []string{""}, true // matches nothing
+	}
+	return member, true
+}
+
 // handleTasksGet answers the tasks page: open tasks by default,
 // completed ones for the last 30 days with done=true. Filters: space,
 // tag, path (a folder inside a space). With count=1 it answers only the
@@ -38,18 +60,8 @@ func (s *Server) handleTasksGet(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			allowed = []string{space}
-		} else {
-			member, isAll, err := s.Auth.MemberSpaces(r.Context(), s.ident(r))
-			if err != nil {
-				s.fail(w, r, err)
-				return
-			}
-			if !isAll {
-				allowed = member
-				if len(allowed) == 0 {
-					allowed = []string{""} // matches nothing
-				}
-			}
+		} else if allowed, ok = s.readableSpaces(w, r); !ok {
+			return
 		}
 	}
 	if q.Get("count") != "" {
