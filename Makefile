@@ -25,7 +25,7 @@ lint:
 
 ## run: build and serve ./notes on :8080
 run: build
-	YANA_NOTES_ROOT=./notes ./yana
+	YANA_NOTES_ROOT=./notes ./yana serve
 
 ## docker: build the container image
 docker:

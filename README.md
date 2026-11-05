@@ -215,7 +215,7 @@ Details in [docs/agents.md](docs/agents.md).
 ## Quick start
 
 ```sh
-git clone https://github.com/madeofpendletonwool/yana && cd yana
+git clone https://github.com/leotsgo/yana && cd yana
 mkdir notes
 docker compose up -d
 ```

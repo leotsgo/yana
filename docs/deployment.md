@@ -9,7 +9,7 @@ and your responsibility.
 The repository's `docker-compose.yml` is the reference deployment:
 
 ```sh
-git clone https://github.com/madeofpendletonwool/yana && cd yana
+git clone https://github.com/leotsgo/yana && cd yana
 mkdir notes                 # or point YANA_DATA at an existing folder
 cp .env.example .env        # optional; every key has a default
 docker compose up -d
