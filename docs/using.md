@@ -122,7 +122,7 @@ Shortcuts from the shell land straight in neovim:
 
 | Command | Opens |
 |---|---|
-| `yana` | the buffers you left open last time, else the spaces |
+| `yana` | the buffers you left open last time, else the default space or the spaces |
 | `yana today`, `yesterday`, `tomorrow`, `yana 2026-11-04` | that day's note, made if needed (with text, or a pipe, they append instead) |
 | `yana new [--space s] <name>` | a new note in the folder for new notes (Settings → Defaults), or in `--space`; a name with `/` is a path |
 | `yana open <path or title>`, or just `yana <path or title>` | that note; several notes with that title open the picker on it |
@@ -172,7 +172,7 @@ In a folder listing (all buffer-local, `g?` shows them):
 |---|---|
 | `Enter` | open the folder or note |
 | `-` | up a folder (in a note: the folder it is in) |
-| `_` | the spaces |
+| `_` | the default space, else the spaces |
 | `Ctrl-p` | toggle a preview of the entry under the cursor |
 | `g?` | help |
 
@@ -192,7 +192,7 @@ in the usual setup), replacing your own for that session:
 The pickers use telescope, with a preview of each note, when it is
 installed, else `vim.ui.select`.
 
-`:Yana` opens the spaces; `:Yana {today|yesterday|tomorrow|new
+`:Yana` opens the default space, else the spaces; `:Yana {today|yesterday|tomorrow|new
 <name>|mkdir <name>|find|grep|recent|open <path>|whoami|logout|help}`
 does the rest, with completion. A session `yana` launched has short
 forms too: `:Today`, `:Yesterday`, `:Tomorrow`, `:New <name>`,
@@ -211,10 +211,12 @@ require('yana').setup {
   keys = { find = '<leader>sf', grep = '<leader>sg', recent = '<leader><leader>' },
   picker = 'auto', -- 'telescope', 'select' or 'auto'
   live = true,     -- refresh unmodified notes changed elsewhere
+  space = nil,     -- the space yana opens in, like 'notes', instead of the spaces
 }
 ```
 
-A key set to `false` is left to your config. `YANA_NVIM` names another
+With `space` set, `yana`, `:Yana` and `_` open that space; `-` from its
+top still lists the others. A key set to `false` is left to your config. `YANA_NVIM` names another
 neovim binary.
 
 ### In your own neovim

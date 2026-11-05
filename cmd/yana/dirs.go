@@ -81,6 +81,7 @@ const defaultInit = `-- Sourced after the yana plugin when yana launches neovim.
 --   },
 --   picker = 'auto',           -- 'telescope', 'select' (vim.ui.select) or 'auto'
 --   live = true,               -- refresh unmodified notes changed elsewhere
+--   space = nil,               -- the space yana opens in, like 'notes', instead of the spaces
 -- }
 `
 

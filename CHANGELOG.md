@@ -9,6 +9,9 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- `require('yana').setup { space = 'notes' }` in `~/.config/yana/init.lua`
+  makes `yana`, `:Yana` and `_` open that space instead of the list of
+  spaces.
 - `yana` at a terminal is your own neovim with a yana plugin: folders as
   editable oil-style listings, notes whose `:w` merges, live updates,
   `<leader>sf`/`sg` pickers, one `:q` to leave; shell shortcuts (`yana

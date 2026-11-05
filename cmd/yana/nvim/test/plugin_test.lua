@@ -343,6 +343,16 @@ test('the next launch reopens the open buffers, where they were', function()
   eq(vim.api.nvim_buf_get_name(0), 'yana://' .. host .. '/home/lua/a2.md', 'opened note is current')
 end)
 
+test('a default space is where yana opens', function()
+  yana.setup({ space = 'home' })
+  yana.command({ args = '' })
+  vim.wait(5000, function()
+    return vim.api.nvim_buf_get_name(0) == 'yana://' .. host .. '/home/'
+  end)
+  eq(vim.api.nvim_buf_get_name(0), 'yana://' .. host .. '/home/', ':Yana opens the space')
+  yana.config.space = nil
+end)
+
 if failures > 0 then
   print(failures .. ' failed')
   vim.cmd.cquit(1)

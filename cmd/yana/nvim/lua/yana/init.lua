@@ -14,6 +14,7 @@ M.config = {
   global_keys = nil,
   picker = 'auto', -- 'telescope', 'select' or 'auto'
   live = true, -- refresh unmodified notes changed elsewhere
+  space = nil, -- the space yana opens in, instead of the list of spaces
 }
 
 function M.setup(opts)
@@ -126,6 +127,11 @@ function M.parse(name)
   end
   local dir = path == '' or path:sub(-1) == '/'
   return { host = host, path = (path:gsub('/+$', '')), dir = dir }
+end
+
+--- Where yana starts: the default space when one is set, else the spaces.
+function M.home()
+  return M.name(M.config.space or '', true)
 end
 
 --- Edit a yana:// name; focus is a path for the cursor in a listing.
@@ -485,9 +491,9 @@ M.subcommands = {
 function M.command(opts)
   local sub, arg = (opts.args or ''):match('^%s*(%S*)%s*(.-)%s*$')
   if sub == '' then
-    -- :Yana alone: the spaces, after the tree is known (for the host).
+    -- :Yana alone: home, after the tree is known (for the host).
     return M.with_tree(function()
-      M.edit(M.name('', true))
+      M.edit(M.home())
     end)
   end
   local f = M.subcommands[sub]
@@ -568,8 +574,8 @@ function M.launch(opts)
   local target = saved.current
   if opts.open then
     target = M.name(opts.open)
-  elseif not target or not vim.startswith(target, prefix) then
-    target = M.name('', true)
+  elseif not target or not vim.startswith(target, prefix) or target == prefix then
+    target = M.home()
   end
   M.edit(target)
   -- The empty buffer neovim started with is not left behind in the list.
