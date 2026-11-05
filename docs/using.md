@@ -180,7 +180,11 @@ keys:
 A file that does not parse, or names an unknown action or key, is
 reported in the status line and the defaults are used. Recently opened
 notes and command history are kept in `~/.local/state/yana` (or under
-`$XDG_STATE_HOME`).
+`$XDG_STATE_HOME`), and so is where you left off: `yana` opens again in
+the same folder, on the same note, with the preview as it was, one place
+per server. A note being edited sits at a fixed path (under
+`$XDG_RUNTIME_DIR/yana`, else the state dir) while the editor has it, so
+vim and neovim open it again at the line you left.
 
 ## Find things
 

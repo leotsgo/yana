@@ -207,7 +207,9 @@ func startEdit(s *session, note entry, at func(string) int) (*editSession, *exec
 	default:
 		return nil, nil, fmt.Errorf("%s is a %s; open it in the app: %s", note.Path, note.Kind, noteURL(s, note.ID))
 	}
-	dir, err := os.MkdirTemp("", "yana-")
+	// One fixed place per note, so the editor's own memory of a file (the
+	// last cursor position in vim's shada) finds it again next time.
+	dir, err := editDir(note.ID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -229,6 +231,24 @@ func startEdit(s *session, note entry, at func(string) int) (*editSession, *exec
 		go es.watch()
 	}
 	return es, cmd, nil
+}
+
+// editDir is where a note's text sits while the editor has it: under
+// $XDG_RUNTIME_DIR when there is one, else under the state dir, both
+// readable by the user only. It goes when the editor closes.
+func editDir(id string) (string, error) {
+	base := ""
+	if d := os.Getenv("XDG_RUNTIME_DIR"); filepath.IsAbs(d) {
+		base = filepath.Join(d, "yana")
+	} else {
+		d, err := stateDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(d, "editing")
+	}
+	dir := filepath.Join(base, id)
+	return dir, os.MkdirAll(dir, 0o700)
 }
 
 // configuredEditor is the config file's editor, which wins over the
@@ -254,6 +274,9 @@ func editorCmd(file string, line int, readOnly bool) *exec.Cmd {
 	var args []string
 	if line > 0 && (vimlike || name == "nano" || name == "emacs") {
 		args = append(args, fmt.Sprintf("+%d", line))
+	} else if vimlike {
+		// Back where the note was left, when vim remembers it.
+		args = append(args, "-c", "silent! normal! g`\"")
 	}
 	if readOnly && vimlike {
 		args = append(args, "-R")

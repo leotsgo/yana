@@ -6,6 +6,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"path"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -32,9 +34,11 @@ func browseMain() error {
 		return fmt.Errorf("%w (yana serve runs the server)", err)
 	}
 	m := newModel(s)
+	m.restoreView()
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		return err
 	}
+	m.saveView()
 	if m.logout {
 		return logout()
 	}
@@ -329,6 +333,52 @@ func loadHistory() []string {
 	return strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
 }
 
+// view is where the browser was left on one server: the folder, the
+// item under the cursor and whether the preview was open. The next yana
+// opens there.
+type view struct {
+	Dir      string `json:"dir"`
+	Selected string `json:"selected"`
+	Preview  bool   `json:"preview"`
+}
+
+// loadViews reads the state dir's views, one per server.
+func loadViews() map[string]view {
+	views := map[string]view{}
+	if p, err := statePath("views.json"); err == nil {
+		if raw, err := os.ReadFile(p); err == nil {
+			_ = json.Unmarshal(raw, &views)
+		}
+	}
+	return views
+}
+
+func (m *model) restoreView() {
+	v, ok := loadViews()[m.s.Server]
+	if !ok {
+		return
+	}
+	m.dir, m.focus, m.preview = v.Dir, v.Selected, v.Preview
+}
+
+func (m *model) saveView() {
+	if m.logout {
+		return
+	}
+	views := loadViews()
+	v := view{Dir: m.dir, Preview: m.preview}
+	if e, ok := m.selected(); ok {
+		v.Selected = e.Path
+	}
+	views[m.s.Server] = v
+	p, err := statePath("views.json")
+	if err != nil {
+		return
+	}
+	raw, _ := json.MarshalIndent(views, "", "  ")
+	_ = os.WriteFile(p, raw, 0o600)
+}
+
 func (m *model) remember(line string) {
 	if line == "" || (len(m.hist) > 0 && m.hist[len(m.hist)-1] == line) {
 		return
@@ -580,6 +630,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.all = msg.all
+		if m.dir != "" && !slices.ContainsFunc(m.all, func(e entry) bool { return e.Dir && e.Path == m.dir }) {
+			m.dir = "" // the folder left last time is gone
+		}
 		if m.focus != "" {
 			m.focusOn(m.focus)
 			m.focus = ""

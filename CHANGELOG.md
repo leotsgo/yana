@@ -9,6 +9,9 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- `yana` opens where you left it: the same folder, the same note under
+  the cursor, the preview as it was; and neovim reopens a note at the
+  line you left.
 - `yana` at a terminal browses your notes like oil.nvim and telescope
   (find by name, live full-text search, recent notes, a `:` command line
   with completion, keys set in `~/.config/yana/config.yaml`), and opens
