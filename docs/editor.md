@@ -383,8 +383,8 @@ lands the same `- text` through `POST /api/notes/{id}/append`, which
 adds text at the end of a markdown note on its own line, through the
 document, for any account that may write to the note's space.
 
-`yana open` and the terminal browser ([using.md](using.md#from-a-terminal))
-edit a markdown note through `GET /api/notes/{id}/text`, which answers
+The neovim plugin `yana` launches ([using.md](using.md#from-a-terminal))
+edits a markdown note through `GET /api/notes/{id}/text`, which answers
 `{id, path, role, text, base}`: the body without frontmatter and, in
 `base`, the document state (base64) it was read from. `PUT` to the same
 path with `{base, text}` diffs the text against that base, not against

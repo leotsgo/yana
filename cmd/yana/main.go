@@ -1,18 +1,6 @@
-// Command yana runs the notes server, and is its client from a shell.
-//
-//	yana            browse the signed-in server when stdin is a terminal,
-//	                serve otherwise (containers, services)
-//	yana serve      serve
-//	yana scan       rebuild the index once and exit
-//	yana version    print the version
-//	yana drawings convert [--apply]
-//	                convert Obsidian Excalidraw files in place
-//	yana login | logout | whoami | today "text"
-//	                use a yana server from the shell (client.go)
-//	yana browse | b browse its notes in a TUI (browse.go)
-//	yana open <path or id>
-//	                edit one note in $EDITOR (notes.go)
-//	yana config     where the CLI's config file goes, and its defaults
+// Command yana runs the notes server, and is its client from a shell:
+// at a terminal, yana is neovim on the signed-in server (nvim.go). See
+// usage below for every command.
 //
 // Configuration comes from YANA_* environment variables and an optional
 // YAML file named by YANA_CONFIG. See docs/deployment.md.
@@ -26,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -49,29 +38,151 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
+// commands are the commands yana takes, in the order usage lists them;
+// shell completion offers them with their help.
+var commands = []struct{ name, args, help string }{
+	{"login", "[server]", "sign in; the session is kept in ~/.config/yana"},
+	{"logout", "", "end the session"},
+	{"whoami", "", "the server and account signed in"},
+	{"today", "[--space s] [text]", "open today's note, or append text to it (- reads stdin)"},
+	{"yesterday", "[--space s] [text]", "the same for yesterday"},
+	{"tomorrow", "[--space s] [text]", "the same for tomorrow"},
+	{"new", "[--space s] <name>", "make a note where new notes go and open it"},
+	{"open", "<path|title>", "open a note"},
+	{"find", "[query]", "open the note picker"},
+	{"grep", "[query]", "open the full-text search"},
+	{"recent", "", "open the recently opened notes"},
+	{"config", "", "where init.lua goes, and its defaults"},
+	{"completion", "bash|zsh", "print the shell completion script"},
+	{"serve", "", "run the server (bare yana does, without a terminal)"},
+	{"scan", "", "rebuild the index once and exit"},
+	{"version", "", "print the version"},
+	{"drawings", "convert [--apply]", "convert Obsidian Excalidraw files in place"},
+}
+
+func usage() string {
+	var b strings.Builder
+	b.WriteString("usage: yana [command] [args]\n\n" +
+		"  (none)                          at a terminal, neovim on the signed-in server; else serve\n")
+	for _, c := range commands {
+		fmt.Fprintf(&b, "  %-32s%s\n", strings.TrimSpace(c.name+" "+c.args), c.help)
+	}
+	b.WriteString("  YYYY-MM-DD [text]               that day's note, like today\n" +
+		"  <path|title>                    open that note (yana open, when it is not a command)\n" +
+		"\nSee docs/using.md.\n")
+	return b.String()
+}
+
+// dayArg reads a command-line word as a day: today, yesterday, tomorrow
+// or YYYY-MM-DD.
+func dayArg(word string, now time.Time) (time.Time, bool) {
+	switch word {
+	case "today":
+		return now, true
+	case "yesterday":
+		return now.AddDate(0, 0, -1), true
+	case "tomorrow":
+		return now.AddDate(0, 0, 1), true
+	}
+	if d, err := time.ParseInLocation("2006-01-02", word, now.Location()); err == nil {
+		return d, true
+	}
+	return time.Time{}, false
+}
+
+// classify says what yana's first argument is: a day ("day"), one of
+// the commands or a hidden one ("command"), else a note to open ("note").
+func classify(arg string, now time.Time) (string, time.Time) {
+	if d, ok := dayArg(arg, now); ok {
+		return "day", d
+	}
+	switch arg {
+	case "api", "__complete", "browse", "b", "help", "-h", "--help", "-v", "--version":
+		return "command", time.Time{}
+	}
+	for _, c := range commands {
+		if c.name == arg {
+			return "command", time.Time{}
+		}
+	}
+	return "note", time.Time{}
+}
+
 func main() {
-	// Bare yana is the TUI for a person at a terminal; a container or a
-	// service has no terminal on stdin and gets the server, as it always did.
+	args := os.Args[1:]
+	tty := term.IsTerminal(int(os.Stdin.Fd()))
 	cmd := "serve"
-	if len(os.Args) > 1 {
-		cmd = os.Args[1]
-	} else if term.IsTerminal(int(os.Stdin.Fd())) {
+	if len(args) > 0 {
+		cmd = args[0]
+	} else if tty {
+		// Bare yana is neovim for a person at a terminal; a container or a
+		// service has no terminal on stdin and gets the server, as it always did.
 		cmd = "browse"
 	}
-	switch cmd {
-	case "version", "-v", "--version":
-		fmt.Println("yana " + version)
-		return
-	case "drawings":
-		os.Exit(drawingsMain(os.Args[2:]))
-	case "login", "logout", "whoami", "today", "open", "browse", "b", "config":
-		os.Exit(clientMain(cmd, os.Args[min(2, len(os.Args)):]))
-	case "serve", "scan":
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q (use serve, scan, drawings, login, logout, whoami, today, browse, open, config, or version)\n", cmd)
+	rest := args[min(1, len(args)):]
+	kind, day := classify(cmd, time.Now())
+	var err error
+	switch {
+	case kind == "day":
+		err = dayMain(day, rest)
+	case kind == "note" && tty:
+		err = openMain(strings.Join(args, " "))
+	case kind == "note":
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage())
 		os.Exit(2)
+	default:
+		switch cmd {
+		case "version", "-v", "--version":
+			fmt.Println("yana " + version)
+			return
+		case "help", "-h", "--help":
+			fmt.Print(usage())
+			return
+		case "drawings":
+			os.Exit(drawingsMain(rest))
+		case "api":
+			os.Exit(apiMain(rest, os.Stdin, os.Stdout))
+		case "__complete":
+			completeMain(rest, os.Stdout)
+			return
+		case "completion":
+			err = completionMain(rest, os.Stdout)
+		case "login":
+			err = login(rest)
+		case "logout":
+			err = logout()
+		case "whoami":
+			err = whoami()
+		case "config":
+			err = configMain()
+		case "open":
+			if len(rest) == 0 {
+				err = errors.New("usage: yana open <path or title>")
+			} else {
+				err = openMain(strings.Join(rest, " "))
+			}
+		case "new":
+			err = newMain(rest)
+		case "find":
+			err = pickerMain("sf", rest)
+		case "grep":
+			err = pickerMain("sg", rest)
+		case "recent":
+			err = pickerMain("recent", rest)
+		case "browse", "b":
+			err = pickerMain("", nil)
+		case "serve", "scan":
+			serveMain(cmd)
+			return
+		}
 	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "yana:", err)
+		os.Exit(1)
+	}
+}
 
+func serveMain(cmd string) {
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "config:", err)

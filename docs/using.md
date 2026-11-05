@@ -106,85 +106,145 @@ and keeps the session in `~/.config/yana/session.json`, readable by you
 only), then `yana today "call the bank"` adds `- call the bank` to
 today's note. `yana today -` (or a pipe) reads the lines from stdin;
 `--space` picks a space other than the one set under Settings →
-Defaults. `yana whoami` and `yana logout` do what they say.
+Defaults; `yana yesterday` and `yana tomorrow` take text the same way.
+`yana today` with no text opens the note in neovim (below). `yana
+whoami` and `yana logout` do what they say.
 
 ## From a terminal
 
-Once signed in, `yana` on its own (or `yana browse`, `yana b`) opens a
-full-screen browser over your notes that works like oil.nvim and
-telescope. `yana open home/kiln` (a path, with or without `.md`, or a
-note id) skips the browser and edits one note. Run with no terminal on
-stdin, as in a container or a service, `yana` serves instead; `yana
-serve` always does.
+Once signed in, `yana` on its own is neovim: your own `nvim`, with your
+config, plugins, telescope and motions, plus a yana plugin that shows
+the notes on the server. One `:q` (or `:qa`) quits it and you are back
+at the shell. Run with no terminal on stdin, as in a container or a
+service, `yana` serves instead; `yana serve` always does.
 
-A note opens in your editor: `editor` in the config file, else
-`$VISUAL`, else `$EDITOR`, else `nvim`. It edits the note's body (the
-frontmatter stays on the server) in a private temp file named after the
-note, and every `:w` is sent to the server as it happens and merged with
-whatever changed there since you opened it, so someone typing in the app
-or an agent appending meanwhile keeps their text. Quitting without
-changes writes nothing. A note in a space where you are a viewer opens
-read-only. HTML notes edit their source; drawings open in the browser.
-If a save fails, the temp file stays and the message says where.
+Shortcuts from the shell land straight in neovim:
 
-The listing is one folder at a time; spaces are the top, folders end in
-`/`, and each folder remembers where the cursor was. The default keys
-(`<leader>` is space):
+| Command | Opens |
+|---|---|
+| `yana` | the buffers you left open last time, else the spaces |
+| `yana today`, `yesterday`, `tomorrow`, `yana 2026-11-04` | that day's note, made if needed (with text, or a pipe, they append instead) |
+| `yana new [--space s] <name>` | a new note in the folder for new notes (Settings → Defaults), or in `--space`; a name with `/` is a path |
+| `yana open <path or title>`, or just `yana <path or title>` | that note; several notes with that title open the picker on it |
+| `yana find [query]`, `yana grep [query]` | the note picker or the full-text search, typed in already |
+| `yana recent` | recently opened notes |
+| `yana completion bash\|zsh` | prints shell completion (below) |
+
+A shortcut that names a note opens it next to the restored buffers and
+makes it current.
+
+### Buffers
+
+Everything is a `yana://<server>/…` buffer. A folder,
+`yana://host/home/Projects/`, lists its folders (ending in `/`) and
+notes one per line, like oil.nvim; the top, `yana://host/`, lists the
+spaces. Edit the listing as text and `:w`: change a name to rename or
+move it (a name with `/` moves it into that folder), add a line to make
+a note (end it in `/` for a folder), delete a line to send it to the
+trash. yana lists what it is about to do and asks before doing it; say
+no and the listing keeps your edits. Each line starts with a hidden id,
+which is how a rename is told from a delete and a create; leave it be.
+
+A note, `yana://host/home/kiln.md`, is its text (the frontmatter stays
+on the server). `:w` merges your text with whatever changed on the
+server since you opened it, so someone typing in the app or an agent
+appending meanwhile keeps their text, and when that brought something
+in the buffer shows the merged text and says `merged 1 change from
+elsewhere`. The save runs in the background, so `:w` and `:wq` never
+wait on the network; if it fails the buffer is marked modified again
+and the message says why, and quitting waits for a save still running,
+so a failed one stops the quit instead of losing the text. While a note
+is open and unmodified, edits made elsewhere show up in it as they
+happen; a buffer you are changing is never overwritten. A note in a
+space where you are a viewer opens read-only. HTML notes edit their
+source; drawings open in the browser. `:e yana://host/home/new.md` on a
+note that is not there makes it on the first `:w`.
+
+When you quit, yana remembers the yana buffers you had open, which one
+was current and where the cursor was in each, per server, in
+`~/.local/state/yana/nvim.json`; the next `yana` reopens them.
+
+### Keys and commands
+
+In a folder listing (all buffer-local, `g?` shows them):
 
 | Keys | Does |
 |---|---|
-| `j` `k` `↓` `↑`, `gg` `G`, `Ctrl-d` `Ctrl-u` | move |
-| `Enter` `l` | open the folder or note |
-| `-` `h` `Backspace` | up a folder; `_` goes to the top |
-| `/` then `n` `N` | search the listing |
-| `o` `a` | new note here; a name ending in `/` makes a folder |
-| `r` `cw` | rename or move (edit the whole path) |
-| `dd` | delete to the trash, after a y/n |
-| `Ctrl-p` | preview pane |
-| `<leader>sf` | find notes by path or title |
+| `Enter` | open the folder or note |
+| `-` | up a folder (in a note: the folder it is in) |
+| `_` | the spaces |
+| `Ctrl-p` | toggle a preview of the entry under the cursor |
+| `g?` | help |
+
+In a note, `gf` or `Enter` on a `[[wikilink]]` opens the note it names,
+resolved the way the server does (within the note's space); elsewhere
+they do what they always do.
+
+In a session `yana` launched, these are global (leader is yours, space
+in the usual setup), replacing your own for that session:
+
+| Keys | Does |
+|---|---|
+| `<leader>sf` | find notes by path or title; `today`, `yesterday`, `tomorrow` or `2026-11-04` offers that daily note first (made when opened), `#tag` keeps notes with that tag, a leading `space/` stays in one space |
 | `<leader>sg` | full-text search as you type; opens on the matching line |
 | `<leader><leader>` | recently opened notes |
-| `g?` | help; `q` or `:q` quits |
 
-In a picker, type to filter, move with the arrows, `Ctrl-n` `Ctrl-p` or
-`Ctrl-j` `Ctrl-k`, open with `Enter`, close with `Esc`. Find notes also
-reads `today`, `yesterday`, `tomorrow` or a date like `2026-11-04` (the
-daily note comes first, marked ◆, and opening it makes it if needed,
-in the same place `yana today` writes), `#tag` to keep notes with that
-tag, and a leading `space/` to stay in one space.
+The pickers use telescope, with a preview of each note, when it is
+installed, else `vim.ui.select`.
 
-`:` opens a command line with a completion menu: Tab and Shift-Tab (or
-`Ctrl-n` `Ctrl-p`) go through it, `↑` `↓` recall earlier commands.
-Commands: `:e <path>` (makes the note, after asking, when it is not
-there), `:today`, `:yesterday`, `:tomorrow`, `:new <name>`,
-`:mkdir <name>`, `:cd <folder>`, `:rename <new>` and `:delete` (on the
-item under the cursor), `:sf [query]`, `:sg [query]`, `:recent`,
-`:preview`, `:help`, `:map` (the keys in force), `:whoami`, `:logout`,
-`:q`.
+`:Yana` opens the spaces; `:Yana {today|yesterday|tomorrow|new
+<name>|mkdir <name>|find|grep|recent|open <path>|whoami|logout|help}`
+does the rest, with completion. A session `yana` launched has short
+forms too: `:Today`, `:Yesterday`, `:Tomorrow`, `:New <name>`,
+`:Mkdir <name>`, `:Sf`, `:Sg`, `:Recent`, `:Whoami`, `:Logout`. `:New`
+and `:Mkdir` work in the folder of the buffer you are in.
 
-Keys and the editor are set in `~/.config/yana/config.yaml` (or under
-`$XDG_CONFIG_HOME`), on macOS too. The file is optional and only what
-it names changes; `yana config` prints its path and the defaults to
-copy from. Keys are in vim notation (`<leader>`, `<C-p>`, `<CR>`,
-`<Esc>`, `<Space>`, `<BS>`, sequences like `gg`), and an action's list
-replaces its defaults:
+### Config
 
-```yaml
-leader: " "
-editor: nvim
-keys:
-  parent: ["-", "h", "<BS>"]
-  find_notes: ["<leader>sf", "<C-f>"]
+`~/.config/yana/init.lua` (or under `$XDG_CONFIG_HOME`), when it exists,
+runs after the plugin in a session `yana` launched; your own neovim
+config loads first, as always. `yana config` prints its path and the
+defaults:
+
+```lua
+require('yana').setup {
+  keys = { find = '<leader>sf', grep = '<leader>sg', recent = '<leader><leader>' },
+  picker = 'auto', -- 'telescope', 'select' or 'auto'
+  live = true,     -- refresh unmodified notes changed elsewhere
+}
 ```
 
-A file that does not parse, or names an unknown action or key, is
-reported in the status line and the defaults are used. Recently opened
-notes and command history are kept in `~/.local/state/yana` (or under
-`$XDG_STATE_HOME`), and so is where you left off: `yana` opens again in
-the same folder, on the same note, with the preview as it was, one place
-per server. A note being edited sits at a fixed path (under
-`$XDG_RUNTIME_DIR/yana`, else the state dir) while the editor has it, so
-vim and neovim open it again at the line you left.
+A key set to `false` is left to your config. `YANA_NVIM` names another
+neovim binary.
+
+### In your own neovim
+
+The plugin can live in your everyday neovim too. `yana` writes it to
+`~/.local/share/yana/nvim` (or under `$XDG_DATA_HOME`) each time it
+starts, so point your plugin manager there; with lazy.nvim:
+
+```lua
+{ dir = vim.fn.expand '~/.local/share/yana/nvim', lazy = false } -- it only defines :Yana and the yana:// autocmds until used
+```
+
+Then `:Yana` opens the spaces and `:Telescope yana find` (or `grep`,
+`recent`) the pickers. It sets no global keys there unless you ask:
+`require('yana').setup { global_keys = true }`. The plugin never sees
+your token: it runs `yana api …`, which reads the session that
+`yana login` keeps, so `yana` has to be on your `PATH`.
+
+### Shell completion
+
+```sh
+source <(yana completion bash)   # in ~/.bashrc
+source <(yana completion zsh)    # in ~/.zshrc, after compinit
+```
+
+or save `yana completion zsh` as `_yana` in a directory on `$fpath`.
+It completes the commands (with descriptions in zsh), `--space` and the
+space names after it, and note paths after `yana open` and a bare `yana`,
+one folder at a time. Paths come from a cache in `~/.local/state/yana`
+refreshed in the background, so Tab never waits long on the server.
 
 ## Find things
 

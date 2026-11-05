@@ -9,14 +9,16 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
-- `yana` opens where you left it: the same folder, the same note under
-  the cursor, the preview as it was; and neovim reopens a note at the
-  line you left.
-- `yana` at a terminal browses your notes like oil.nvim and telescope
-  (find by name, live full-text search, recent notes, a `:` command line
-  with completion, keys set in `~/.config/yana/config.yaml`), and opens
-  them in nvim, where every `:w` merges into the note through the new
-  `GET`/`PUT /api/notes/{id}/text`; `yana open <path>` edits one note.
+- `yana` at a terminal is your own neovim with a yana plugin: folders as
+  editable oil-style listings, notes whose `:w` merges, live updates,
+  `<leader>sf`/`sg` pickers, one `:q` to leave; shell shortcuts (`yana
+  today`, `yana new`, `yana <note>`, `yana find`/`grep`/`recent`) and
+  bash/zsh completion (`yana completion`).
+- `yana` opens where you left it: the same buffers, the current one and
+  the cursor in each.
+- `yana` at a terminal browses and edits your notes in neovim, where
+  every `:w` merges into the note through the new
+  `GET`/`PUT /api/notes/{id}/text`; `yana open <path>` opens one note.
   Without a terminal `yana` still serves; the CLI session moves to
   `~/.config/yana` on every OS.
 - `yana login`, then `yana today "text"` from a terminal adds a line to

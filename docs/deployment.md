@@ -457,7 +457,7 @@ YANA_NOTES_ROOT=~/notes ./yana serve   # or leave it unset for ~/.yana
 ```
 
 `yana` with no command serves only when stdin is not a terminal (a
-container, a service); typed at a terminal it opens the notes browser
+container, a service); typed at a terminal it opens the notes in neovim
 instead (see [using.md](using.md#from-a-terminal)), so say `serve`.
 
 Install `ripgrep` for regex search and `git` for the history layer;

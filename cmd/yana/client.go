@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,7 +81,13 @@ func (s *session) save() error {
 		return err
 	}
 	raw, _ := json.MarshalIndent(s, "", "  ")
-	return os.WriteFile(p, raw, 0o600)
+	// Through a rename: the plugin runs several yana api at once, and one
+	// refreshing the token must never leave another a half-written file.
+	tmp := p + ".tmp" + strconv.Itoa(os.Getpid())
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, p)
 }
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
@@ -139,6 +146,14 @@ func (s *session) do(method, path string, body, out any) error {
 	if !errors.As(err, &ae) || ae.Status != http.StatusUnauthorized {
 		return err
 	}
+	if err := s.refresh(); err != nil {
+		return err
+	}
+	return call(s.Server, method, path, s.Access, body, out)
+}
+
+// refresh trades the refresh token for a new access token and keeps it.
+func (s *session) refresh() error {
 	var res struct {
 		Tokens tokens `json:"tokens"`
 	}
@@ -149,35 +164,7 @@ func (s *session) do(method, path string, body, out any) error {
 	if res.Tokens.Refresh != "" {
 		s.Refresh = res.Tokens.Refresh
 	}
-	if err := s.save(); err != nil {
-		return err
-	}
-	return call(s.Server, method, path, s.Access, body, out)
-}
-
-func clientMain(cmd string, args []string) int {
-	var err error
-	switch cmd {
-	case "login":
-		err = login(args)
-	case "logout":
-		err = logout()
-	case "whoami":
-		err = whoami()
-	case "today":
-		err = today(args)
-	case "open":
-		err = openMain(args)
-	case "browse", "b":
-		err = browseMain()
-	case "config":
-		err = configMain()
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "yana:", err)
-		return 1
-	}
-	return 0
+	return s.save()
 }
 
 func login(args []string) error {
@@ -279,14 +266,28 @@ func whoami() error {
 	return nil
 }
 
-func today(args []string) error {
+// dayMain is yana today, yesterday, tomorrow and yana YYYY-MM-DD. With
+// text, or text on stdin, it appends to that day's note; with neither at
+// a terminal it opens the note in neovim.
+func dayMain(date time.Time, args []string) error {
 	fs := flag.NewFlagSet("today", flag.ContinueOnError)
-	space := fs.String("space", "", "the space whose daily note to write to (default: the one set in Settings)")
+	space := fs.String("space", "", "the space whose daily note to use (default: the one set in Settings)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	text := strings.Join(fs.Args(), " ")
-	if text == "-" || (text == "" && !term.IsTerminal(int(os.Stdin.Fd()))) {
+	if text == "" && term.IsTerminal(int(os.Stdin.Fd())) {
+		s, err := loadSession()
+		if err != nil {
+			return err
+		}
+		note, err := dailyNote(s, *space, date)
+		if err != nil {
+			return err
+		}
+		return launch(s, launchOpts{Open: note.Path})
+	}
+	if text == "-" || text == "" {
 		raw, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return err
@@ -312,7 +313,7 @@ func today(args []string) error {
 	}
 	text = strings.Join(lines, "\n")
 
-	note, err := dailyNote(s, *space, time.Now())
+	note, err := dailyNote(s, *space, date)
 	if err != nil {
 		return err
 	}
