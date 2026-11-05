@@ -485,6 +485,79 @@ func (r *Reconciler) SetText(ctx context.Context, id, text, author string) error
 	return nil
 }
 
+// ErrBadBase is returned by EditFrom when the base is not a state this
+// note's document has held.
+var ErrBadBase = errors.New("reconcile: base is not a state of this note")
+
+// Snapshot returns the body and the document state it was read from, as
+// one V1 update. A remote editor keeps the state as the base of its next
+// EditFrom.
+func (r *Reconciler) Snapshot(ctx context.Context, id string) (string, []byte, error) {
+	n, err := r.acquire(ctx, id)
+	if err != nil {
+		return "", nil, err
+	}
+	defer n.mu.Unlock()
+	return n.main.Text(), n.main.State(), nil
+}
+
+// EditFrom applies an edit made by a remote editor that started from
+// base: the body read as text there. Like read-in does for a file, the
+// change is diffed against base rather than against the document as it
+// is now, so whatever arrived since base (someone typing, an append)
+// stays. It returns the document's text after the merge and the state to
+// use as the next base: base plus this edit, which reads as text, so the
+// editor's next save does not undo what it never saw.
+func (r *Reconciler) EditFrom(ctx context.Context, id string, base []byte, text, author string) (string, []byte, error) {
+	if author == "" {
+		return "", nil, errors.New("reconcile: update author is empty")
+	}
+	if len(base) == 0 {
+		return "", nil, ErrBadBase
+	}
+	scratch, err := ydoc.Load(base)
+	if err != nil {
+		return "", nil, ErrBadBase
+	}
+	defer scratch.Close()
+	n, err := r.acquire(ctx, id)
+	if err != nil {
+		return "", nil, err
+	}
+	defer n.mu.Unlock()
+	// A base this document never held (another note's, or one from before
+	// the note was rebuilt from its file) would land the edit as new text
+	// beside the note instead of in it.
+	probe, err := ydoc.Load(n.main.State())
+	if err != nil {
+		return "", nil, err
+	}
+	// The port re-emits a delete set even for a base it fully holds, so
+	// only new structs count: a V1 update opens with its count of struct
+	// groups, and a zero there means none.
+	extra, err := probe.Apply(base, "probe")
+	probe.Close()
+	if err != nil || (len(extra) > 0 && extra[0] != 0) {
+		return "", nil, ErrBadBase
+	}
+	u := scratch.SetText(text, author)
+	if u == nil {
+		return n.main.Text(), base, nil
+	}
+	re, err := n.main.Apply(u, author)
+	if err != nil {
+		return "", nil, fmt.Errorf("apply edit to %s: %w", id, err)
+	}
+	if re != nil {
+		if err := r.record(ctx, n, re, author); err != nil {
+			return "", nil, err
+		}
+		r.markDirty(n)
+		r.emit(Event{NoteID: id, Kind: EventUpdate, Path: n.rel, Update: re, Author: author})
+	}
+	return n.main.Text(), scratch.State(), nil
+}
+
 // Flush writes the note to disk now if it is dirty.
 func (r *Reconciler) Flush(ctx context.Context, id string) error {
 	r.mu.Lock()

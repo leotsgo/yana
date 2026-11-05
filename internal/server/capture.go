@@ -18,7 +18,9 @@ import (
 
 	"github.com/madeofpendletonwool/yana/internal/frontmatter"
 	"github.com/madeofpendletonwool/yana/internal/fsutil"
+	"github.com/madeofpendletonwool/yana/internal/index"
 	"github.com/madeofpendletonwool/yana/internal/pathsafe"
+	"github.com/madeofpendletonwool/yana/internal/reconcile"
 	"github.com/madeofpendletonwool/yana/internal/render"
 	"github.com/madeofpendletonwool/yana/internal/scanner"
 	"github.com/madeofpendletonwool/yana/internal/templates"
@@ -406,7 +408,7 @@ func (s *Server) handleNoteAppend(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if role == "viewer" || !s.mayWrite(w, r, space) {
+	if !s.mayEdit(w, r, space, role) {
 		return
 	}
 	if s.Sync == nil {
@@ -444,4 +446,107 @@ func (s *Server) handleNoteAppend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "path": n.RelPath})
+}
+
+// editText is the body of a markdown note as a remote editor (the
+// command line's `yana open`) sees it, and the document state it was read
+// from. Base travels as base64 and comes back with the next save.
+type editText struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+	Role string `json:"role,omitempty"`
+	Text string `json:"text"`
+	Base []byte `json:"base"`
+}
+
+// markdownForEdit is the shared front of both text handlers: the note,
+// checked to be markdown, with realtime editing on.
+func (s *Server) markdownForEdit(w http.ResponseWriter, r *http.Request, id string) (index.Note, bool) {
+	if s.Sync == nil {
+		writeError(w, http.StatusNotImplemented, "realtime editing is off on this server")
+		return index.Note{}, false
+	}
+	n, err := s.DB.GetNote(r.Context(), id)
+	if errors.Is(err, index.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no note with that id")
+		return n, false
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return n, false
+	}
+	if n.Kind != "md" {
+		writeError(w, http.StatusBadRequest, "only markdown notes are edited as text; html notes save through /source")
+		return n, false
+	}
+	return n, true
+}
+
+// handleNoteText hands a remote editor the note's body and its base.
+func (s *Server) handleNoteText(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	_, role, ok := s.noteRole(w, r, id)
+	if !ok {
+		return
+	}
+	n, ok := s.markdownForEdit(w, r, id)
+	if !ok {
+		return
+	}
+	text, base, err := s.Sync.Snapshot(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, editText{ID: id, Path: n.RelPath, Role: role, Text: text, Base: base})
+}
+
+// handleNoteTextPut saves a remote editor's text. The change is taken
+// from the base the editor started from, not from the note as it is now,
+// so it merges with whatever happened on the server in between instead
+// of reverting it. The answer carries the merged text and the base for
+// the editor's next save.
+func (s *Server) handleNoteTextPut(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	space, role, ok := s.noteRole(w, r, id)
+	if !ok {
+		return
+	}
+	if !s.mayEdit(w, r, space, role) {
+		return
+	}
+	n, ok := s.markdownForEdit(w, r, id)
+	if !ok {
+		return
+	}
+	// The base is a whole document state, history included, so it can
+	// outgrow the text; four times the note limit leaves it room.
+	limit := 4*s.Root.Limits().MaxNoteSize + 1<<20
+	var body struct {
+		Base []byte  `json:"base"`
+		Text *string `json:"text"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(&body); err != nil || body.Text == nil {
+		writeError(w, http.StatusBadRequest, "body must be JSON with base and text fields")
+		return
+	}
+	if int64(len(*body.Text)) > s.Root.Limits().MaxNoteSize {
+		writeError(w, http.StatusRequestEntityTooLarge, "content is over the note size limit")
+		return
+	}
+	// Without accounts there is no name to put on the edit.
+	author := "user:cli"
+	if !s.open() {
+		author = s.ident(r).Author()
+	}
+	text, base, err := s.Sync.EditFrom(r.Context(), id, body.Base, *body.Text, author)
+	if errors.Is(err, reconcile.ErrBadBase) {
+		writeError(w, http.StatusBadRequest, "base is not a state of this note; fetch the note again")
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, editText{ID: id, Path: n.RelPath, Text: text, Base: base})
 }

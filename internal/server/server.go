@@ -173,6 +173,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/assets/orphans", s.authed(s.handleAssetOrphans))
 	s.mux.HandleFunc("POST /api/notes/daily", s.authed(s.handleDailyNote))
 	s.mux.HandleFunc("POST /api/notes/{id}/append", s.authed(s.handleNoteAppend))
+	s.mux.HandleFunc("GET /api/notes/{id}/text", s.authed(s.handleNoteText))
+	s.mux.HandleFunc("PUT /api/notes/{id}/text", s.authed(s.handleNoteTextPut))
 	s.mux.HandleFunc("POST /api/templates/{id}/expand", s.authed(s.handleTemplateExpand))
 	s.mux.HandleFunc("POST /api/guide", s.authed(s.handleGuide))
 	s.mux.HandleFunc("POST /api/render", s.authed(s.handleRender))
@@ -361,6 +363,16 @@ func (s *Server) mayWrite(w http.ResponseWriter, r *http.Request, space string) 
 		}
 	}
 	return true
+}
+
+// mayEdit is mayWrite for a note whose role noteRole already found: a
+// viewer is told so instead of getting an empty answer.
+func (s *Server) mayEdit(w http.ResponseWriter, r *http.Request, space, role string) bool {
+	if role == spaces.RoleViewer {
+		writeError(w, http.StatusForbidden, "you can only read this space")
+		return false
+	}
+	return s.mayWrite(w, r, space)
 }
 
 func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {

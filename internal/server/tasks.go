@@ -133,7 +133,7 @@ func (s *Server) handleTaskTick(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if role == "viewer" || !s.mayWrite(w, r, space) {
+	if !s.mayEdit(w, r, space, role) {
 		return
 	}
 	if s.Sync == nil {
