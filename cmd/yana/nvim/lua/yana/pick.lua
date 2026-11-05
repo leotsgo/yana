@@ -418,7 +418,9 @@ function M.recent(query)
           }),
           conf.generic_sorter({}),
           query or '',
-          choose,
+          function(it)
+            choose(it)
+          end,
           true
         )
         return
