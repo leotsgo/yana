@@ -9,6 +9,10 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- The native Android app is gone, with its gomobile CRDT bindings
+  (`mobile/`), its reader bundle, its CI and Makefile targets, and
+  `GET /api/notes`, the flat note list only its offline replica read. The
+  web app, installed as a PWA, is the phone client.
 - `require('yana').setup { space = 'notes' }` in `~/.config/yana/init.lua`
   makes `yana`, `:Yana` and `_` open that space instead of the list of
   spaces.

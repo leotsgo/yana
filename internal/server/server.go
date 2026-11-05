@@ -154,7 +154,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PATCH /api/spaces/{space}", s.authed(s.handleSpaceUpdate))
 	s.mux.HandleFunc("DELETE /api/spaces/{space}", s.authed(s.handleSpaceDelete))
 	s.mux.HandleFunc("GET /api/tree", s.authed(s.handleTree))
-	s.mux.HandleFunc("GET /api/notes", s.authed(s.handleNotesList))
 	s.mux.HandleFunc("GET /api/tasks", s.authed(s.handleTasksGet))
 	s.mux.HandleFunc("PATCH /api/tasks", s.authed(s.handleTaskTick))
 	s.mux.HandleFunc("GET /api/tags", s.authed(s.handleTags))

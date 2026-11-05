@@ -120,7 +120,6 @@ func TestSceneRelayed(t *testing.T) {
 	}
 }
 
-
 // roles grants each author a fixed role; anyone else is refused.
 type roles map[string]string
 
