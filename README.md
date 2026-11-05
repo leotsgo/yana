@@ -11,6 +11,7 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#what-it-does">What it does</a> ·
   <a href="docs/using.md">Using it</a> ·
+  <a href="#from-a-terminal">Terminal</a> ·
   <a href="#agents">Agents</a> ·
   <a href="#on-disk">On disk</a> ·
   <a href="#documentation">Docs</a>
@@ -20,11 +21,13 @@
 
 YANA/ keeps a directory of `.md` files, and gives you a fast, quiet web app
 on top of it: live sync between every device, wikilinks and backlinks,
-tasks you tick from your phone and gather on one page, a daily note, git
-history, sharing by
-folder, and an MCP endpoint so an agent can document your network while
-you sleep. Open the same files in any editor, `mv` them, `rsync` them,
-`grep` them. Delete the app's database and it rebuilds from the tree.
+tasks you tick from your phone and gather on one page, a daily note,
+drawings, a graph of how it all links, git history, sharing by folder,
+and an MCP endpoint so an agent can document your network while you
+sleep. The same binary is a command-line client: `yana today "call the
+bank"` from a shell, or `yana` alone for your own neovim on the notes.
+Open the files in any editor, `mv` them, `rsync` them, `grep` them.
+Delete the app's database and it rebuilds from the tree.
 
 None of this is novel. That's sort of the point.
 
@@ -49,13 +52,16 @@ has a page, and the switcher finds notes by tag.
 
 ![Split mode: the editor on the left with the formatting buttons and a wikilink completion popup, the rendered note on the right](images/screenshots/editing.png)
 
-**Drawing.** New drawing opens an Excalidraw canvas as a note of its
-own, saved a moment after each change and kept on the device while
-offline. Link to it by name with `[[Name]]`, embed it as an image with
-`![[Name]]`, and set an element's link to `[[Another note]]` to click
-through to that note; those links show up as backlinks. The text you
-write on a drawing is searched. The editor is a separate download,
-fetched only when a drawing is opened.
+**Drawing.** The Drawing button opens an Excalidraw canvas as a note of
+its own. Several people or devices draw on it at once and see each
+other's strokes and named cursors as they happen; saves merge shape by
+shape, so there are no conflict copies, and a drawing changed offline is
+kept on the device until it can be sent. Link to it by name with
+`[[Name]]`, embed it as an image with `![[Name]]`, and set an element's
+link to `[[Another note]]` to click through to that note; those links
+show up as backlinks. The text you write on a drawing is searched.
+Drawings from Obsidian's Excalidraw plugin convert in place with `yana
+drawings convert` ([docs/deployment.md](docs/deployment.md#converting-obsidian-drawings)).
 
 **Sync.** Each note is a CRDT document that stays in step with its file
 in both directions. Two people in one note see each other type, with
@@ -71,12 +77,17 @@ pick it and the variables — the date, the folder, a question you are
 asked once — fill in where they stand. **Today** opens the daily note,
 made from a template if you keep one. **Capture** appends one line to
 today's note without opening it — from the home screen, the phone's
-bottom bar, or the share sheet.
+bottom bar, the share sheet, or `yana today "text"` in a shell. The
+owner picks, in Settings → Spaces → Defaults, the space and folder new
+notes go to and where the daily note lives; every device and account
+follows them.
 
 **On a phone.** Install it from the browser and it is a home-screen app
 that works offline: the tree, recent notes, and every note you have
 opened are on the device, and changes that need the server queue until
-it is back. Long-press for folder actions; a bar of formatting buttons
+it is back. Offline, Today and New still open a note you can type in
+straight away; it is sent, under the same id, when the connection
+returns. Long-press for folder actions; a bar of formatting buttons
 sits above the keyboard.
 
 ![Three phone screens: the home screen with New note, Capture and Today; a note being read with its task boxes; the same note in the editor with the formatting bar above the keyboard](images/screenshots/phone.png)
@@ -92,6 +103,13 @@ lists everything the app can do. A PDF dropped into a note is searched
 too — its text, extracted in the background, turns up alongside notes.
 
 <p align="center"><img src="images/screenshots/switcher.png" alt="The switcher filtering notes by #recipe" width="700"></p>
+
+**Graph.** The graph view draws every note you can read as a dot and
+every link as a line, laid out by a live force simulation, so hubs,
+clusters and orphans are plain to see. Hover to light a note and its
+neighbours, click to open it; filter by text, show orphans, unresolved
+links and tags, colour by space or folder. Each note also has a local
+graph, with a depth slider, in its details. It follows edits live.
 
 **History.** The notes root is a git repository. The server commits after
 the tree has been quiet; edits by people and edits by agents are
@@ -139,10 +157,40 @@ A globe marks a shared note, and the Data page lists every live link.
 separate origin in a sandboxed frame — sanitized by default, run as
 written only after you mark it trusted.
 
-**Two themes.** Light and dark, following the system or set by hand, with
-text size, line width and density in Appearance.
+**Themes.** Light and dark, following the system or set by hand, each
+with its own colour theme: Yana's own, Catppuccin, Gruvbox, Tokyo
+Night, Rosé Pine, Solarized, Nord, Dracula, One Dark, Everforest and
+Kanagawa. The owner adds more by pasting a theme as JSON. Text size,
+line width and density are in Appearance too.
 
 ![The dark theme](images/screenshots/dark.png)
+
+## From a terminal
+
+The `yana` binary is also the client. Sign in once, then:
+
+```sh
+yana login https://notes.example.com   # asks for a username and password
+yana today "call the bank"             # adds "- call the bank" to today's note
+echo "from a script" | yana today -    # or reads the lines from stdin
+yana                                   # neovim on your notes
+yana today                             # today's note in neovim; also yesterday, tomorrow, 2026-11-04
+yana new "Kiln log"                    # a new note where new notes go
+yana "Kiln log"                        # a note by path or title
+yana find recipes                      # the note picker; grep and recent likewise
+```
+
+`yana` at a terminal is your own `nvim`, with your config and plugins,
+plus a plugin the binary carries. Folders are editable listings, like
+oil.nvim: rename, move, create and trash by editing lines and `:w`.
+Notes save by merging, so `:w` never overwrites someone typing in the
+browser, and an open note picks up edits made elsewhere as they happen.
+Telescope pickers find notes by title, `#tag`, date or full text. One
+`:q` and you are back at the shell, and the next `yana` reopens what you
+had open. `yana completion bash|zsh` prints shell completion. With no
+terminal on stdin, as in a container, `yana` runs the server.
+
+Everything about it is in [docs/using.md](docs/using.md#from-a-terminal).
 
 ## Agents
 
@@ -193,6 +241,11 @@ YANA_NOTES_ROOT=~/notes ./yana serve   # default is ~/.yana
 
 Install `rg` (ripgrep) for regex search; without it the rest still works.
 
+For the command-line client, put the same binary on your `PATH` on your
+own machine (`go build -o ~/.local/bin/yana ./cmd/yana` builds it without
+the web client, which it does not need), install `nvim`, and run `yana
+login https://your-server`.
+
 Configuration is by environment variable (`YANA_NOTES_ROOT`, `YANA_LISTEN`,
 `YANA_GIT`, `YANA_LOG_LEVEL`, ...) or a YAML file named by `YANA_CONFIG`.
 `.env.example` lists every key with its default.
@@ -207,6 +260,9 @@ Configuration is by environment variable (`YANA_NOTES_ROOT`, `YANA_LISTEN`,
     <folders...>/<note>.md
     <folders...>/_assets/<file>
   .trash/                # soft-deleted notes, in their own structure
+  .yana/                 # settings kept with the notes
+    defaults.json        # where new notes and the daily note go
+    themes.json          # colour themes the owner added
   .sync/                 # derived state
     index.db             # the index and the CRDT edit log; safe to delete
     crdt/<id>.bin        # each note's document; keep it to keep edit history
@@ -251,10 +307,10 @@ wrong.
 
 | | |
 |---|---|
-| [docs/using.md](docs/using.md) | How to do the everyday things, for a person rather than an implementer |
+| [docs/using.md](docs/using.md) | How to do the everyday things, for a person rather than an implementer, the `yana` command line and neovim included |
 | [docs/deployment.md](docs/deployment.md) | Compose, reverse proxies, the content origin, backups, every setting |
 | [docs/file-format.md](docs/file-format.md) | The on-disk contract: frontmatter, links, assets, what may be written |
-| [docs/editor.md](docs/editor.md) | The web client: shell, editor, drawings, capture, tags, tree actions, hotkeys |
+| [docs/editor.md](docs/editor.md) | The web client: shell, settings, editor, drawings, capture, tags, graph, tree actions, hotkeys |
 | [docs/links.md](docs/links.md) | Wikilink resolution, backlinks, rename propagation |
 | [docs/auth.md](docs/auth.md) | Accounts, sessions, spaces and roles |
 | [docs/agents.md](docs/agents.md) | The filesystem path, MCP, conventions, attribution |
@@ -263,7 +319,7 @@ wrong.
 | [docs/trash.md](docs/trash.md) | Deletion and recovery |
 | [docs/export.md](docs/export.md) | Single-note, static-site and zip exports |
 | [docs/pwa.md](docs/pwa.md) | The installable app and offline behaviour |
-| [docs/crdt-decision.md](docs/crdt-decision.md) | Which CRDT library each client uses, and why |
+| [docs/crdt-decision.md](docs/crdt-decision.md) | Which CRDT library the browser and the server use, and why |
 | [CHANGELOG.md](CHANGELOG.md) | What changed |
 
 ## Development
@@ -274,40 +330,32 @@ make build      # embed it and build ./yana
 make test       # go test ./... and the web typecheck
 make lint       # gofmt and go vet
 make docker     # build the image locally
-make android-crdt  # build the Android CRDT AAR into android/crdt/libs
-cd android && ./gradlew build  # the Android app: lint, unit tests, APKs
 ```
 
 One Go binary with the web client embedded. `cmd/yana` is the entry
-point; `internal/` holds the server (`pathsafe` is the only way a string
+point and the command-line client, with the neovim plugin's Lua in
+`cmd/yana/nvim` (embedded in the binary); `internal/` holds the server (`pathsafe` is the only way a string
 becomes a filesystem path, `reconcile` keeps documents, files and the
 index in step, `rt` is the realtime relay, `mcp` the agent endpoint,
 `git` the history layer, `guide` the starter notes); `web/` is the Preact
-and CodeMirror client; `mobile/crdt` is the bind package behind the
-Android client's CRDT engine ([mobile/crdt/README.md](mobile/crdt/README.md));
-`android/` is the Android app ([android/README.md](android/README.md));
-`spike/crdt/` is the CRDT evaluation harness the design started from.
+and CodeMirror client; `spike/crdt/` is the CRDT evaluation harness the design started from.
 
 The reconciliation tests include a 60 second oscillation check and a
 process-kill check; the relay tests include a server-restart convergence
 check and a 20-connection load check; `go test -short ./...` shrinks the
-former. The CRDT spike's cross-language tests need `node` and `npm ci`
+former. The neovim plugin's tests run in a headless `nvim` against a
+test server when `nvim` is installed, and skip otherwise. The CRDT spike's cross-language tests need `node` and `npm ci`
 in `spike/crdt/js`; without them those tests skip.
 
 Work happens on short-lived branches off `main`, with Conventional Commit
 messages and a pull request per change. CI runs gofmt, vet, build, tests,
-the web typecheck, and a container smoke test on every pull request,
-plus the Android build when `android/` changes; merges to `main`
-publish the image.
+the web typecheck, and a container smoke test on every pull request;
+merges to `main` publish the image.
 
 ## Roadmap
 
 Planned next, roughly in order: importers for markdown vaults and Notion
-exports; vim keys; and the rest of the
-Android app. It signs in, browses, renders HTML notes, edits through
-the realtime document, and captures from the share sheet, two tiles,
-a widget, and Today and Capture on the home screen — offline first,
-syncing when it can.
+exports, and vim keys in the web editor.
 
 ## License
 

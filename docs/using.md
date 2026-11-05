@@ -219,11 +219,31 @@ With `space` set, `yana`, `:Yana` and `_` open that space; `-` from its
 top still lists the others. A key set to `false` is left to your config. `YANA_NVIM` names another
 neovim binary.
 
+### How the plugin is loaded
+
+The Lua lives inside the `yana` binary. Each time `yana` launches
+neovim it writes the plugin to `~/.local/share/yana/nvim` (or under
+`$XDG_DATA_HOME`), touching only the files that changed, then replaces
+itself with `nvim`. The command line it hands neovim is one `-c`, which
+runs after your own config has loaded; `--cmd` would be too early,
+because plugin managers such as lazy.nvim reset the runtimepath while
+the config loads. That `-c` prepends the plugin's directory to the
+runtimepath, sources `plugin/yana.lua` (the `BufReadCmd` and
+`BufWriteCmd` autocmds for `yana://` buffers, and `:Yana`), and calls
+`require('yana').launch(…)` with the server, the note or picker to
+open, and your `init.lua`.
+
+The plugin never sees your token and never speaks HTTP. It runs `yana
+api <verb>` through `vim.system` (the binary named by `YANA_BIN`, which
+the launch sets, else `yana` on the `PATH`), and reads JSON back; `yana
+api` uses the session `yana login` keeps. Live updates are one
+long-running `yana api watch`, which subscribes to your spaces over the
+server's websocket and prints a line for each change.
+
 ### In your own neovim
 
-The plugin can live in your everyday neovim too. `yana` writes it to
-`~/.local/share/yana/nvim` (or under `$XDG_DATA_HOME`) each time it
-starts, so point your plugin manager there; with lazy.nvim:
+The plugin can live in your everyday neovim too. Point your plugin
+manager at the directory `yana` writes it to; with lazy.nvim:
 
 ```lua
 { dir = vim.fn.expand '~/.local/share/yana/nvim', lazy = false } -- it only defines :Yana and the yana:// autocmds until used
@@ -231,9 +251,9 @@ starts, so point your plugin manager there; with lazy.nvim:
 
 Then `:Yana` opens the spaces and `:Telescope yana find` (or `grep`,
 `recent`) the pickers. It sets no global keys there unless you ask:
-`require('yana').setup { global_keys = true }`. The plugin never sees
-your token: it runs `yana api …`, which reads the session that
-`yana login` keeps, so `yana` has to be on your `PATH`.
+`require('yana').setup { global_keys = true }`. `yana` has to be on
+your `PATH`, and it refreshes the plugin only when it launches, so run
+it once after an upgrade.
 
 ### Shell completion
 

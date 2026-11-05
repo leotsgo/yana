@@ -2,7 +2,7 @@
 
 The build plan flags the CRDT as the highest-risk unknown: every phase from
 realtime sync onward assumes its outcome. This document records the decision,
-the evidence behind it, and the code that Phases 2, 3, and 12 build on.
+the evidence behind it, and the code that Phases 2 and 3 build on.
 
 ## Decision
 
@@ -12,11 +12,9 @@ the evidence behind it, and the code that Phases 2, 3, and 12 build on.
 | Browser | `yjs` from npm, the reference implementation | 13.6.32 |
 | Server | `github.com/reearth/ygo`, a pure-Go port | v1.50.0 |
 | Server fallback | `github.com/Deln0r/ygo`, a second pure-Go port | v1.19.0 |
-| Android | reearth/ygo bound with `gomobile bind` through a yana-owned package | — |
-| Android fallback | `yrs` (the Rust implementation) through uniffi with a self-generated Kotlin binding | — |
 
-Every peer speaks the same Yjs V1 update format. The browser, the server, and
-the phone can exchange raw update bytes with no translation layer, and the
+Every peer speaks the same Yjs V1 update format. The browser and the server
+exchange raw update bytes with no translation layer, and the
 server stays a single static Go binary with no cgo, no JS runtime, and no
 sidecar.
 
@@ -25,14 +23,13 @@ sidecar.
 The plan lists five criteria in priority order. Yjs wins on the ones that
 matter most for this project.
 
-1. **Kotlin/Android bindings.** Neither library has an official, maintained
-   Kotlin binding. On the Automerge side, `org.automerge:automerge` (0.0.7,
-   an AAR) is the strongest official binding of any CRDT for Android. On the
-   Yjs side, `y-crdt/ykt` is inactive and `y-uniffi` ships Swift only. That
-   would favour Automerge, except that both pure-Go Yjs ports build with
-   `gomobile bind`, which gives Android the same engine the server runs with
-   no third-party binding at all. That is a stronger position than depending
-   on a 0.0.x artifact, and it is the tie-breaker (see Android, below).
+1. **Native mobile bindings.** At the time the plan also wanted a native
+   Android client. Neither library had an official, maintained Kotlin
+   binding, but both pure-Go Yjs ports build with `gomobile bind`, which
+   would give a phone the same engine the server runs. That was the
+   tie-breaker. The native client has since been dropped (see Native
+   clients, below); the phone uses the web app, and this criterion no
+   longer weighs on anything.
 2. **Scoped undo.** Yjs `UndoManager` tracks transactions by origin, so user
    A's undo never reverts user B's text. Automerge has no scoped undo; it
    would have to be built above the library. Both Go ports implement
@@ -64,7 +61,6 @@ differences are operational.
 | Per-transaction update | Emitted by `OnUpdate` after each transaction; 24 bytes per append, constant over history | Computed by `EncodeDiff` against a saved state vector; re-emits the whole boundary block, so 27 bytes grows to 1720 bytes over 200 appends |
 | Maintenance | Organisation-owned, CI conformance suite against the JS reference | Single maintainer |
 | Undo with tracked origins | Yes | Yes |
-| gomobile | `mobile/` façade, no `UndoManager` | `gomobile/` façade with an `UndoManager` that has no tracked-origin option |
 | Wire format | Yjs V1 (and V2) | Yjs V1 (and V2) |
 
 The update-size behaviour of Deln0r/ygo is documented upstream and is a
@@ -78,24 +74,14 @@ update bytes), swapping one for the other is a contained change in the server's
 CRDT adapter. Deln0r/ygo stays in `go.mod` for the spike so both keep running
 in CI until Phase 2 lands; it is removed with the spike.
 
-## Android
+## Native clients
 
-The Android app binds reearth/ygo with `gomobile bind`. The port's `mobile/`
-package is written for that boundary (only `string`, `int64`, `bool`,
-`[]byte`, `error`, and bound pointers cross it) and already exposes create,
-apply update, encode state, encode state vector, encode diff, text read, and
-text mutation. It does not expose `UndoManager`.
-
-YANA/ therefore owns a small bind package, `mobile/crdt` in this repository,
-that wraps the `crdt` package with the same type constraints and adds the
-`UndoManager` (with a tracked origin for local edits) on top of the operations
-the `mobile/` façade already has. `gomobile bind -target android -javapkg
-com.<domain>.yana.crdt ./mobile/crdt` produces the AAR. This is Phase 12 work;
-the decision here is that no third-party Kotlin binding is needed.
-
-Fallback if gomobile becomes a problem (toolchain, binary size, or JNI
-overhead in the editor loop): `yrs` through uniffi with a Kotlin binding we
-generate ourselves. Same wire format, different engine, more build machinery.
+The plan once included a native Android app that bound reearth/ygo with
+`gomobile bind`. It was built and then dropped: the installable web app
+([pwa.md](pwa.md)) covers the phone, offline included, with the same
+`yjs` the browser uses. The decision above does not depend on it. Any
+future native client still speaks Yjs V1, so it can bind a Go port or
+use `yrs` (the Rust implementation) without the server changing.
 
 ## Evidence
 
@@ -318,7 +304,7 @@ um.undo() // 'world'
 
 ## Caveats
 
-These are properties of the libraries, recorded so Phases 2, 3, and 12 do not
+These are properties of the libraries, recorded so Phases 2 and 3 do not
 rediscover them.
 
 - **reearth/ygo: capture-timeout undo grouping loses the first edit of a
@@ -327,7 +313,7 @@ rediscover them.
   starts at the tracked client's clock 0 — the first edits on a fresh
   document — undoing the group skips that first transaction's content.
   One stack item per transaction (`WithCaptureTimeout(-1)`) is unaffected
-  and is what the scoped-undo sample and `mobile/crdt` use.
+  and is what the scoped-undo sample uses.
 - **reearth/ygo: the document lock is not re-entrant.** `Transact` holds the
   write lock for the whole closure. Do not call `ToString`, `Len`, `GetText`,
   `OnUpdate`, `ApplyUpdate`, or a nested `Transact` on the same document from
@@ -361,5 +347,3 @@ rediscover them.
 - Phase 3 relays the bytes from `OnUpdate` and `doc.on('update')` as-is; the
   server persists them per note and answers a connecting client's state
   vector with `EncodeStateAsUpdateV1(doc, remote)`.
-- Phase 12 binds reearth/ygo through `mobile/crdt` and needs no Kotlin CRDT
-  dependency.

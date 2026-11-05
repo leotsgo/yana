@@ -304,10 +304,13 @@ matches.
 ## Drawings
 
 A drawing is a note you draw on instead of type in: a full Excalidraw
-canvas in the note area. Make one with New drawing in the command
-palette, or New drawing here in a folder's or a space's menu. The
-palette asks for a name; the file is `<name>.excalidraw.md` in the folder
-you were looking at and opens in a new tab. The tree shows a drawing by
+canvas in the note area. Make one with the Drawing button beside New in
+the top bar, New drawing in the command palette, or New drawing here in
+a folder's or a space's menu. It asks for a name; the file is
+`<name>.excalidraw.md` and opens in a new tab. The button and the
+palette put it in the folder new notes go to (Settings → Spaces →
+Defaults), else the folder of the open note; the menus put it in their
+folder. The tree shows a drawing by
 its name with a small `draw` label. It moves, renames, goes to the
 trash and has history like any other note ([file-format.md](file-format.md#drawings)
 has the file).
@@ -362,9 +365,9 @@ viewer in a space sees the canvas view-only, with no save chip.
 Linking to a drawing, linking out of one with element links, and
 embedding one with `![[Name]]` are in [links.md](links.md#drawings).
 Search finds the text written on a drawing, and `is:drawing` lists only
-drawings. The regex search skips drawings, whose body is scene JSON. Drawing works in a phone browser or the installed PWA, as far
-as Excalidraw's touch support goes; the native Android app does not
-support drawings.
+drawings. The regex search skips drawings, whose body is scene JSON.
+Drawing works in a phone browser or the installed PWA, as far as
+Excalidraw's touch support goes.
 
 ## Capture
 
@@ -697,23 +700,6 @@ user (name, colour) and the editor binding publishes its cursor as a
 relative position. Remote carets draw in the editor with the author's name;
 the bar above the note lists who else is on it.
 
-### On Android
-
-The phone's editor is a plain text field bound to the same document
-(`android/app/src/main/java/com/collinpendleton/yana/ui/editor`). Each
-change the field reports diffs to one replacement — the delete and the
-insert commit as a single transaction, so a keystroke is one update and
-one undo step. Changes from elsewhere (the web, the filesystem, an undo)
-arrive as per-transaction replacement hunks from the bind package, and
-the selection maps through them rather than resetting. Undo groups a
-typing burst — keystrokes no more than 700 ms apart — into one step,
-and Ctrl-Z / Ctrl-Y work on a hardware keyboard as well as the buttons.
-Presence is the same awareness protocol over the same `aw` frames: the
-local cursor broadcasts as a relative position on a 50 ms throttle,
-remote cursors and selections draw over the text in the peer's colour,
-and a name chip rides above each caret. Offsets are UTF-16 code units
-end to end, the unit the field and the document share.
-
 ### Buttons and completion
 
 The same formatting buttons the phone shows above its keyboard sit in
@@ -811,10 +797,7 @@ a PDF, a spreadsheet, a document. While the upload runs the document holds a
 placeholder link, so other clients see something sensible; the server picks
 a free name (`shot.png`, `shot-2.png`, …) rather than overwriting, and the
 link uses the name it actually wrote. Uploads are bounded by
-`YANA_MAX_ASSET_SIZE` and require write access to the space. The Android
-app's editor does the same from its image action — pick or take a photo,
-downscaled to at most 2048 pixels on its longest edge — and photos shared
-to the app go up the same path into a new or existing note.
+`YANA_MAX_ASSET_SIZE` and require write access to the space.
 
 In the read view, a link into `_assets/` that is not a picture renders as a
 card: name, size, and for a PDF its page count and a button that expands an
@@ -975,7 +958,12 @@ inserted text.
 | `GET /api/conflicts/{id}/diff` | A unified diff between one copy and its survivor |
 | `POST /api/conflicts/{id}/resolve` | `{action: mine, theirs, or both}` settles one copy |
 | `GET /api/search/regex?raw=` | The regex search over the files; `path:` and `space:` terms in `raw` narrow where it runs |
-| `GET /api/notes` | Every visible note as a flat list with metadata and tags (`?space=` to take one space); what the Android replica syncs from |
+| `POST /api/notes/{id}/append` | `{content}` → adds the text at the end of a markdown note, on its own line, through the document; any account that may write to the space |
+| `GET /api/notes/{id}/text` | `{id, path, role, text, base}`: the body without frontmatter and the document state it was read from |
+| `PUT /api/notes/{id}/text` | `{base, text}` → merges the edit into the note against that base; answers the merged `text` and the next `base` |
+| `GET /api/defaults` | The owner's defaults for new notes and the daily note, `null` while unset |
+| `PUT /api/defaults` | Writes them to `.yana/defaults.json`; owner only |
+| `GET /api/graph` | Every readable note and the links between them, for the graph view |
 
 `GET /api/tree` lists empty directories as well as the notes, each
 note row carries its `tags`, and a conflict copy nests under the note
