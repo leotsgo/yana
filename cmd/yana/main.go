@@ -1,12 +1,18 @@
-// Command yana runs the notes server.
+// Command yana runs the notes server, and is its client from a shell.
 //
-//	yana            serve (default)
+//	yana            browse the signed-in server when stdin is a terminal,
+//	                serve otherwise (containers, services)
+//	yana serve      serve
 //	yana scan       rebuild the index once and exit
 //	yana version    print the version
 //	yana drawings convert [--apply]
 //	                convert Obsidian Excalidraw files in place
 //	yana login | logout | whoami | today "text"
 //	                use a yana server from the shell (client.go)
+//	yana browse | b browse its notes in a TUI (browse.go)
+//	yana open <path or id>
+//	                edit one note in $EDITOR (notes.go)
+//	yana config     where the CLI's config file goes, and its defaults
 //
 // Configuration comes from YANA_* environment variables and an optional
 // YAML file named by YANA_CONFIG. See docs/deployment.md.
@@ -22,6 +28,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/madeofpendletonwool/yana/internal/auth"
 	"github.com/madeofpendletonwool/yana/internal/config"
@@ -42,9 +50,13 @@ import (
 var version = "dev"
 
 func main() {
+	// Bare yana is the TUI for a person at a terminal; a container or a
+	// service has no terminal on stdin and gets the server, as it always did.
 	cmd := "serve"
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
+	} else if term.IsTerminal(int(os.Stdin.Fd())) {
+		cmd = "browse"
 	}
 	switch cmd {
 	case "version", "-v", "--version":
@@ -52,11 +64,11 @@ func main() {
 		return
 	case "drawings":
 		os.Exit(drawingsMain(os.Args[2:]))
-	case "login", "logout", "whoami", "today":
-		os.Exit(clientMain(cmd, os.Args[2:]))
+	case "login", "logout", "whoami", "today", "open", "browse", "b", "config":
+		os.Exit(clientMain(cmd, os.Args[min(2, len(os.Args)):]))
 	case "serve", "scan":
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q (use serve, scan, drawings, login, logout, whoami, today, or version)\n", cmd)
+		fmt.Fprintf(os.Stderr, "unknown command %q (use serve, scan, drawings, login, logout, whoami, today, browse, open, config, or version)\n", cmd)
 		os.Exit(2)
 	}
 

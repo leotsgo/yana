@@ -383,6 +383,21 @@ lands the same `- text` through `POST /api/notes/{id}/append`, which
 adds text at the end of a markdown note on its own line, through the
 document, for any account that may write to the note's space.
 
+`yana open` and the terminal browser ([using.md](using.md#from-a-terminal))
+edit a markdown note through `GET /api/notes/{id}/text`, which answers
+`{id, path, role, text, base}`: the body without frontmatter and, in
+`base`, the document state (base64) it was read from. `PUT` to the same
+path with `{base, text}` diffs the text against that base, not against
+the note as it is now, and applies the change to the document as the
+account, the way an edit made on disk is read in; whatever happened in
+the note since the base (someone typing, an append) stays, and open
+editors see the change arrive. The answer carries the merged `text` and
+the `base` for the next save, which is the old base plus this edit. The
+same text again writes nothing. Viewers get 403, HTML and drawing notes
+400 (they save through `/source`), and a base that is not a state of
+this note 400, so a stale client fetches again rather than pasting its
+text in beside the note.
+
 ## Tags
 
 A `#tag` in a note body is a tag: letters, digits, `_`, `/` and `-`,

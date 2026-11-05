@@ -1,7 +1,7 @@
 // The command line's client side: sign in to a yana server once, then
 // write to it from the shell.
 //
-//	yana login [server]   sign in; the session is kept in the user's config dir
+//	yana login [server]   sign in; the session is kept in ~/.config/yana
 //	yana logout           end the session
 //	yana whoami           the server and account signed in
 //	yana today [--space name] text...
@@ -43,11 +43,13 @@ func sessionPath() (string, error) {
 	if p := os.Getenv("YANA_CLI_SESSION"); p != "" {
 		return p, nil
 	}
-	dir, err := os.UserConfigDir()
+	dir, err := configDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "yana", "session.json"), nil
+	p := filepath.Join(dir, "session.json")
+	migrateSession(p)
+	return p, nil
 }
 
 func loadSession() (*session, error) {
@@ -164,6 +166,12 @@ func clientMain(cmd string, args []string) int {
 		err = whoami()
 	case "today":
 		err = today(args)
+	case "open":
+		err = openMain(args)
+	case "browse", "b":
+		err = browseMain()
+	case "config":
+		err = configMain()
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "yana:", err)
@@ -304,18 +312,31 @@ func today(args []string) error {
 	}
 	text = strings.Join(lines, "\n")
 
-	// Where today's note goes: --space, else the defaults the owner set
-	// (the daily folder, then the daily space, then the space for new
-	// notes), else the account's first space.
-	target := map[string]any{"space": *space, "date": time.Now().Format("2006-01-02")}
-	if *space == "" {
+	note, err := dailyNote(s, *space, time.Now())
+	if err != nil {
+		return err
+	}
+	if err := s.do(http.MethodPost, "/api/notes/"+note.ID+"/append", map[string]string{"content": text}, nil); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Added to %s.\n", note.Path)
+	return nil
+}
+
+// dailyNote finds or makes the daily note for date, the way Today in the
+// app does. It goes in space when given, else where the owner set daily
+// notes to go (the daily folder, then the daily space, then the space for
+// new notes), else in the account's first space.
+func dailyNote(s *session, space string, date time.Time) (entry, error) {
+	target := map[string]any{"space": space, "date": date.Format("2006-01-02")}
+	if space == "" {
 		var d struct {
 			Space       string `json:"space"`
 			DailySpace  string `json:"daily_space"`
 			DailyFolder string `json:"daily_folder"`
 		}
 		if err := s.do(http.MethodGet, "/api/defaults", nil, &d); err != nil {
-			return err
+			return entry{}, err
 		}
 		switch sp, folder, _ := strings.Cut(d.DailyFolder, "/"); {
 		case d.DailyFolder != "":
@@ -331,24 +352,18 @@ func today(args []string) error {
 				} `json:"spaces"`
 			}
 			if err := s.do(http.MethodGet, "/api/spaces", nil, &list); err != nil {
-				return err
+				return entry{}, err
 			}
 			if len(list.Spaces) == 0 {
-				return errors.New("this account has no space to write to")
+				return entry{}, errors.New("this account has no space to write to")
 			}
 			target["space"] = list.Spaces[0].Name
 		}
 	}
-	var note struct {
-		ID   string `json:"id"`
-		Path string `json:"path"`
-	}
+	var note entry
 	if err := s.do(http.MethodPost, "/api/notes/daily", target, &note); err != nil {
-		return err
+		return entry{}, err
 	}
-	if err := s.do(http.MethodPost, "/api/notes/"+note.ID+"/append", map[string]string{"content": text}, nil); err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stderr, "Added to %s.\n", note.Path)
-	return nil
+	note.Name, note.Kind = filepath.Base(note.Path), "md"
+	return note, nil
 }

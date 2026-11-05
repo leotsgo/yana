@@ -453,15 +453,19 @@ remains a complete backup (see above).
 
 ```sh
 make build                       # web client + static binary in ./yana
-YANA_NOTES_ROOT=~/notes ./yana   # or leave it unset for ~/.yana
+YANA_NOTES_ROOT=~/notes ./yana serve   # or leave it unset for ~/.yana
 ```
+
+`yana` with no command serves only when stdin is not a terminal (a
+container, a service); typed at a terminal it opens the notes browser
+instead (see [using.md](using.md#from-a-terminal)), so say `serve`.
 
 Install `ripgrep` for regex search and `git` for the history layer;
 without git the history endpoints answer 501 and nothing commits. The
 binary is static (`CGO_ENABLED=0`) and runs on any Linux, macOS, or
 Windows host without a runtime. A systemd unit is a `Type=simple` service
 with `Environment=YANA_NOTES_ROOT=...` and
-`ExecStart=/usr/local/bin/yana`.
+`ExecStart=/usr/local/bin/yana serve`.
 
 ## Accounts and sessions
 

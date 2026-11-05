@@ -188,7 +188,7 @@ Without a container, with Go 1.26+ and Node 20+:
 
 ```sh
 make build                       # web client + static binary
-YANA_NOTES_ROOT=~/notes ./yana   # default is ~/.yana
+YANA_NOTES_ROOT=~/notes ./yana serve   # default is ~/.yana
 ```
 
 Install `rg` (ripgrep) for regex search; without it the rest still works.

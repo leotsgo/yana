@@ -108,6 +108,80 @@ today's note. `yana today -` (or a pipe) reads the lines from stdin;
 `--space` picks a space other than the one set under Settings →
 Defaults. `yana whoami` and `yana logout` do what they say.
 
+## From a terminal
+
+Once signed in, `yana` on its own (or `yana browse`, `yana b`) opens a
+full-screen browser over your notes that works like oil.nvim and
+telescope. `yana open home/kiln` (a path, with or without `.md`, or a
+note id) skips the browser and edits one note. Run with no terminal on
+stdin, as in a container or a service, `yana` serves instead; `yana
+serve` always does.
+
+A note opens in your editor: `editor` in the config file, else
+`$VISUAL`, else `$EDITOR`, else `nvim`. It edits the note's body (the
+frontmatter stays on the server) in a private temp file named after the
+note, and every `:w` is sent to the server as it happens and merged with
+whatever changed there since you opened it, so someone typing in the app
+or an agent appending meanwhile keeps their text. Quitting without
+changes writes nothing. A note in a space where you are a viewer opens
+read-only. HTML notes edit their source; drawings open in the browser.
+If a save fails, the temp file stays and the message says where.
+
+The listing is one folder at a time; spaces are the top, folders end in
+`/`, and each folder remembers where the cursor was. The default keys
+(`<leader>` is space):
+
+| Keys | Does |
+|---|---|
+| `j` `k` `↓` `↑`, `gg` `G`, `Ctrl-d` `Ctrl-u` | move |
+| `Enter` `l` | open the folder or note |
+| `-` `h` `Backspace` | up a folder; `_` goes to the top |
+| `/` then `n` `N` | search the listing |
+| `o` `a` | new note here; a name ending in `/` makes a folder |
+| `r` `cw` | rename or move (edit the whole path) |
+| `dd` | delete to the trash, after a y/n |
+| `Ctrl-p` | preview pane |
+| `<leader>sf` | find notes by path or title |
+| `<leader>sg` | full-text search as you type; opens on the matching line |
+| `<leader><leader>` | recently opened notes |
+| `g?` | help; `q` or `:q` quits |
+
+In a picker, type to filter, move with the arrows, `Ctrl-n` `Ctrl-p` or
+`Ctrl-j` `Ctrl-k`, open with `Enter`, close with `Esc`. Find notes also
+reads `today`, `yesterday`, `tomorrow` or a date like `2026-11-04` (the
+daily note comes first, marked ◆, and opening it makes it if needed,
+in the same place `yana today` writes), `#tag` to keep notes with that
+tag, and a leading `space/` to stay in one space.
+
+`:` opens a command line with a completion menu: Tab and Shift-Tab (or
+`Ctrl-n` `Ctrl-p`) go through it, `↑` `↓` recall earlier commands.
+Commands: `:e <path>` (makes the note, after asking, when it is not
+there), `:today`, `:yesterday`, `:tomorrow`, `:new <name>`,
+`:mkdir <name>`, `:cd <folder>`, `:rename <new>` and `:delete` (on the
+item under the cursor), `:sf [query]`, `:sg [query]`, `:recent`,
+`:preview`, `:help`, `:map` (the keys in force), `:whoami`, `:logout`,
+`:q`.
+
+Keys and the editor are set in `~/.config/yana/config.yaml` (or under
+`$XDG_CONFIG_HOME`), on macOS too. The file is optional and only what
+it names changes; `yana config` prints its path and the defaults to
+copy from. Keys are in vim notation (`<leader>`, `<C-p>`, `<CR>`,
+`<Esc>`, `<Space>`, `<BS>`, sequences like `gg`), and an action's list
+replaces its defaults:
+
+```yaml
+leader: " "
+editor: nvim
+keys:
+  parent: ["-", "h", "<BS>"]
+  find_notes: ["<leader>sf", "<C-f>"]
+```
+
+A file that does not parse, or names an unknown action or key, is
+reported in the status line and the defaults are used. Recently opened
+notes and command history are kept in `~/.local/state/yana` (or under
+`$XDG_STATE_HOME`).
+
 ## Find things
 
 The search box in the sidebar searches titles and bodies (on a phone,
