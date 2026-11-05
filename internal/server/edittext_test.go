@@ -29,7 +29,7 @@ func TestNoteTextMerge(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("put: %d %v", code, got)
 	}
-	if want := "the strawberry jam recipe\n- appended meanwhile"; got["text"] != want {
+	if want := "the strawberry jam recipe\n- appended meanwhile\n"; got["text"] != want {
 		t.Fatalf("merged %q, want %q", got["text"], want)
 	}
 	if err := f.rec.Flush(context.Background(), w.homeID); err != nil {

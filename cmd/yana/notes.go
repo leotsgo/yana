@@ -249,9 +249,9 @@ func editorCmd(file string, line int, readOnly bool) *exec.Cmd {
 	if ed == "" {
 		ed = "nvim"
 	}
-	args := strings.Fields(ed)
-	name := filepath.Base(args[0])
+	name := filepath.Base(strings.Fields(ed)[0])
 	vimlike := name == "vi" || name == "vim" || name == "nvim"
+	var args []string
 	if line > 0 && (vimlike || name == "nano" || name == "emacs") {
 		args = append(args, fmt.Sprintf("+%d", line))
 	}
@@ -259,7 +259,9 @@ func editorCmd(file string, line int, readOnly bool) *exec.Cmd {
 		args = append(args, "-R")
 	}
 	args = append(args, file)
-	cmd := exec.Command(args[0], args[1:]...)
+	// Through the shell, as git runs it, so an editor setting with quoted
+	// arguments means what it says.
+	cmd := exec.Command("sh", append([]string{"-c", ed + ` "$@"`, "sh"}, args...)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return cmd
 }

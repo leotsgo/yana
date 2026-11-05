@@ -433,9 +433,11 @@ func (s *Server) handleNoteAppend(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	next := body.Content
+	// The line ends in a newline, so the next append, or an edit saved
+	// at the end at the same moment, starts on a line of its own.
+	next := strings.TrimRight(body.Content, "\n") + "\n"
 	if cur != "" {
-		next = strings.TrimRight(cur, "\n") + "\n" + body.Content
+		next = strings.TrimRight(cur, "\n") + "\n" + next
 	}
 	if int64(len(next)) > s.Root.Limits().MaxNoteSize {
 		writeError(w, http.StatusRequestEntityTooLarge, "the append would put the note over its size limit")
