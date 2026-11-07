@@ -131,6 +131,9 @@ Create the notes directory yourself before the first `up` (the compose
 example points at `./notes`); if Docker creates it for you it will be owned
 by root. Once the directory is yours, you can drop root altogether with
 `user: "1000:1000"` in the compose file (the example has it commented out).
+The image has a `yana` user for uid 1000, which SSH backups need: ssh
+refuses to run as a uid with no passwd entry, so a different uid needs
+its own entry (a derived image, or `/etc/passwd` mounted in).
 
 ### Health
 
@@ -341,7 +344,15 @@ its last push and, when the newest push failed, git's error message;
 "Push now" commits what is pending and pushes, "Test" runs `ls-remote`
 without pushing. The same surface is `GET/POST /api/git/remotes`,
 `PUT/DELETE /api/git/remotes/{id}`, and `POST /api/git/remotes/{id}/push`
-and `/test`, owner-only.
+and `/test`, owner-only, plus:
+
+- `POST /api/git/keys` makes a key for a remote not yet added.
+- `POST /api/git/remotes/{id}/key` makes a new key for a remote.
+- `DELETE /api/git/remotes/{id}/host-key` forgets the remembered host key.
+- `GET /api/setup` says whether the fresh-server setup is offered.
+- `POST /api/setup/empty` starts with an empty notebook.
+- `POST /api/setup/restore` starts a restore from a git backup.
+- `GET /api/setup/restore` reports that restore's progress.
 
 Two kinds of remote work: SSH, and a path.
 
@@ -355,7 +366,7 @@ Two kinds of remote work: SSH, and a path.
   (`ls-remote`) and saves the remote only if that works, then pushes
   once. If that first push fails — typically a deploy key without write
   access — the remote is kept and the message says so.
-- **A path** — an absolute path to a bare repository (`git init --bare`)
+- **A path** — an absolute path to a bare repository (`git init --bare -b main`)
   on a mounted backup disk or network share, seen from inside the
   container.
 

@@ -27,7 +27,9 @@ under Unreleased until the next tag; see
   puts the folder back empty.
 - HTTPS remotes and their tokens are gone, and so are `YANA_GIT_REMOTE`
   and `YANA_GIT_PUSH_HOUR`. Existing HTTPS remotes are removed on
-  upgrade; add them again over SSH.
+  upgrade; add them again over SSH. Existing SSH remotes keep working
+  only after the owner makes a key for them (Key → Make a key) and adds
+  it to the repository.
 
 - The Go module is `github.com/leotsgo/yana`, and `docker-compose.yml`
   pulls `ghcr.io/leotsgo/yana`.
