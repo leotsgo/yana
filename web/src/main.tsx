@@ -6,18 +6,33 @@
 import { render } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
 
+import { api } from './api'
 import { App } from './app'
 import * as auth from './auth'
 import { resetGraphData } from './graph-data'
 import * as prefs from './prefs'
 import { initPwa } from './pwa'
+import { SetupFlow } from './setup'
 import './app.css'
 
 prefs.applyTheme()
 prefs.applyAppearance()
 initPwa()
 
-type Phase = 'loading' | 'setup' | 'signin' | 'app'
+type Phase = 'loading' | 'setup' | 'signin' | 'choose' | 'app'
+
+// A fresh notes folder, or a restore still running, gets the setup choice
+// before the app. Any error (a non-owner, a server without git) opens the app.
+async function afterSignIn(): Promise<Phase> {
+  try {
+    const s = await api.setupState()
+    const r = s.restore
+    const running = r !== null && r.phase !== 'done' && r.phase !== 'failed'
+    return s.empty || running ? 'choose' : 'app'
+  } catch {
+    return 'app'
+  }
+}
 
 function Root() {
   const [phase, setPhase] = useState<Phase>('loading')
@@ -54,7 +69,8 @@ function Root() {
           return
         }
       }
-      setPhase('app')
+      const next = await afterSignIn()
+      if (live) setPhase(next)
     })()
     return () => {
       live = false
@@ -72,7 +88,7 @@ function Root() {
           passwordAutocomplete="new-password"
           button="Create the owner account"
           submit={(u, p) => auth.setup(u, p)}
-          onDone={() => setPhase('app')}
+          onDone={() => void afterSignIn().then(setPhase)}
         />
       )
     case 'signin':
@@ -83,9 +99,11 @@ function Root() {
           passwordAutocomplete="current-password"
           button="Sign in"
           submit={(u, p) => auth.login(u, p)}
-          onDone={() => setPhase('app')}
+          onDone={() => void afterSignIn().then(setPhase)}
         />
       )
+    case 'choose':
+      return <SetupFlow onDone={() => setPhase('app')} />
     case 'app':
       // Sign-out and an expired session both land here: drop what the last
       // account loaded before the next one signs in.

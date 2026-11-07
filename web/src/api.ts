@@ -272,6 +272,17 @@ export interface GitRemoteInput {
   sealed_key?: string
 }
 
+/** How the setup restore stands; polled until done or failed. */
+export interface RestoreStatus {
+  phase: 'connecting' | 'fetching' | 'indexing' | 'done' | 'failed'
+  url: string
+  host_key: string
+  commits: number
+  notes: number
+  /** On failure: the explained error, then git's own lines. */
+  error: string
+}
+
 /** What a backup holds, reported before anything is touched. */
 export interface RestorePreview {
   commit: string
@@ -575,6 +586,11 @@ export const api = {
     post<{ ok: boolean }>(`/api/notes/${encodeURIComponent(id)}/history/restore`, { revision, path }),
   gitSnapshot: () => post<{ ok: boolean; commits: number }>('/api/git/snapshot', {}),
   gitRemotes: () => get<{ remotes: GitRemote[] }>('/api/git/remotes'),
+  setupState: () => get<{ empty: boolean; restore: RestoreStatus | null }>('/api/setup'),
+  setupEmpty: () => post<{ path: string }>('/api/setup/empty', {}),
+  /** sealedKey is left out for a folder path, which needs no key. */
+  startRestore: (url: string, sealedKey?: string) => post<RestoreStatus>('/api/setup/restore', { url, sealed_key: sealedKey }),
+  restoreStatus: () => get<RestoreStatus>('/api/setup/restore'),
   newGitKey: () => post<{ public_key: string; sealed_key: string }>('/api/git/keys', {}),
   createGitRemote: (input: GitRemoteInput) => post<{ remote: GitRemote; push_error: string }>('/api/git/remotes', input),
   replaceGitKey: (id: string) => post<{ public_key: string }>(`/api/git/remotes/${encodeURIComponent(id)}/key`, {}),

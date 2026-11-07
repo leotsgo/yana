@@ -1352,7 +1352,7 @@ function draftOf(r: GitRemote): RemoteDraft {
 
 /** An absolute path is a bare repository on a mounted disk; anything else
  * is SSH and has a key. The server draws the same line. */
-const isPathURL = (url: string): boolean => url.trim().startsWith('/')
+export const isPathURL = (url: string): boolean => url.trim().startsWith('/')
 
 /** A remote's public key with a Copy button; Task 8's setup flow shares it. */
 export function KeyBlock({ publicKey }: { publicKey: string }) {

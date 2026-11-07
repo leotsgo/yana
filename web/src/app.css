@@ -1225,6 +1225,33 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 .auth-msg { min-height: 1.4em; margin: 0; color: var(--danger); font-size: 13px; }
 .auth-form .btn { align-self: stretch; }
 
+/* First-run choice: empty notebook or restore from a git backup. */
+.setup-opt {
+  display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; text-align: left; font: inherit; color: var(--ink);
+  background: var(--bg); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer;
+}
+.setup-opt:hover:not(:disabled) { border-color: var(--accent); }
+.setup-opt:disabled { opacity: 0.6; cursor: default; }
+.setup-opt span { color: var(--ink-2); font-size: 13px; }
+.setup-where { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
+.setup-where b { color: var(--ink); font-weight: 600; }
+.setup-where code, .auth-sub code, .setup-ok code { font: 12px var(--mono); word-break: break-all; }
+.setup-form { display: flex; flex-direction: column; gap: 12px; }
+.setup-mono { font-family: var(--mono); font-size: 14px; }
+.setup-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.setup-actions .btn { align-self: auto; }
+.setup-progress { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.setup-progress li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: start; }
+.setup-ic { font: 600 13px var(--mono); color: var(--ok); }
+.setup-progress .run .setup-ic { color: var(--accent); }
+.setup-progress .todo { color: var(--ink-3); }
+.setup-progress .todo .setup-ic { color: inherit; }
+.setup-progress small { display: block; color: var(--ink-3); font: 11.5px var(--mono); word-break: break-all; }
+.setup-error, .setup-ok { padding: 10px 12px; border-radius: var(--r-sm); font-size: 13px; }
+.setup-error { background: var(--danger-soft); color: var(--danger); }
+.setup-error code { display: block; margin-top: 4px; font: 11.5px var(--mono); white-space: pre-wrap; word-break: break-word; }
+.setup-ok { background: var(--accent-soft); color: var(--ink); }
+
 /* --- html notes -------------------------------------------------------- */
 
 .html-body { display: flex; }
