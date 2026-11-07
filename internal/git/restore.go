@@ -236,9 +236,11 @@ func treePathOK(rel string) bool {
 }
 
 // checkFetchedTree refuses a backup whose tree holds a path that may not
-// be written, or one that already exists on disk — the path itself or
-// any directory above it. Only .gitignore, which the server owns, may
-// already be there.
+// be written, a path that already exists on disk, or a path whose parent
+// exists as something other than a directory (a file or a symlink in the
+// way). An existing directory above a path is fine — a leftover empty
+// journal/ must not block a restore. Only .gitignore, which the server
+// owns, may already be there.
 func (l *Layer) checkFetchedTree(ctx context.Context) error {
 	paths, err := l.fetchedPaths(ctx)
 	if err != nil {
@@ -255,16 +257,25 @@ func (l *Layer) checkFetchedTree(ctx context.Context) error {
 		if rel == ".gitignore" {
 			continue
 		}
-		for p := rel; p != "."; p = path.Dir(p) {
+		// Top down, so a file in the way is found before a lookup
+		// beneath it fails with "not a directory".
+		segs := strings.Split(rel, "/")
+		for i := range segs {
+			p := strings.Join(segs[:i+1], "/")
 			// A file that is also a directory above another file is a
 			// crafted tree, not a backup.
 			if p != rel && files[p] {
 				return fmt.Errorf("the backup holds %q as both a file and a folder", p)
 			}
-			if _, err := os.Lstat(filepath.Join(l.root, filepath.FromSlash(p))); err == nil {
-				return fmt.Errorf("the notes folder holds %q, which the backup also has; move it away and try again", p)
-			} else if !errors.Is(err, fs.ErrNotExist) {
+			fi, err := os.Lstat(filepath.Join(l.root, filepath.FromSlash(p)))
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
 				return err
+			}
+			if p == rel || !fi.IsDir() {
+				return fmt.Errorf("the notes folder holds %q, which the backup also has; move it away and try again", p)
 			}
 		}
 	}
@@ -336,7 +347,11 @@ func (l *Layer) rollbackBootstrap(prev string) error {
 		}
 	}
 	// Deepest first, so a parent is empty by the time it is tried; a
-	// directory that still holds something stays.
+	// directory that still holds something stays, and the root is never
+	// in the list.
+	// ponytail: an empty directory that existed before the bootstrap
+	// (a leftover journal/) is pruned too; record pre-existing dirs in
+	// the marker if that ever matters.
 	ordered := make([]string, 0, len(dirs))
 	for d := range dirs {
 		ordered = append(ordered, d)

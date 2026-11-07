@@ -304,24 +304,32 @@ func TestBootstrapRefusesUnsafeTree(t *testing.T) {
 }
 
 func TestBootstrapRefusesCollisions(t *testing.T) {
-	ctx := context.Background()
-	bare := craftRemote(t, "docs", "lost+found/notes.md")
-	dir := t.TempDir()
-	putFile(t, dir, "docs/keep.bin", "dir in the way")
-	putFile(t, dir, "lost+found", "file in the way")
-	l := git.New(dir, testOptions(), nil)
-	if err := l.Ensure(ctx); err != nil {
-		t.Fatal(err)
-	}
-	_, err := l.Bootstrap(ctx, index.GitRemote{ID: "r", Name: "backup", URL: bare, Enabled: true}, nil)
-	if err == nil || !strings.Contains(err.Error(), "move it away") {
-		t.Fatalf("err = %v, want a collision refusal", err)
-	}
-	if readFile(t, dir, "docs/keep.bin") != "dir in the way" || readFile(t, dir, "lost+found") != "file in the way" {
-		t.Fatal("a foreign file was destroyed")
-	}
-	if _, err := os.Stat(markerPath(dir)); !os.IsNotExist(err) {
-		t.Fatalf("marker written for a refused tree: %v", err)
+	for _, tc := range []struct{ name, fetched, local, keep string }{
+		// The backup's file where the root has a directory.
+		{"path exists", "docs", "docs/keep.bin", "dir in the way"},
+		// The backup's directory where the root has a file.
+		{"parent is a file", "lost+found/notes.md", "lost+found", "file in the way"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			bare := craftRemote(t, tc.fetched)
+			dir := t.TempDir()
+			putFile(t, dir, tc.local, tc.keep)
+			l := git.New(dir, testOptions(), nil)
+			if err := l.Ensure(ctx); err != nil {
+				t.Fatal(err)
+			}
+			_, err := l.Bootstrap(ctx, index.GitRemote{ID: "r", Name: "backup", URL: bare, Enabled: true}, nil)
+			if err == nil || !strings.Contains(err.Error(), "move it away") {
+				t.Fatalf("err = %v, want a collision refusal", err)
+			}
+			if readFile(t, dir, tc.local) != tc.keep {
+				t.Fatal("a foreign file was destroyed")
+			}
+			if _, err := os.Stat(markerPath(dir)); !os.IsNotExist(err) {
+				t.Fatalf("marker written for a refused tree: %v", err)
+			}
+		})
 	}
 }
 
@@ -351,5 +359,24 @@ func TestBootstrapAbort(t *testing.T) {
 	}
 	if readFile(t, dir, "lost+found/keep.bin") != "keep" {
 		t.Fatal("abort disturbed a foreign file")
+	}
+}
+
+func TestBootstrapIntoExistingEmptyDir(t *testing.T) {
+	ctx := context.Background()
+	bare := seedRemote(t, map[string]string{"a/one.md": "one\n"})
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := git.New(dir, testOptions(), nil)
+	if err := l.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Bootstrap(ctx, index.GitRemote{ID: "r", Name: "backup", URL: bare, Enabled: true}, nil); err != nil {
+		t.Fatalf("an existing empty directory blocked the restore: %v", err)
+	}
+	if readFile(t, dir, "a/one.md") != "one\n" {
+		t.Fatal("a/one.md not restored")
 	}
 }
