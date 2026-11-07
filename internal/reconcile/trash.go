@@ -103,12 +103,18 @@ func (r *Reconciler) Delete(ctx context.Context, id string, may CanWrite) (Delet
 	// failure compensates by moving the file back, the same all-or-
 	// nothing shape as Move.
 	if err := r.db.Write(ctx, func(tx *sql.Tx) error {
+		// Its aliases go with the row; they are read first.
+		aliases, err := index.AliasesOfTx(tx, row.ID)
+		if err != nil {
+			return err
+		}
 		if err := index.RetireNote(tx, row, trashRel, now); err != nil {
 			return err
 		}
-		// A removed note can free a basename (uniqueness flips) and
-		// breaks inbound links; recompute the space it lived in.
-		return index.RecomputeSpaceLinks(tx, row.Space)
+		// A removed note can free a basename or an alias (uniqueness
+		// flips) and breaks inbound links; the links that named it are
+		// recomputed.
+		return index.RecomputeLinksNaming(tx, row.Space, row.RelPath, aliases)
 	}); err != nil {
 		if trashRel != "" {
 			_ = os.Rename(filepath.Join(r.root.Dir(), filepath.FromSlash(trashRel)), absOld)

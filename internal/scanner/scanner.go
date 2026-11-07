@@ -344,11 +344,6 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 			if err := index.DeleteNoteByPath(tx, cleanRel, s.opts.Now()); err != nil {
 				return err
 			}
-			// A removed note can free a basename (uniqueness flips) and
-			// breaks inbound links; recompute the space it lived in.
-			if err := index.RecomputeSpaceLinks(tx, spaceOf(cleanRel)); err != nil {
-				return err
-			}
 			// It can also be the survivor its conflict copies point at.
 			return index.RecomputeConflictsIn(tx, dirScope(cleanRel))
 		})
@@ -377,8 +372,8 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 		}
 		moved := err == nil && old.RelPath != it.note.RelPath
 		fresh := errors.Is(err, index.ErrNotFound)
-		// An edited alias list changes how the whole space resolves; it
-		// is read before the upsert replaces the rows.
+		// An edited alias list changes how other notes' links resolve;
+		// it is read before the upsert replaces the rows.
 		oldAliases, err := index.AliasesOfTx(tx, it.note.ID)
 		if err != nil {
 			return err
@@ -395,23 +390,17 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 		if err := index.RecomputeConflictsIn(tx, dirScope(it.note.RelPath)); err != nil {
 			return err
 		}
-		// A moved note changes how the whole space resolves, so the space
-		// is redone; a new one only touches the targets that could name it.
-		if moved {
-			if old.Space != it.note.Space {
-				if err := index.RecomputeSpaceLinks(tx, old.Space); err != nil {
-					return err
-				}
-			}
-			return index.RecomputeSpaceLinks(tx, it.note.Space)
-		}
+		// Only the links that could name the note, where it was or where
+		// it is now, resolve differently after it arrives, moves or
+		// changes its aliases; those are redone with its own.
 		if fresh {
 			return index.RecomputeLinksForNew(tx, it.note.ID)
 		}
-		// A changed alias list also changes how other notes' links
-		// resolve, so the space is redone; otherwise only this note's.
-		if !index.SameAliasSet(oldAliases, it.aliases) {
-			return index.RecomputeSpaceLinks(tx, it.note.Space)
+		if moved || !index.SameAliasSet(oldAliases, it.aliases) {
+			if err := index.RecomputeLinksNaming(tx, old.Space, old.RelPath, oldAliases); err != nil {
+				return err
+			}
+			return index.RecomputeLinksNaming(tx, it.note.Space, it.note.RelPath, it.aliases, it.note.ID)
 		}
 		return index.ReplaceLinksForNote(tx, it.note.ID)
 	})

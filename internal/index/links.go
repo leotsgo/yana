@@ -110,12 +110,8 @@ func RecomputeSpaceLinks(tx *sql.Tx, space string) error {
 }
 
 // RecomputeLinksForNew recomputes the links a newly indexed note can
-// change: its own, and those of the notes in its space whose raw targets
-// could name it. A target reaches a note through its path, its filename
-// or an alias, and every path or filename spelling contains the note's
-// stem, so a target holding neither the stem nor an alias resolves as it
-// did before. A new note then costs its would-be linkers, not every body
-// in the space. The note row and its aliases must already exist in tx.
+// change: its own, and those RecomputeLinksNaming finds. The note row and
+// its aliases must already exist in tx.
 func RecomputeLinksForNew(tx *sql.Tx, noteID string) error {
 	var rel, space string
 	if err := tx.QueryRow(`SELECT rel_path, space FROM notes WHERE id = ?`, noteID).Scan(&rel, &space); err != nil {
@@ -125,11 +121,31 @@ func RecomputeLinksForNew(tx *sql.Tx, noteID string) error {
 	if err != nil {
 		return err
 	}
+	return RecomputeLinksNaming(tx, space, rel, aliases, noteID)
+}
+
+// RecomputeLinksNaming recomputes the links of the notes in space whose
+// raw targets could name the note at rel, plus those of the notes in
+// also. A target reaches a note through its path, its filename or an
+// alias, and every path or filename spelling contains the note's stem,
+// so a target holding neither the stem nor an alias resolves the same
+// whether that note is there or not. Adding or removing a note then costs
+// its would-be linkers, not every body in the space.
+func RecomputeLinksNaming(tx *sql.Tx, space, rel string, aliases []string, also ...string) error {
 	stem, _ := drawing.SplitExt(path.Base(rel))
-	ids := map[string]struct{}{noteID: {}}
-	for _, needle := range append(aliases, stem) {
+	ids := map[string]struct{}{}
+	for _, id := range also {
+		ids[id] = struct{}{}
+	}
+	needles := []string{stem}
+	for _, a := range aliases {
+		if a = strings.TrimSpace(a); a != "" {
+			needles = append(needles, a)
+		}
+	}
+	for _, needle := range needles {
 		rows, err := tx.Query(`SELECT DISTINCT l.from_id FROM links l JOIN notes n ON n.id = l.from_id
-			WHERE n.space = ? AND instr(l.raw_target, ?) > 0`, space, strings.TrimSpace(needle))
+			WHERE n.space = ? AND instr(l.raw_target, ?) > 0`, space, needle)
 		if err != nil {
 			return err
 		}

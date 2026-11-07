@@ -485,15 +485,16 @@ func TestIndexDrawingUnparseable(t *testing.T) {
 	}
 }
 
-// A new note recomputes only the links that could name it; the outcome
-// must match redoing the whole space.
-func TestScanOneFreshMatchesSpaceRecompute(t *testing.T) {
+// Adding, moving, re-aliasing or removing a note recomputes only the
+// links that could name it; the outcome must match redoing every space.
+func TestScanOneMatchesSpaceRecompute(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
-	f.write(t, "s/a.md", "[[target]] [[dup]] [[nick]] [[sketch]] [[sub/target]] [[other]]\n")
+	f.write(t, "s/a.md", "[[target]] [[dup]] [[nick]] [[sketch]] [[sub/target]] [[other]] [[dup2]]\n")
 	f.write(t, "s/x/dup.md", "# dup\n")
 	f.write(t, "s/sketch.excalidraw.md", "# sketch\n")
 	f.write(t, "s/b.md", "[[other]] [[x/dup]]\n")
+	f.write(t, "t/c.md", "[[target]] [[nick]]\n")
 	if _, err := f.sc.Scan(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -520,23 +521,63 @@ func TestScanOneFreshMatchesSpaceRecompute(t *testing.T) {
 		}
 		return strings.Join(out, "\n")
 	}
-	for _, nw := range []struct{ rel, body string }{
-		{"s/target.md", "[[a]]\n"},
-		{"s/y/dup.md", "# second dup\n"},
-		{"s/z.md", "---\naliases: [nick]\n---\n# z\n"},
-		{"s/sketch.md", "# a note beats a drawing\n"},
-		{"s/sub/target.md", "# by path\n"},
-	} {
-		f.write(t, nw.rel, nw.body)
-		if err := f.sc.ScanOne(ctx, nw.rel); err != nil {
-			t.Fatal(err)
+	scan := func(rels ...string) {
+		for _, rel := range rels {
+			if err := f.sc.ScanOne(ctx, rel); err != nil {
+				t.Fatal(err)
+			}
 		}
+	}
+	add := func(rel, body string) func() {
+		return func() { f.write(t, rel, body); scan(rel) }
+	}
+	move := func(from, to string) func() {
+		return func() {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(f.dir, to)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(filepath.Join(f.dir, from), filepath.Join(f.dir, to)); err != nil {
+				t.Fatal(err)
+			}
+			scan(to, from)
+		}
+	}
+	remove := func(rel string) func() {
+		return func() {
+			if err := os.Remove(filepath.Join(f.dir, rel)); err != nil {
+				t.Fatal(err)
+			}
+			scan(rel)
+		}
+	}
+	steps := []struct {
+		name string
+		run  func()
+	}{
+		{"add s/target.md", add("s/target.md", "[[a]]\n")},
+		{"add s/y/dup.md", add("s/y/dup.md", "# second dup\n")},
+		{"add s/z.md", add("s/z.md", "---\naliases: [nick]\n---\n# z\n")},
+		{"add s/sketch.md", add("s/sketch.md", "# a note beats a drawing\n")},
+		{"add s/sub/target.md", add("s/sub/target.md", "# by path\n")},
+		{"add s/w.md", add("s/w.md", "---\naliases: [nick]\n---\n# w\n")},
+		{"remove s/sketch.md", remove("s/sketch.md")},
+		{"remove s/x/dup.md", remove("s/x/dup.md")},
+		{"remove s/z.md", remove("s/z.md")},
+		{"re-alias s/w.md", func() {
+			f.write(t, "s/w.md", strings.Replace(f.read(t, "s/w.md"), "[nick]", "[other]", 1))
+			scan("s/w.md")
+		}},
+		{"move s/y/dup.md", move("s/y/dup.md", "s/q/dup2.md")},
+		{"move s/target.md to t", move("s/target.md", "t/target.md")},
+	}
+	for _, st := range steps {
+		st.run()
 		got := snapshot()
-		if err := f.db.Write(ctx, func(tx *sql.Tx) error { return index.RecomputeSpaceLinks(tx, "s") }); err != nil {
+		if err := f.db.Write(ctx, index.RecomputeAllLinks); err != nil {
 			t.Fatal(err)
 		}
 		if want := snapshot(); got != want {
-			t.Fatalf("after adding %s:\ngot\n%s\nwant\n%s", nw.rel, got, want)
+			t.Fatalf("after %s:\ngot\n%s\nwant\n%s", st.name, got, want)
 		}
 	}
 }

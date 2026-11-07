@@ -69,6 +69,25 @@ type staticErr string
 
 func (e staticErr) Error() string { return string(e) }
 
+// Deleting one of two notes that share a filename leaves the other the
+// only match, so a link by that name resolves to it as soon as Delete
+// returns.
+func TestDeleteResolvesFreedName(t *testing.T) {
+	h := newHarness(t, "", testOptions())
+	defer h.close()
+	gone := h.newNote("proj/a/dup.md", "# A\n")
+	kept := h.newNote("proj/b/dup.md", "# B\n")
+	linker := h.newNote("proj/linker.md", "See [[dup]].\n")
+	h.converged(linker)
+	if _, err := h.rec.Delete(h.ctx, gone, nil); err != nil {
+		t.Fatal(err)
+	}
+	out, err := h.db.OutboundLinks(h.ctx, linker)
+	if err != nil || len(out) != 1 || out[0].ToID != kept {
+		t.Fatalf("links after delete = %+v, %v; want [[dup]] -> %s", out, err, kept)
+	}
+}
+
 func TestRestoreReturnsFileAndReResolvesLinks(t *testing.T) {
 	h := newHarness(t, "", testOptions())
 	defer h.close()

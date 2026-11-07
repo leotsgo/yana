@@ -9,9 +9,10 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
-- New notes and the daily note are made without the wait that grew
-  with the size of their space: a new note recomputes only the links
-  that could name it, not every note in the space.
+- Making, moving, renaming and deleting a note no longer wait on a pass
+  over every note of its space: only the links that could name the note
+  are recomputed. A deleted note leaves the sidebar at once, and making
+  one (the daily note too) is no slower in a large space.
 - The native Android app is gone, with its gomobile CRDT bindings
   (`mobile/`), its reader bundle, its CI and Makefile targets, and
   `GET /api/notes`, the flat note list only its offline replica read. The

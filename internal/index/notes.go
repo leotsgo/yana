@@ -208,7 +208,9 @@ func DeleteNotesExcept(tx *sql.Tx, keep map[string]struct{}, now time.Time) (int
 }
 
 // DeleteNoteByPath removes one note row and its dependents, keeping a
-// trash record of where it lived. now stamps the deletion.
+// trash record of where it lived, and recomputes the links that could
+// name it: a removed note can free a basename or an alias (uniqueness
+// flips) and breaks inbound links. now stamps the deletion.
 func DeleteNoteByPath(tx *sql.Tx, relPath string, now time.Time) error {
 	var id string
 	err := tx.QueryRow(`SELECT id FROM notes WHERE rel_path = ?`, relPath).Scan(&id)
@@ -222,7 +224,14 @@ func DeleteNoteByPath(tx *sql.Tx, relPath string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return RetireNote(tx, n, "", now)
+	aliases, err := AliasesOfTx(tx, id)
+	if err != nil {
+		return err
+	}
+	if err := RetireNote(tx, n, "", now); err != nil {
+		return err
+	}
+	return RecomputeLinksNaming(tx, n.Space, n.RelPath, aliases)
 }
 
 // UpsertAsset records a file under _assets.
