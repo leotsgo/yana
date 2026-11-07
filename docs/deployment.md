@@ -67,8 +67,6 @@ ripgrep: true
 | `YANA_GIT` | `true` | Keep a git history of the notes root |
 | `YANA_GIT_QUIET` | `5m` | How long the tree must be unchanged before the window commits |
 | `YANA_GIT_INTERVAL` | `1h` | Bound on how long a continuously edited tree goes uncommitted |
-| `YANA_GIT_REMOTE` | unset | Seeds the backup remotes list on first run (see below), and over an empty notes root is cloned before the first scan |
-| `YANA_GIT_PUSH_HOUR` | `2` | Local hour the seeded remote pushes at |
 | `YANA_GIT_USER_NAME` | `yana user` | Git identity human edits commit under |
 | `YANA_GIT_USER_EMAIL` | `user@yana.local` | Its email |
 | `YANA_ACCESS_TTL` | `15m` | Access token lifetime |
@@ -306,14 +304,8 @@ covering `.sync/` and its own temp files. The repository is derived state
 like the index: delete it and the next start rebuilds it, minus the
 history.
 
-When `YANA_GIT_REMOTE` is set and the root has never held notes — a
-fresh volume, nothing but `.sync/`, `.trash/` and dotfiles — the server
-clones that remote instead of initialising an empty repository, so a
-rebuilt container comes up with every space, note and id in place. The
-clone goes through the same credential handling a push uses. A root that
-already holds notes is never cloned over; a clone that fails (the backup
-is unreachable) leaves the root empty, is logged clearly, and the server
-starts without git history, retrying on the next start.
+A fresh server can start from a backup instead: see [Restoring from a
+backup](#restoring-from-a-backup).
 
 Commits happen after the tree has been quiet for `YANA_GIT_QUIET`
 (default 5 minutes), or at most `YANA_GIT_INTERVAL` (1 hour) apart during
@@ -351,27 +343,32 @@ without pushing. The same surface is `GET/POST /api/git/remotes`,
 `PUT/DELETE /api/git/remotes/{id}`, and `POST /api/git/remotes/{id}/push`
 and `/test`, owner-only.
 
-Three kinds of remote work:
+Two kinds of remote work: SSH, and a path.
 
-- **HTTPS with a token** — a private GitHub, Gitea, GitLab, or Forgejo
-  repository. Create a token scoped to that one repository with write
-  access to its contents (GitHub: a fine-grained personal access token
-  with *Contents: read and write*; Gitea: an access token with
-  `repository` write) and paste it into the Token field. Any username
-  works; the token is what authenticates. The token is encrypted at rest
-  with a key in `.sync/git_secret` and is handed to git through an
-  in-memory credential helper for each push: it never appears in the
-  URL, on a command line, or in a log line. A token pasted into the URL
-  (`https://me:token@host/…`) is moved out of it on save.
-- **SSH** — `git@github.com:you/notes.git` or `ssh://git@host:port/…`.
-  The server needs a key it can read: bind-mount a directory holding
-  `id_ed25519` and `known_hosts` at the container user's `~/.ssh`
-  (`/root/.ssh` by default), or set `GIT_SSH_COMMAND` to point at one.
-  The image ships `openssh-client`; unknown hosts are accepted on first
-  connection and pinned after (`StrictHostKeyChecking=accept-new`).
+- **SSH** — `git@github.com:you/notes.git` or
+  `ssh://git@host:port/…`. Each remote has its own ed25519 key, made by
+  the server. In Settings → Data → Backups choose Add remote: the
+  dialog shows the public key first, with a copy button. Add it to the
+  repository as a deploy key *with write access* (GitHub: Settings →
+  Deploy keys → Allow write access; Gitea, GitLab and Forgejo have the
+  same), then enter the address and "Test and add". The server connects
+  (`ls-remote`) and saves the remote only if that works, then pushes
+  once. If that first push fails — typically a deploy key without write
+  access — the remote is kept and the message says so.
 - **A path** — an absolute path to a bare repository (`git init --bare`)
   on a mounted backup disk or network share, seen from inside the
   container.
+
+A remote's Key panel copies the key again, makes a new one ("Make a new
+key"; the old key stops working at once, so add the new one to the
+repository first), and shows the host's fingerprint. The server
+remembers a host's key on first contact, in `.sync/known_hosts`. A host
+that later presents a different key is refused. If it changed its key on
+purpose, press "Forget", then test again. The private keys are stored
+encrypted in the database, sealed with `.sync/git_secret`; while git
+runs, a temporary key file appears under `.sync/` for a moment and is
+removed. Nothing needs mounting at `~/.ssh`. The image ships
+`openssh-client`.
 
 The server never prompts for credentials: a push that would need to
 fails, records the error on the remote, and is retried after ten
@@ -379,19 +376,19 @@ minutes by the schedule or at once by "Push now". A rejected
 non-fast-forward push is a real signal — something else wrote to the
 backup repository — and is reported rather than forced over.
 
-`YANA_GIT_REMOTE`, when set, seeds one remote (nightly at
-`YANA_GIT_PUSH_HOUR`) into an empty remotes list on first start; after
-that the settings page owns the list and the variable is ignored.
-
 ### Restoring from a backup
 
 Losing the volume does not lose the notes: any backup remote can bring
 them back, either by itself on a fresh install or on demand.
 
-**A fresh install restores itself.** Start the container over an empty
-volume with `YANA_GIT_REMOTE` pointing at the backup and the server
-clones it before the first scan (see above): every space, note and id
-arrives in place, tree browsable and search working, with no manual git.
+**A fresh server restores from setup.** Start the container over an
+empty volume and create the owner account. If the notes folder holds no
+notes, the app offers "Start with an empty notebook" or "Restore from a
+git backup". Restore shows a key to add to the repository (with write
+access, as above), then asks for its address. The server connects,
+clones, and indexes: every space, note and id arrives in place, and the
+repository becomes a remote named `backup`, pushing nightly at 02:00.
+A restore that fails puts the folder back empty, so you can try again.
 
 **An existing server restores from settings.** Settings → Data →
 History gains "Restore from a backup", owner-only. Pick an enabled
@@ -413,7 +410,7 @@ tasks and links in line with the tree.
 
 `.sync/` and `.trash/` are gitignored and are not part of any backup:
 accounts, sessions, the auth and content secrets, the sealed remote
-credentials and the trash belong to this server. A restore replaces
+keys and the trash belong to this server. A restore replaces
 none of them and signs nobody out. The same surface is `POST
 /api/git/remotes/{id}/restore/preview` and `POST
 /api/git/remotes/{id}/restore` (body `{"confirm": "the remote's name"}`),

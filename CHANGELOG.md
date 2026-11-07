@@ -9,6 +9,26 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- Backup remotes work over SSH. Each remote has its own key, made by
+  the server: Settings → Data → Backups shows the public key first, to
+  add to the repository as a deploy key with write access, then asks for
+  the address (`git@host:path`, `ssh://…`, or an absolute path to a bare
+  repository). "Test and add" connects before it saves, then pushes
+  once; a first push that fails (a key without write access) keeps the
+  remote and says so. A remote's Key panel copies the key, makes a new
+  one, and shows the host's fingerprint, remembered on first contact in
+  `.sync/known_hosts`; a host whose key changed is refused until you
+  press "Forget".
+- A fresh server can start from a git backup. After the owner account
+  is created, if the notes folder holds no notes, the app offers an
+  empty notebook or "Restore from a git backup": add the key, enter the
+  address, and the server clones and indexes it. The repository becomes
+  a remote named `backup`, pushing nightly at 02:00; a failed restore
+  puts the folder back empty.
+- HTTPS remotes and their tokens are gone, and so are `YANA_GIT_REMOTE`
+  and `YANA_GIT_PUSH_HOUR`. Existing HTTPS remotes are removed on
+  upgrade; add them again over SSH.
+
 - The Go module is `github.com/leotsgo/yana`, and `docker-compose.yml`
   pulls `ghcr.io/leotsgo/yana`.
 - Making, moving, renaming and deleting a note no longer wait on a pass

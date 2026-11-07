@@ -116,7 +116,7 @@ the tree has been quiet; edits by people and edits by agents are
 distinguishable by author. Every note has a revision list, diffs, and
 restore in the Details panel. Optional backup remotes push the history
 on a schedule, and a backup restores the whole tree from settings — or
-clones itself back onto an empty volume on first start.
+from the setup screen of an empty server.
 
 **What changed.** The activity page reads that same history as a feed:
 who changed which notes, when, grouped by day. An agent's overnight run
