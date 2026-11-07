@@ -369,6 +369,10 @@ func (s *Server) handleGitRemoteUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if remote.URL != oldURL {
+		if git.IsSSH(oldURL) != git.IsSSH(remote.URL) {
+			writeError(w, http.StatusBadRequest, "A remote can't switch between SSH and a folder path. Add a new remote instead.")
+			return
+		}
 		if _, err := s.Git.Test(r.Context(), remote); err != nil {
 			writeError(w, http.StatusBadGateway, git.ExplainGitError(remote.URL, err))
 			return

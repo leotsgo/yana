@@ -297,3 +297,45 @@ func TestGitRemotesNeedOwner(t *testing.T) {
 		t.Fatalf("owner listing remotes: %d", code)
 	}
 }
+
+func TestUpdateRemoteCannotSwitchTransport(t *testing.T) {
+	fakeSSH(t)
+	e := newGitEnv(t)
+	const want = "A remote can't switch between SSH and a folder path. Add a new remote instead."
+	bare := bareRepo(t)
+	var disk struct{ Remote index.GitRemote }
+	if code := e.post(t, "/api/git/remotes", map[string]any{"name": "disk", "url": bare}, &disk); code != 201 {
+		t.Fatalf("create disk: %d", code)
+	}
+	var key struct {
+		SealedKey string `json:"sealed_key"`
+	}
+	e.post(t, "/api/git/keys", map[string]any{}, &key)
+	const sshURL = "git@example.invalid:me/notes.git"
+	var gh struct{ Remote index.GitRemote }
+	if code := e.post(t, "/api/git/remotes", map[string]any{"name": "gh", "url": sshURL, "sealed_key": key.SealedKey}, &gh); code != 201 {
+		t.Fatalf("create ssh: %d", code)
+	}
+
+	var errOut struct{ Error string }
+	if code := e.request(t, "PUT", "/api/git/remotes/"+disk.Remote.ID, map[string]any{"url": sshURL}, &errOut); code != 400 || errOut.Error != want {
+		t.Fatalf("path to ssh: %d %q", code, errOut.Error)
+	}
+	if code := e.request(t, "PUT", "/api/git/remotes/"+gh.Remote.ID, map[string]any{"url": bare}, &errOut); code != 400 || errOut.Error != want {
+		t.Fatalf("ssh to path: %d %q", code, errOut.Error)
+	}
+	var list struct{ Remotes []index.GitRemote }
+	e.get(t, "/api/git/remotes", &list)
+	for _, r := range list.Remotes {
+		switch r.ID {
+		case disk.Remote.ID:
+			if r.URL != bare || r.PublicKey != "" {
+				t.Fatalf("disk row changed: %+v", r)
+			}
+		case gh.Remote.ID:
+			if r.URL != sshURL || r.PublicKey == "" {
+				t.Fatalf("ssh row changed: %+v", r)
+			}
+		}
+	}
+}
