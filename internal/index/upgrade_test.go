@@ -86,9 +86,11 @@ func TestUpgrade14FailsOnUnexpectedCheck(t *testing.T) {
 	}
 }
 
-// openV13 builds a database at schema version 13 from the embedded
+func openV13(t *testing.T) (string, *sql.DB) { return openAt(t, 13) }
+
+// openAt builds a database at schema version v from the embedded
 // migrations and returns its path and an open handle.
-func openV13(t *testing.T) (string, *sql.DB) {
+func openAt(t *testing.T, v int) (string, *sql.DB) {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "i.db")
 	raw, err := sql.Open("sqlite", "file:"+p+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
@@ -96,7 +98,7 @@ func openV13(t *testing.T) (string, *sql.DB) {
 		t.Fatal(err)
 	}
 	raw.SetMaxOpenConns(1) // writable_schema is per connection
-	for i := 1; i <= 13; i++ {
+	for i := 1; i <= v; i++ {
 		b, err := migrations.ReadFile(fmt.Sprintf("migrations/%03d_%s", i, migrationSuffix(t, i)))
 		if err != nil {
 			t.Fatal(err)
@@ -105,7 +107,7 @@ func openV13(t *testing.T) (string, *sql.DB) {
 			t.Fatal(i, err)
 		}
 	}
-	if _, err := raw.Exec("PRAGMA user_version = 13"); err != nil {
+	if _, err := raw.Exec(fmt.Sprintf("PRAGMA user_version = %d", v)); err != nil {
 		t.Fatal(err)
 	}
 	return p, raw

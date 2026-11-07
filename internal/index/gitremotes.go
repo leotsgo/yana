@@ -16,17 +16,18 @@ var ErrGitRemoteNotFound = errors.New("no such remote")
 // ErrGitRemoteNameTaken is returned when another remote holds the name.
 var ErrGitRemoteNameTaken = errors.New("a remote with that name exists")
 
-// GitRemote is one row of git_remotes. Secret is the sealed credential
-// and never leaves the server; HasSecret is what the API reports.
+// GitRemote is one row of git_remotes. Secret is the sealed private key
+// and never leaves the server; PublicKey is what the owner installs on
+// the remote. HostKey is not stored: the server fills it in.
 type GitRemote struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	URL       string    `json:"url"`
 	Schedule  string    `json:"schedule"`
 	PushHour  int       `json:"push_hour"`
-	Username  string    `json:"username"`
+	PublicKey string    `json:"public_key"`
+	HostKey   string    `json:"host_key"`
 	Secret    []byte    `json:"-"`
-	HasSecret bool      `json:"has_secret"`
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 	Pushes    int64     `json:"pushes"`
@@ -36,19 +37,18 @@ type GitRemote struct {
 	LastErrorAt time.Time `json:"last_error_at"`
 }
 
-const gitRemoteCols = "id, name, url, schedule, push_hour, username, secret, enabled, created_at, pushes, last_push, last_error, last_error_at"
+const gitRemoteCols = "id, name, url, schedule, push_hour, public_key, secret, enabled, created_at, pushes, last_push, last_error, last_error_at"
 
 func scanGitRemote(row interface{ Scan(...any) error }) (GitRemote, error) {
 	var r GitRemote
 	var enabled int
 	var created, lastPush, lastErrAt int64
 	var secret []byte
-	if err := row.Scan(&r.ID, &r.Name, &r.URL, &r.Schedule, &r.PushHour, &r.Username, &secret, &enabled,
+	if err := row.Scan(&r.ID, &r.Name, &r.URL, &r.Schedule, &r.PushHour, &r.PublicKey, &secret, &enabled,
 		&created, &r.Pushes, &lastPush, &r.LastError, &lastErrAt); err != nil {
 		return GitRemote{}, err
 	}
 	r.Secret = secret
-	r.HasSecret = len(secret) > 0
 	r.Enabled = enabled != 0
 	r.CreatedAt = time.Unix(0, created).UTC()
 	if lastPush > 0 {
@@ -90,9 +90,9 @@ func (db *DB) GetGitRemote(ctx context.Context, id string) (GitRemote, error) {
 // CreateGitRemote inserts a remote. The name must be unique.
 func (db *DB) CreateGitRemote(ctx context.Context, r GitRemote) error {
 	return db.Write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.Exec(`INSERT INTO git_remotes (id, name, url, schedule, push_hour, username, secret, enabled, created_at)
+		_, err := tx.Exec(`INSERT INTO git_remotes (id, name, url, schedule, push_hour, public_key, secret, enabled, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			r.ID, r.Name, r.URL, r.Schedule, r.PushHour, r.Username, nullBytes(r.Secret), boolInt(r.Enabled), r.CreatedAt.UnixNano())
+			r.ID, r.Name, r.URL, r.Schedule, r.PushHour, r.PublicKey, nullBytes(r.Secret), boolInt(r.Enabled), r.CreatedAt.UnixNano())
 		if err != nil && strings.Contains(err.Error(), "UNIQUE") {
 			return ErrGitRemoteNameTaken
 		}
@@ -100,23 +100,30 @@ func (db *DB) CreateGitRemote(ctx context.Context, r GitRemote) error {
 	})
 }
 
-// UpdateGitRemote rewrites a remote's settings. Secret replaces the stored
-// credential when keepSecret is false; otherwise the stored one stays.
-func (db *DB) UpdateGitRemote(ctx context.Context, r GitRemote, keepSecret bool) error {
+// UpdateGitRemote rewrites a remote's settings. The key pair is left
+// alone; SetGitRemoteKey owns it.
+func (db *DB) UpdateGitRemote(ctx context.Context, r GitRemote) error {
 	return db.Write(ctx, func(tx *sql.Tx) error {
-		var res sql.Result
-		var err error
-		if keepSecret {
-			res, err = tx.Exec(`UPDATE git_remotes SET name = ?, url = ?, schedule = ?, push_hour = ?, username = ?, enabled = ? WHERE id = ?`,
-				r.Name, r.URL, r.Schedule, r.PushHour, r.Username, boolInt(r.Enabled), r.ID)
-		} else {
-			res, err = tx.Exec(`UPDATE git_remotes SET name = ?, url = ?, schedule = ?, push_hour = ?, username = ?, secret = ?, enabled = ? WHERE id = ?`,
-				r.Name, r.URL, r.Schedule, r.PushHour, r.Username, nullBytes(r.Secret), boolInt(r.Enabled), r.ID)
-		}
+		res, err := tx.Exec(`UPDATE git_remotes SET name = ?, url = ?, schedule = ?, push_hour = ?, enabled = ? WHERE id = ?`,
+			r.Name, r.URL, r.Schedule, r.PushHour, boolInt(r.Enabled), r.ID)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return ErrGitRemoteNameTaken
 			}
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrGitRemoteNotFound
+		}
+		return nil
+	})
+}
+
+// SetGitRemoteKey stores a remote's public key and its sealed private key.
+func (db *DB) SetGitRemoteKey(ctx context.Context, id, publicKey string, sealed []byte) error {
+	return db.Write(ctx, func(tx *sql.Tx) error {
+		res, err := tx.Exec(`UPDATE git_remotes SET public_key = ?, secret = ? WHERE id = ?`, publicKey, nullBytes(sealed), id)
+		if err != nil {
 			return err
 		}
 		if n, _ := res.RowsAffected(); n == 0 {

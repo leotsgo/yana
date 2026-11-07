@@ -66,35 +66,28 @@ func TestGitRemotesCRUDAndPush(t *testing.T) {
 		t.Fatalf("bad schedule accepted: %d", code)
 	}
 
-	// Create; a token is never echoed.
+	// Create.
 	var created index.GitRemote
 	code := e.post(t, "/api/git/remotes", map[string]any{
-		"name": "github", "url": "git@github.com:me/notes.git", "token": "ghp_secret", "schedule": "hourly",
+		"name": "github", "url": "git@github.com:me/notes.git", "schedule": "hourly",
 	}, &created)
 	if code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	if created.URL != "git@github.com:me/notes.git" || !created.HasSecret || created.Schedule != "hourly" || !created.Enabled {
+	if created.URL != "git@github.com:me/notes.git" || created.Schedule != "hourly" || !created.Enabled {
 		t.Fatalf("created: %+v", created)
-	}
-	raw, _ := json.Marshal(created)
-	if strings.Contains(string(raw), "ghp_secret") {
-		t.Fatal("response leaks the token")
 	}
 	if code := e.post(t, "/api/git/remotes", map[string]any{"name": "github", "url": bare}, &errOut); code != 409 {
 		t.Fatalf("duplicate name: %d", code)
 	}
 
-	// Edit: an empty token keeps the stored one; clear_token drops it.
+	// Edit.
 	var edited index.GitRemote
 	if code := e.request(t, "PUT", "/api/git/remotes/"+created.ID, map[string]any{"schedule": "nightly", "push_hour": 3}, &edited); code != 200 {
 		t.Fatalf("edit: %d", code)
 	}
-	if !edited.HasSecret || edited.Schedule != "nightly" || edited.PushHour != 3 || edited.Name != "github" {
+	if edited.Schedule != "nightly" || edited.PushHour != 3 || edited.Name != "github" {
 		t.Fatalf("edited: %+v", edited)
-	}
-	if code := e.request(t, "PUT", "/api/git/remotes/"+created.ID, map[string]any{"clear_token": true}, &edited); code != 200 || edited.HasSecret {
-		t.Fatalf("clear token: %d %+v", code, edited)
 	}
 
 	// A local remote pushes for real, after committing what is pending.

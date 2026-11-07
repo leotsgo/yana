@@ -201,13 +201,7 @@ type remoteBody struct {
 	URL      string `json:"url"`
 	Schedule string `json:"schedule"`
 	PushHour *int   `json:"push_hour"`
-	// Username left out of an edit keeps the stored one; "" clears it.
-	Username *string `json:"username"`
-	// Token is the credential. On an edit an empty token keeps the stored
-	// one unless ClearToken is set.
-	Token      string `json:"token"`
-	ClearToken bool   `json:"clear_token"`
-	Enabled    *bool  `json:"enabled"`
+	Enabled  *bool  `json:"enabled"`
 }
 
 // applyRemoteBody validates body onto r. It reports whether the stored
@@ -241,36 +235,12 @@ func (s *Server) applyRemoteBody(w http.ResponseWriter, body remoteBody, r *inde
 		r.PushHour = 2
 	}
 	r.Name, r.URL, r.Schedule = name, clean, schedule
-	if body.Username != nil {
-		r.Username = strings.TrimSpace(*body.Username)
-	}
 	if body.Enabled != nil {
 		r.Enabled = *body.Enabled
 	} else if create {
 		r.Enabled = true
 	}
-	token := body.Token
-	switch {
-	case token != "":
-		if strings.ContainsAny(token, "\r\n\x00") {
-			writeError(w, http.StatusBadRequest, "token must be a single line")
-			return false, false
-		}
-		sealed, err := s.Git.Seal(token)
-		if err != nil {
-			writeError(w, http.StatusNotImplemented, err.Error())
-			return false, false
-		}
-		r.Secret = sealed
-		r.HasSecret = true
-		return false, true
-	case body.ClearToken || create:
-		r.Secret = nil
-		r.HasSecret = false
-		return false, true
-	default:
-		return true, true
-	}
+	return false, true
 }
 
 func (s *Server) handleGitRemotes(w http.ResponseWriter, r *http.Request) {
@@ -332,11 +302,11 @@ func (s *Server) handleGitRemoteUpdate(w http.ResponseWriter, r *http.Request) {
 	if body.Schedule == "" {
 		body.Schedule = remote.Schedule
 	}
-	keep, ok := s.applyRemoteBody(w, body, &remote, false)
+	_, ok := s.applyRemoteBody(w, body, &remote, false)
 	if !ok {
 		return
 	}
-	if err := s.DB.UpdateGitRemote(r.Context(), remote, keep); err != nil {
+	if err := s.DB.UpdateGitRemote(r.Context(), remote); err != nil {
 		writeRemoteError(w, r, s, err)
 		return
 	}
