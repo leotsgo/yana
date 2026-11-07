@@ -74,4 +74,8 @@ func TestBadValues(t *testing.T) {
 	if _, err := Load(env(map[string]string{"YANA_CONFIG": "/nonexistent/yana.yml"})); err == nil {
 		t.Error("missing config file accepted")
 	}
+	// The env-driven remote is gone: a remote comes from the setup screen.
+	if _, err := Load(env(map[string]string{"YANA_GIT_REMOTE": "git@x:y.git", "YANA_GIT_PUSH_HOUR": "soon"})); err != nil {
+		t.Errorf("YANA_GIT_REMOTE and YANA_GIT_PUSH_HOUR are still read: %v", err)
+	}
 }

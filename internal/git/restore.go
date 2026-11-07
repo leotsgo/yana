@@ -1,10 +1,11 @@
-// Bringing a backup back: clone on first run, and restore from a
+// Bringing a backup back: bootstrap an empty root, and restore from a
 // configured remote. The inverse of the nightly push.
 //
-// A clone happens inside Ensure, before the first scan: a root that has
-// never held notes (a fresh volume) and YANA_GIT_REMOTE set is filled
-// from that remote, through the same inline credential helper a push
-// uses, so a token never reaches a URL, a command line or a log line.
+// A bootstrap is owner-driven from the setup screen of a fresh server: a
+// root that holds no notes is filled from the remote the owner pasted,
+// through the same per-remote key a push uses, so a key never reaches a
+// URL, a command line or a log line. A marker under .sync makes it
+// crash-safe: a bootstrap the server never finished is undone on start.
 //
 // A restore is owner-driven from settings. The remote's HEAD is fetched
 // into a hidden ref (nothing in the working tree moves), described — how
@@ -27,11 +28,14 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/leotsgo/yana/internal/fsutil"
 	"github.com/leotsgo/yana/internal/index"
 	"github.com/leotsgo/yana/internal/scanner"
 )
@@ -47,94 +51,248 @@ const (
 	restoreTimeout = 10 * time.Minute
 )
 
-// --- clone on first run ------------------------------------------------------
+// --- bootstrap ---------------------------------------------------------------
 
-// cloneIfEmpty brings YANA_GIT_REMOTE down into a root that has never held
-// notes: nothing but .sync/, .trash/ and dotfiles, the state of a fresh
-// volume. The clone is init + fetch + reset rather than git clone, so
-// those pre-existing directories do not block it the way they block git
-// clone. It reports whether the root now holds the backup's tree. A root
-// that already holds notes is never cloned over; a clone that fails
-// leaves the root as it was and reports the error, so the server starts
-// the way it does without a git binary and the next start retries.
-func (l *Layer) cloneIfEmpty(ctx context.Context) (bool, error) {
-	if l.opts.Remote == "" {
+// BootstrapPhase names the step a bootstrap is on, for the setup screen.
+type BootstrapPhase string
+
+const (
+	// PhaseConnecting is the reachability check (ls-remote).
+	PhaseConnecting BootstrapPhase = "connecting"
+	// PhaseFetching is the download of the backup's history.
+	PhaseFetching BootstrapPhase = "fetching"
+)
+
+var (
+	// ErrNotEmpty refuses a bootstrap over a root that holds notes.
+	ErrNotEmpty = errors.New("the notes folder already holds notes")
+	// ErrEmptyBackup is a reachable remote with no branch to restore.
+	ErrEmptyBackup = errors.New("That repository is empty; there is nothing to restore.")
+)
+
+// markerPath is the bootstrap's crash marker: present from just before the
+// working tree moves until the server has taken the backup on
+// (FinishBootstrap). It holds the HEAD hash from before the bootstrap, or
+// nothing when the branch was unborn.
+func (l *Layer) markerPath() string {
+	return filepath.Join(l.root, ".sync", "restore-pending")
+}
+
+// HoldsNoNotes reports whether the root holds no note and no asset, at any
+// depth outside dot-directories. Junk a fresh volume carries (lost+found,
+// .sync, a .gitignore) does not count.
+func (l *Layer) HoldsNoNotes() (bool, error) {
+	errFound := errors.New("found")
+	err := filepath.WalkDir(l.root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			// An unreadable directory (lost+found on a volume mounted for
+			// another user) holds nothing this server could serve.
+			if p != l.root && errors.Is(err, fs.ErrPermission) {
+				return fs.SkipDir
+			}
+			return err
+		}
+		if p == l.root {
+			return nil
+		}
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(l.root, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if scanner.KindOf(rel) != "" || scanner.IsAsset(rel) {
+			return errFound
+		}
+		return nil
+	})
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, errFound):
 		return false, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return true, nil
 	}
-	empty, err := l.rootEmptyOfNotes()
+	return false, err
+}
+
+// Bootstrap fills a root that holds no notes from r: the remote's HEAD is
+// fetched into the hidden ref, then the branch, the index and the working
+// tree move to it. Only paths in the backup's tree are written — nothing
+// else in the root is touched, tracked or not — so a rollback can undo
+// exactly what the bootstrap brought.
+//
+// It is crash-safe: the marker is written before the tree moves and
+// stays until FinishBootstrap, so a bootstrap the server never finished
+// taking on is undone on the next start (recoverBootstrap) and the setup
+// screen comes back over an empty root. Any failure after the marker
+// rolls back at once. It runs under the committing lock, so no window
+// commits a half-written tree. It returns the backup's commit count.
+func (l *Layer) Bootstrap(ctx context.Context, r index.GitRemote, phase func(BootstrapPhase)) (commits int64, err error) {
+	if !l.available {
+		return 0, errors.New("git history is unavailable")
+	}
+	if phase == nil {
+		phase = func(BootstrapPhase) {}
+	}
+	l.committing.Lock()
+	defer l.committing.Unlock()
+	empty, err := l.HoldsNoNotes()
 	if err != nil {
-		l.log.Warn("could not read the notes root; running git init", "err", err)
-		return false, nil
+		return 0, err
 	}
 	if !empty {
-		l.log.Info("the notes root already holds notes; initialising a repository instead of cloning YANA_GIT_REMOTE")
-		return false, nil
+		return 0, ErrNotEmpty
 	}
-	clean, err := ParseRemoteURL(l.opts.Remote)
+	config, env, cleanup, err := l.remoteEnv(r)
 	if err != nil {
-		l.log.Warn("YANA_GIT_REMOTE is not a usable remote; running git init", "err", err)
-		return false, nil
-	}
-	config, env, cleanup, err := l.remoteEnv(index.GitRemote{ID: "env", Name: "remote", URL: clean, Enabled: true})
-	if err != nil {
-		return false, l.cloneFailed(err)
+		return 0, err
 	}
 	defer cleanup()
+
+	phase(PhaseConnecting)
 	pctx, pcancel := context.WithTimeout(ctx, time.Minute)
 	defer pcancel()
-	// An empty backup is the fresh-install case, not a failure: the
-	// server keeps its own history and the pushes fill the remote.
-	heads, err := l.gitEnv(pctx, config, env, "ls-remote", "--heads", "--", clean)
+	heads, err := l.gitEnv(pctx, config, env, "ls-remote", "--heads", "--", r.URL)
 	if err != nil {
-		return false, l.cloneFailed(fmt.Errorf("reach %s: %w", RedactURL(clean), err))
+		return 0, fmt.Errorf("reach %s: %w", RedactURL(r.URL), err)
 	}
 	if strings.TrimSpace(heads) == "" {
-		l.log.Info("YANA_GIT_REMOTE is reachable and empty; initialising a repository instead of cloning", "url", RedactURL(clean))
-		return false, nil
+		return 0, ErrEmptyBackup
 	}
-	if _, err := l.git(pctx, "-c", "init.defaultBranch=main", "init"); err != nil {
-		return false, l.cloneFailed(fmt.Errorf("git init: %w", err))
+
+	phase(PhaseFetching)
+	fctx, fcancel := context.WithTimeout(ctx, restoreTimeout)
+	defer fcancel()
+	if _, err := l.gitEnv(fctx, config, env, "fetch", "--no-tags", "--", r.URL, "+HEAD:"+RestoreRef); err != nil {
+		return 0, fmt.Errorf("fetch %s: %w", RedactURL(r.URL), err)
 	}
-	fctx, cancel := context.WithTimeout(ctx, restoreTimeout)
-	defer cancel()
-	if _, err := l.gitEnv(fctx, config, env, "fetch", "--no-tags", "--", clean, "+HEAD:"+RestoreRef); err != nil {
-		return false, l.cloneFailed(fmt.Errorf("clone from %s: %w", RedactURL(clean), err))
+
+	prev := ""
+	if out, err := l.git(ctx, "rev-parse", "--verify", "HEAD"); err == nil {
+		prev = strings.TrimSpace(out)
 	}
-	if _, err := l.git(fctx, "reset", "--hard", RestoreRef); err != nil {
-		return false, l.cloneFailed(fmt.Errorf("check out the backup: %w", err))
+	if err := fsutil.MkdirInherit(filepath.Dir(l.markerPath())); err != nil {
+		return 0, err
 	}
-	l.log.Info("cloned YANA_GIT_REMOTE into the notes root", "url", RedactURL(clean))
-	return true, nil
+	if err := fsutil.WriteFileAtomic(l.markerPath(), []byte(prev), 0o644); err != nil {
+		return 0, err
+	}
+	if err := l.moveTo(ctx); err != nil {
+		if rerr := l.rollbackBootstrap(prev); rerr != nil {
+			l.log.Error("could not roll back a failed restore", "err", rerr)
+		}
+		return 0, fmt.Errorf("check out the backup: %w", err)
+	}
+	commits = l.commitCount(ctx)
+	l.mu.Lock()
+	l.commits = commits
+	l.mu.Unlock()
+	l.log.Info("restored an empty notes folder from a backup", "url", RedactURL(r.URL), "commits", commits)
+	return commits, nil
 }
 
-// cloneFailed undoes a partial clone — the root goes back to holding
-// nothing, so the next start tries again — and wraps the error for
-// Ensure to report: an unreachable backup must not make the app
-// unbootable, but history is unavailable for this run.
-func (l *Layer) cloneFailed(err error) error {
-	l.log.Error("could not clone YANA_GIT_REMOTE; starting without git history and retrying on the next start", "err", err)
-	if rmErr := os.RemoveAll(filepath.Join(l.root, ".git")); rmErr != nil {
-		l.log.Warn("could not remove the partial clone", "err", rmErr)
+// moveTo points the branch and the index at the fetched backup, writes
+// its files, and re-asserts the ignore file. A mixed reset moves the
+// branch and the index; checkout-index then writes the index's files.
+// Unlike reset --hard it never deletes a file the previous commit
+// tracked and the backup lacks.
+func (l *Layer) moveTo(ctx context.Context) error {
+	if _, err := l.git(ctx, "reset", "-q", RestoreRef, "--"); err != nil {
+		return err
 	}
-	return err
+	if _, err := l.git(ctx, "checkout-index", "-a", "-f"); err != nil {
+		return err
+	}
+	return l.ensureIgnore()
 }
 
-// rootEmptyOfNotes reports whether the root holds nothing but .sync/,
-// .trash/ and dotfiles.
-func (l *Layer) rootEmptyOfNotes() (bool, error) {
-	entries, err := os.ReadDir(l.root)
+// FinishBootstrap marks a bootstrap as taken on: from here a restart
+// keeps the restored tree.
+func (l *Layer) FinishBootstrap() error {
+	if err := os.Remove(l.markerPath()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// rollbackBootstrap undoes a bootstrap: every file in the fetched tree is
+// removed, then the directories that leaves empty, and the branch goes
+// back to prev (or is deleted when prev is empty, the branch unborn
+// again) with the index to match. Files the backup did not bring —
+// untracked or tracked before — are never touched.
+func (l *Layer) rollbackBootstrap(prev string) error {
+	if prev != "" && !ValidRevision(prev) {
+		return errors.New("the restore marker does not name a commit")
+	}
+	ctx := context.Background()
+	out, err := l.git(ctx, "ls-tree", "-r", "--name-only", "-z", RestoreRef)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return true, nil
-		}
-		return false, err
+		return fmt.Errorf("list the restored tree: %w", err)
 	}
-	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), ".") {
-			return false, nil
+	dirs := map[string]bool{}
+	for _, rel := range strings.Split(out, "\x00") {
+		if rel == "" {
+			continue
+		}
+		if err := os.Remove(filepath.Join(l.root, filepath.FromSlash(rel))); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		for d := path.Dir(rel); d != "."; d = path.Dir(d) {
+			dirs[d] = true
 		}
 	}
-	return true, nil
+	// Deepest first, so a parent is empty by the time it is tried; a
+	// directory that still holds something stays.
+	ordered := make([]string, 0, len(dirs))
+	for d := range dirs {
+		ordered = append(ordered, d)
+	}
+	sort.Slice(ordered, func(i, j int) bool { return strings.Count(ordered[i], "/") > strings.Count(ordered[j], "/") })
+	for _, d := range ordered {
+		_ = os.Remove(filepath.Join(l.root, filepath.FromSlash(d)))
+	}
+	if prev != "" {
+		if _, err := l.git(ctx, "reset", "-q", prev, "--"); err != nil {
+			return err
+		}
+	} else {
+		if _, err := l.git(ctx, "update-ref", "-d", "HEAD"); err != nil {
+			return err
+		}
+		if _, err := l.git(ctx, "read-tree", "--empty"); err != nil {
+			return err
+		}
+	}
+	// The backup may have held its own .gitignore, just removed.
+	if err := l.ensureIgnore(); err != nil {
+		return err
+	}
+	count := l.commitCount(ctx)
+	l.mu.Lock()
+	l.commits = count
+	l.mu.Unlock()
+	return l.FinishBootstrap()
+}
+
+// recoverBootstrap runs from Ensure: a marker left behind is a bootstrap
+// the server never finished taking on, and it is undone.
+func (l *Layer) recoverBootstrap() {
+	prev, err := os.ReadFile(l.markerPath())
+	if err != nil {
+		return
+	}
+	if err := l.rollbackBootstrap(strings.TrimSpace(string(prev))); err != nil {
+		l.log.Error("could not undo an interrupted restore", "err", err)
+		return
+	}
+	l.log.Warn("a restore was interrupted; the notes folder is empty again")
 }
 
 // --- restore -----------------------------------------------------------------

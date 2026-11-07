@@ -252,8 +252,6 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		gl = git.New(cfg.NotesRoot, git.Options{
 			Quiet:      cfg.GitQuiet,
 			Interval:   cfg.GitInterval,
-			Remote:     cfg.GitRemote,
-			PushHour:   cfg.GitPushHour,
 			HumanName:  cfg.GitUserName,
 			HumanEmail: cfg.GitUserEmail,
 			SecretPath: cfg.GitSecretPath(),

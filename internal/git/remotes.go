@@ -184,39 +184,6 @@ func NewRemoteID() string {
 	return "r_" + hex.EncodeToString(b)
 }
 
-// seedRemote carries YANA_GIT_REMOTE into the table on first run.
-func (l *Layer) seedRemote(ctx context.Context) error {
-	if l.opts.DB == nil {
-		return nil
-	}
-	existing, err := l.opts.DB.ListGitRemotes(ctx)
-	if err != nil {
-		return err
-	}
-	l.mu.Lock()
-	l.noteRemotes(existing)
-	l.mu.Unlock()
-	if len(existing) > 0 || l.opts.Remote == "" {
-		return nil
-	}
-	clean, err := ParseRemoteURL(l.opts.Remote)
-	if err != nil {
-		return err
-	}
-	r := index.GitRemote{
-		ID: NewRemoteID(), Name: "remote", URL: clean, Schedule: ScheduleNightly, PushHour: l.opts.PushHour,
-		Enabled: true, CreatedAt: l.opts.Now(),
-	}
-	if err := l.opts.DB.CreateGitRemote(ctx, r); err != nil {
-		return err
-	}
-	l.mu.Lock()
-	l.remotes = 1
-	l.mu.Unlock()
-	l.log.Info("seeded remote from YANA_GIT_REMOTE", "url", RedactURL(clean))
-	return nil
-}
-
 func countEnabled(rs []index.GitRemote) int {
 	n := 0
 	for _, r := range rs {
@@ -365,15 +332,11 @@ func (l *Layer) Test(ctx context.Context, r index.GitRemote) (refs int, err erro
 	return refs, nil
 }
 
-// PushNow pushes to every enabled remote (or, without a DB, to the
-// environment's remote) regardless of schedule. It returns the first
-// failure after trying them all.
+// PushNow pushes to every enabled remote regardless of schedule. It
+// returns the first failure after trying them all.
 func (l *Layer) PushNow(ctx context.Context) error {
 	if l.opts.DB == nil {
-		if l.opts.Remote == "" {
-			return nil
-		}
-		return l.Push(ctx, index.GitRemote{ID: "env", Name: "remote", URL: l.opts.Remote, Enabled: true})
+		return nil
 	}
 	remotes, err := l.opts.DB.ListGitRemotes(ctx)
 	if err != nil {

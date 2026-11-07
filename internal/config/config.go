@@ -87,10 +87,6 @@ type Config struct {
 	// GitInterval bounds how long a continuously edited tree can go
 	// uncommitted.
 	GitInterval time.Duration `yaml:"git_interval"`
-	// GitRemote is an optional URL pushed nightly. Empty disables push.
-	GitRemote string `yaml:"git_remote"`
-	// GitPushHour is the local hour of the nightly push.
-	GitPushHour int `yaml:"git_push_hour"`
 	// GitUserName and GitUserEmail identify human edits in git. Agent
 	// edits commit under their own label.
 	GitUserName  string `yaml:"git_user_name"`
@@ -151,8 +147,6 @@ func Defaults() Config {
 		Git:                true,
 		GitQuiet:           5 * time.Minute,
 		GitInterval:        time.Hour,
-		GitRemote:          "",
-		GitPushHour:        2,
 		GitUserName:        "yana user",
 		GitUserEmail:       "user@yana.local",
 		AccessTTL:          15 * time.Minute,
@@ -318,10 +312,6 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		return err
 	}
 	if err := dur("GIT_INTERVAL", &cfg.GitInterval); err != nil {
-		return err
-	}
-	str("GIT_REMOTE", &cfg.GitRemote)
-	if err := i("GIT_PUSH_HOUR", &cfg.GitPushHour); err != nil {
 		return err
 	}
 	str("GIT_USER_NAME", &cfg.GitUserName)

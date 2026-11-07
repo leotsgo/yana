@@ -53,13 +53,6 @@ type Options struct {
 	// Interval bounds how long a continuously edited tree can go
 	// uncommitted (1h).
 	Interval time.Duration
-	// Remote is an optional git URL from the environment. With a DB it
-	// seeds the remotes table on first run (nightly at PushHour) and the
-	// table owns pushes from then on; without one it is the only remote
-	// and PushNow pushes to it.
-	Remote string
-	// PushHour is the local hour of the nightly push (2).
-	PushHour int
 	// SecretPath is the file holding the key remote credentials are
 	// sealed with; created on first use. Empty disables stored
 	// credentials.
@@ -83,9 +76,6 @@ func (o *Options) defaults() {
 	}
 	if o.Interval <= 0 {
 		o.Interval = time.Hour
-	}
-	if o.PushHour < 0 || o.PushHour > 23 {
-		o.PushHour = 2
 	}
 	if o.HumanName == "" {
 		o.HumanName = "yana user"
@@ -213,32 +203,26 @@ func (l *Layer) Attach(rec *reconcile.Reconciler) {
 }
 
 // Ensure initialises the repository: git init when the notes root has no
-// .git — or, when the root has never held notes and YANA_GIT_REMOTE is
-// set, a clone of that backup (see restore.go) — and a .gitignore
-// covering .sync/ and the loop's transient temp files. It reports
-// whether the git binary is usable; a layer over a missing binary is
-// unavailable and every operation degrades.
+// .git, the undoing of a bootstrap the server never finished (see
+// restore.go), and a .gitignore covering .sync/ and the loop's transient
+// temp files. It reports whether the git binary is usable; a layer over
+// a missing binary is unavailable and every operation degrades.
 func (l *Layer) Ensure(ctx context.Context) error {
 	if _, err := exec.LookPath("git"); err != nil {
 		return errors.New("git binary not found on PATH")
 	}
 	l.available = true
-	l.sweepKeyFiles()
 	if _, err := os.Stat(filepath.Join(l.root, ".git")); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		cloned, err := l.cloneIfEmpty(ctx)
-		if err != nil {
-			return err
+		if _, err := l.git(ctx, "-c", "init.defaultBranch=main", "init"); err != nil {
+			return fmt.Errorf("git init: %w", err)
 		}
-		if !cloned {
-			if _, err := l.git(ctx, "-c", "init.defaultBranch=main", "init"); err != nil {
-				return fmt.Errorf("git init: %w", err)
-			}
-			l.log.Info("initialised repository", "root", l.root)
-		}
+		l.log.Info("initialised repository", "root", l.root)
 	}
+	l.recoverBootstrap()
+	l.sweepKeyFiles()
 	if err := l.ensureIgnore(); err != nil {
 		return err
 	}
@@ -263,9 +247,7 @@ func (l *Layer) Ensure(ctx context.Context) error {
 	if err := l.loadSealKey(); err != nil {
 		l.log.Warn("remote credentials are unavailable", "err", err)
 	}
-	if err := l.seedRemote(ctx); err != nil {
-		l.log.Warn("could not seed the remote from the environment", "err", err)
-	}
+	l.Reload(ctx)
 	return nil
 }
 
