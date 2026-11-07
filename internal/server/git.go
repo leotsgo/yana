@@ -218,7 +218,7 @@ func (s *Server) applyRemoteBody(w http.ResponseWriter, body remoteBody, r *inde
 		writeError(w, http.StatusBadRequest, "name must be 1 to 48 letters, digits, spaces, dots, underscores or dashes")
 		return false, false
 	}
-	clean, urlUser, urlPass, err := git.ParseRemoteURL(body.URL)
+	clean, err := git.ParseRemoteURL(body.URL)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return false, false
@@ -244,18 +244,12 @@ func (s *Server) applyRemoteBody(w http.ResponseWriter, body remoteBody, r *inde
 	if body.Username != nil {
 		r.Username = strings.TrimSpace(*body.Username)
 	}
-	if urlUser != "" {
-		r.Username = urlUser
-	}
 	if body.Enabled != nil {
 		r.Enabled = *body.Enabled
 	} else if create {
 		r.Enabled = true
 	}
 	token := body.Token
-	if token == "" {
-		token = urlPass
-	}
 	switch {
 	case token != "":
 		if strings.ContainsAny(token, "\r\n\x00") {

@@ -51,8 +51,8 @@ const retryBackoff = 10 * time.Minute
 // pushTimeout bounds one push or connection test.
 const pushTimeout = 10 * time.Minute
 
-// ErrBadRemoteURL is returned for URLs the layer will not hand to git.
-var ErrBadRemoteURL = errors.New("remote URL must be https://, ssh://, git@host:path, or an absolute path")
+// ErrBadRemoteURL is returned for addresses the layer will not hand to git.
+var ErrBadRemoteURL = errors.New("remote must be an SSH address (git@host:path or ssh://…) or an absolute path to a bare repository")
 
 // ErrNoSealKey is returned when a credential cannot be stored because the
 // key file is unavailable.
@@ -60,47 +60,36 @@ var ErrNoSealKey = errors.New("credential storage is unavailable on this server"
 
 var scpLike = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:[^\s]+$`)
 
-// ParseRemoteURL validates a remote URL and separates any credential the
-// user pasted into it, so https://me:token@host/x is stored as the URL
-// https://host/x with the username and token beside it.
-func ParseRemoteURL(raw string) (clean, username, password string, err error) {
+// ParseRemoteURL validates a remote address: an SSH address or an
+// absolute path. Credentials never ride in an address, so one with a
+// password is refused.
+func ParseRemoteURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || strings.HasPrefix(raw, "-") || strings.ContainsAny(raw, " \t\r\n\x00") || len(raw) > 2048 {
-		return "", "", "", ErrBadRemoteURL
+		return "", ErrBadRemoteURL
 	}
 	if strings.Contains(raw, "://") {
 		u, err := url.Parse(raw)
-		if err != nil {
-			return "", "", "", ErrBadRemoteURL
-		}
-		switch u.Scheme {
-		case "https", "http", "ssh", "git":
-		default:
-			return "", "", "", ErrBadRemoteURL
-		}
-		if u.Host == "" {
-			return "", "", "", ErrBadRemoteURL
+		if err != nil || u.Scheme != "ssh" || u.Host == "" {
+			return "", ErrBadRemoteURL
 		}
 		if u.User != nil {
-			username = u.User.Username()
-			password, _ = u.User.Password()
-			if u.Scheme == "ssh" || u.Scheme == "git" {
-				// ssh://git@host/path: the user is part of the address.
-				u.User = url.User(username)
-				username = ""
-				if password != "" {
-					return "", "", "", ErrBadRemoteURL
-				}
-			} else {
-				u.User = nil
+			if _, has := u.User.Password(); has {
+				return "", ErrBadRemoteURL
 			}
 		}
-		return u.String(), username, password, nil
+		return raw, nil
 	}
 	if scpLike.MatchString(raw) || filepath.IsAbs(raw) {
-		return raw, "", "", nil
+		return raw, nil
 	}
-	return "", "", "", ErrBadRemoteURL
+	return "", ErrBadRemoteURL
+}
+
+// IsSSH reports whether a validated address is reached over SSH rather
+// than being a path.
+func IsSSH(url string) bool {
+	return strings.HasPrefix(url, "ssh://") || scpLike.MatchString(url)
 }
 
 // RedactURL hides any userinfo in a URL for logs.
@@ -210,18 +199,13 @@ func (l *Layer) seedRemote(ctx context.Context) error {
 	if len(existing) > 0 || l.opts.Remote == "" {
 		return nil
 	}
-	clean, username, password, err := ParseRemoteURL(l.opts.Remote)
+	clean, err := ParseRemoteURL(l.opts.Remote)
 	if err != nil {
 		return err
 	}
 	r := index.GitRemote{
 		ID: NewRemoteID(), Name: "remote", URL: clean, Schedule: ScheduleNightly, PushHour: l.opts.PushHour,
-		Username: username, Enabled: true, CreatedAt: l.opts.Now(),
-	}
-	if password != "" {
-		if r.Secret, err = l.Seal(password); err != nil {
-			return err
-		}
+		Enabled: true, CreatedAt: l.opts.Now(),
 	}
 	if err := l.opts.DB.CreateGitRemote(ctx, r); err != nil {
 		return err

@@ -66,15 +66,15 @@ func TestGitRemotesCRUDAndPush(t *testing.T) {
 		t.Fatalf("bad schedule accepted: %d", code)
 	}
 
-	// Create; a pasted credential moves out of the URL and is never echoed.
+	// Create; a token is never echoed.
 	var created index.GitRemote
 	code := e.post(t, "/api/git/remotes", map[string]any{
-		"name": "github", "url": "https://me:ghp_secret@github.com/me/notes.git", "schedule": "hourly",
+		"name": "github", "url": "git@github.com:me/notes.git", "token": "ghp_secret", "schedule": "hourly",
 	}, &created)
 	if code != 201 {
 		t.Fatalf("create: %d", code)
 	}
-	if created.URL != "https://github.com/me/notes.git" || created.Username != "me" || !created.HasSecret || created.Schedule != "hourly" || !created.Enabled {
+	if created.URL != "git@github.com:me/notes.git" || !created.HasSecret || created.Schedule != "hourly" || !created.Enabled {
 		t.Fatalf("created: %+v", created)
 	}
 	raw, _ := json.Marshal(created)

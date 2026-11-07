@@ -2,6 +2,7 @@ package git_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,41 +14,37 @@ import (
 )
 
 func TestParseRemoteURL(t *testing.T) {
-	cases := []struct {
-		in, url, user, pass string
-		bad                 bool
-	}{
-		{in: "https://github.com/me/notes.git", url: "https://github.com/me/notes.git"},
-		{in: "https://me:ghp_x@github.com/me/notes.git", url: "https://github.com/me/notes.git", user: "me", pass: "ghp_x"},
-		{in: "https://me@gitea.local/me/notes.git", url: "https://gitea.local/me/notes.git", user: "me"},
-		{in: "git@github.com:me/notes.git", url: "git@github.com:me/notes.git"},
-		{in: "ssh://git@gitea.local:2222/me/notes.git", url: "ssh://git@gitea.local:2222/me/notes.git"},
-		{in: "/srv/backup/notes.git", url: "/srv/backup/notes.git"},
-		{in: "", bad: true},
-		{in: "--upload-pack=evil", bad: true},
-		{in: "ext::sh -c evil", bad: true},
-		{in: "https://host/a b", bad: true},
-		{in: "relative/path", bad: true},
-		{in: "ssh://u:p@host/x", bad: true},
+	ok := map[string]string{
+		" git@github.com:me/notes.git ":     "git@github.com:me/notes.git",
+		"ssh://git@host:2222/srv/notes.git": "ssh://git@host:2222/srv/notes.git",
+		"/mnt/backup/notes.git":             "/mnt/backup/notes.git",
 	}
-	for _, c := range cases {
-		url, user, pass, err := git.ParseRemoteURL(c.in)
-		if c.bad {
-			if err == nil {
-				t.Errorf("%q: accepted, want rejection", c.in)
-			}
-			continue
+	for in, want := range ok {
+		got, err := git.ParseRemoteURL(in)
+		if err != nil || got != want {
+			t.Errorf("%q: got (%q, %v), want %q", in, got, err, want)
 		}
-		if err != nil {
-			t.Errorf("%q: %v", c.in, err)
-			continue
-		}
-		if url != c.url || user != c.user || pass != c.pass {
-			t.Errorf("%q: got (%q,%q,%q), want (%q,%q,%q)", c.in, url, user, pass, c.url, c.user, c.pass)
+	}
+	for _, in := range []string{
+		"https://github.com/me/notes.git", "http://h/x", "git://h/x", "ssh://me:pw@h/x",
+		"ext::sh -c x", "-oProxyCommand=x", "relative/path", "",
+	} {
+		if _, err := git.ParseRemoteURL(in); !errors.Is(err, git.ErrBadRemoteURL) {
+			t.Errorf("%q: err = %v, want ErrBadRemoteURL", in, err)
 		}
 	}
 	if got := git.RedactURL("https://me:secret@host/x"); strings.Contains(got, "secret") {
 		t.Fatalf("redaction left the password in %q", got)
+	}
+}
+
+func TestIsSSH(t *testing.T) {
+	for in, want := range map[string]bool{
+		"ssh://git@host/x": true, "git@github.com:me/n.git": true, "/mnt/backup/n.git": false,
+	} {
+		if got := git.IsSSH(in); got != want {
+			t.Errorf("IsSSH(%q) = %v, want %v", in, got, want)
+		}
 	}
 }
 
@@ -226,7 +223,7 @@ func TestRemoteSeededFromEnvironment(t *testing.T) {
 	defer db.Close()
 	opts := testOptions()
 	opts.DB = db
-	opts.Remote = "https://me:tok@github.com/me/notes.git"
+	opts.Remote = "git@github.com:me/notes.git"
 	opts.PushHour = 4
 	opts.SecretPath = filepath.Join(dir, ".sync", "git_secret")
 	l := git.New(dir, opts, nil)
@@ -239,7 +236,7 @@ func TestRemoteSeededFromEnvironment(t *testing.T) {
 		t.Fatalf("remotes after seed: %v %v", remotes, err)
 	}
 	r := remotes[0]
-	if r.URL != "https://github.com/me/notes.git" || r.Username != "me" || !r.HasSecret || r.Schedule != git.ScheduleNightly || r.PushHour != 4 {
+	if r.URL != "git@github.com:me/notes.git" || r.Schedule != git.ScheduleNightly || r.PushHour != 4 {
 		t.Fatalf("seeded remote: %+v", r)
 	}
 	// A second start does not add another.

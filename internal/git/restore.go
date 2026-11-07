@@ -70,7 +70,7 @@ func (l *Layer) cloneIfEmpty(ctx context.Context) (bool, error) {
 		l.log.Info("the notes root already holds notes; initialising a repository instead of cloning YANA_GIT_REMOTE")
 		return false, nil
 	}
-	clean, username, password, err := ParseRemoteURL(l.opts.Remote)
+	clean, err := ParseRemoteURL(l.opts.Remote)
 	if err != nil {
 		l.log.Warn("YANA_GIT_REMOTE is not a usable remote; running git init", "err", err)
 		return false, nil
@@ -78,10 +78,6 @@ func (l *Layer) cloneIfEmpty(ctx context.Context) (bool, error) {
 	config, env, err := l.credentialEnv(index.GitRemote{ID: "env", Name: "remote", URL: clean, Enabled: true})
 	if err != nil {
 		return false, l.cloneFailed(err)
-	}
-	if password != "" {
-		hc, he := helperEnv(username, password)
-		config, env = append(config, hc...), append(env, he...)
 	}
 	pctx, pcancel := context.WithTimeout(ctx, time.Minute)
 	defer pcancel()
