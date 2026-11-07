@@ -36,6 +36,7 @@ export function SetupFlow({ onDone }: { onDone: () => void }) {
   const [status, setStatus] = useState<RestoreStatus | null>(null)
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  const [keyTry, setKeyTry] = useState(0)
 
   // A restore already running (the page was reloaded) resumes at progress.
   useEffect(() => {
@@ -60,20 +61,46 @@ export function SetupFlow({ onDone }: { onDone: () => void }) {
   const polling = step === 'progress' && !finished(status)
   useEffect(() => {
     if (!polling) return
-    const id = setInterval(() => {
-      api
-        .restoreStatus()
-        .then(setStatus)
-        .catch((err: unknown) => {
-          // The server forgot the job (it restarted): start over.
-          if (err instanceof ApiError && err.status === 404) {
-            setMsg('The restore stopped. Try again.')
-            setStep('address')
-          }
-        })
-    }, 1000)
-    return () => clearInterval(id)
+    // One request at a time: the next poll is scheduled after the last answers.
+    let live = true
+    let timer: ReturnType<typeof setTimeout>
+    const tick = () => {
+      timer = setTimeout(() => {
+        api
+          .restoreStatus()
+          .then((s) => live && setStatus(s))
+          .catch((err: unknown) => {
+            // The server forgot the job (it restarted): start over.
+            if (live && err instanceof ApiError && err.status === 404) {
+              setMsg('The restore stopped. Try again.')
+              setStep('address')
+              live = false
+            }
+          })
+          .finally(() => live && tick())
+      }, 1000)
+    }
+    tick()
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
   }, [polling])
+
+  // The key step always has a key to show: made on first sight, and again
+  // after a reload lost the one this screen held.
+  useEffect(() => {
+    if (step !== 'key' || key) return
+    let live = true
+    setMsg('')
+    api
+      .newGitKey()
+      .then((k) => live && setKey(k))
+      .catch((err: unknown) => live && fail(err, 'Could not make a key.'))
+    return () => {
+      live = false
+    }
+  }, [step, key, keyTry])
 
   const fail = (err: unknown, fallback: string) => setMsg(err instanceof ApiError ? err.message : fallback)
 
@@ -92,11 +119,6 @@ export function SetupFlow({ onDone }: { onDone: () => void }) {
   const wantRestore = () => {
     setMsg('')
     setStep('key')
-    if (key) return
-    api
-      .newGitKey()
-      .then(setKey)
-      .catch((err: unknown) => fail(err, 'Could not make a key.'))
   }
 
   const restore = () => {
@@ -146,6 +168,11 @@ export function SetupFlow({ onDone }: { onDone: () => void }) {
         <Card>
           <p class="auth-sub">This server made a key for your backup repository. Add it there with write access, so the server can read the backup now and push to it later.</p>
           {key ? <KeyBlock publicKey={key.public_key} /> : <span class="muted">{msg ? '' : 'Making a key…'}</span>}
+          {!key && msg && (
+            <button class="btn" type="button" onClick={() => setKeyTry((n) => n + 1)}>
+              Try again
+            </button>
+          )}
           <ul class="setup-where">
             <li>
               <b>GitHub</b> · repository › Settings › Deploy keys › Add, tick “Allow write access”
@@ -208,7 +235,7 @@ export function SetupFlow({ onDone }: { onDone: () => void }) {
       )
     case 'progress':
       return status?.phase === 'failed' ? (
-        <Failure status={status} hasKey={!isPathURL(url) && key !== null} onKey={back('key')} onRetry={back('address')} />
+        <Failure status={status} ssh={!isPathURL(url)} onKey={back('key')} onRetry={back(!isPathURL(url) && !key ? 'key' : 'address')} />
       ) : status?.phase === 'done' ? (
         <Card>
           <div class="setup-ok">
@@ -247,14 +274,14 @@ function Progress({ status, url }: { status: RestoreStatus | null; url: string }
   return (
     <ul class="setup-progress" aria-live="polite">
       {line(0, path ? (at > 0 ? `Opened ${url}` : `Opening ${url}`) : at > 0 ? `Connected to ${hostOf(url)}` : `Connecting to ${hostOf(url)}`, !path && status?.host_key && <small>host key {status.host_key}, kept for next time</small>)}
-      {line(1, at > 1 ? `Cloned, ${status?.commits ?? 0} commits` : 'Cloning the history')}
+      {line(1, at > 1 ? `Cloned, ${status?.commits ?? 0} ${status?.commits === 1 ? 'commit' : 'commits'}` : 'Cloning the history')}
       {line(2, at >= 2 && status?.notes ? `Indexing notes · ${status.notes}` : 'Indexing notes')}
       {line(3, 'Keep backing up here, nightly at 02:00')}
     </ul>
   )
 }
 
-function Failure({ status, hasKey, onKey, onRetry }: { status: RestoreStatus; hasKey: boolean; onKey: () => void; onRetry: () => void }) {
+function Failure({ status, ssh, onKey, onRetry }: { status: RestoreStatus; ssh: boolean; onKey: () => void; onRetry: () => void }) {
   const { head, detail } = splitError(status.error)
   return (
     <Card>
@@ -266,7 +293,7 @@ function Failure({ status, hasKey, onKey, onRetry }: { status: RestoreStatus; ha
         {detail && <code>{detail}</code>}
       </div>
       <div class="setup-actions">
-        {hasKey && (
+        {ssh && (
           <button class="btn" type="button" onClick={onKey}>
             Show the key
           </button>
