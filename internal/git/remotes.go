@@ -4,9 +4,9 @@
 // effect without a restart.
 //
 // Credentials never travel in the URL, on a command line, or in a log
-// line. A token is sealed with AES-GCM under a key in .sync/git_secret and
-// handed to git per push through an inline credential helper that reads
-// two environment variables set for that one subprocess.
+// line. A remote's private key is sealed with AES-GCM under a key in
+// .sync/git_secret and written to a 0600 file for the one git subprocess
+// that needs it, then removed.
 package git
 
 import (
@@ -227,45 +227,72 @@ func countEnabled(rs []index.GitRemote) int {
 	return n
 }
 
-// credentialEnv returns the configuration and environment that let git
-// authenticate to r without a prompt. The helper is an inline shell
-// function reading two variables, so the secret is in the environment of
-// this one subprocess and nowhere else; an empty first helper entry
-// clears any helper from the host's git configuration.
-func (l *Layer) credentialEnv(r index.GitRemote) (config, env []string, err error) {
-	if os.Getenv("GIT_SSH_COMMAND") == "" {
-		env = append(env, "GIT_SSH_COMMAND=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new")
-	}
+// remoteEnv returns the configuration and environment that let git reach r
+// without a prompt. For an SSH remote the opened private key is written to
+// a 0600 file under .sync for the one subprocess and git is pointed at it
+// through GIT_SSH_COMMAND, which names the file and never holds the key;
+// cleanup removes the file. A path remote needs no key. GIT_SSH_COMMAND is
+// always ours, whatever the server's environment says.
+func (l *Layer) remoteEnv(r index.GitRemote) (config, env []string, cleanup func(), err error) {
 	// Only network and file transports: a URL cannot pick ext:: or another
 	// transport that runs a command. ParseRemoteURL refuses those already;
 	// this holds even if a row was written another way.
-	config = append(config, "protocol.allow=never",
-		"protocol.file.allow=always", "protocol.https.allow=always", "protocol.http.allow=always",
-		"protocol.ssh.allow=always", "protocol.git.allow=always")
-	if !r.HasSecret {
-		return config, env, nil
+	config = []string{"protocol.allow=never", "protocol.file.allow=always", "protocol.ssh.allow=always"}
+	cleanup = func() {}
+	if !IsSSH(r.URL) {
+		return config, nil, cleanup, nil
 	}
-	token, err := l.open(r.Secret)
+	if len(r.Secret) == 0 {
+		return nil, nil, nil, errors.New("this remote has no key yet; make one in Settings › Backup")
+	}
+	pemText, err := l.open(r.Secret)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	hc, he := helperEnv(r.Username, token)
-	return append(config, hc...), append(env, he...), nil
+	sync := filepath.Join(l.root, ".sync")
+	if err := fsutil.MkdirInherit(sync); err != nil {
+		return nil, nil, nil, err
+	}
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	keyFile := filepath.Join(sync, keyFilePrefix+hex.EncodeToString(b))
+	f, err := os.OpenFile(keyFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	_, werr := f.WriteString(pemText)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		_ = os.Remove(keyFile)
+		return nil, nil, nil, werr
+	}
+	env = []string{"GIT_SSH_COMMAND=ssh -i " + shellQuote(keyFile) +
+		" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new" +
+		" -o UserKnownHostsFile=" + shellQuote(l.knownHosts())}
+	return config, env, func() { _ = os.Remove(keyFile) }, nil
 }
 
-// helperEnv is the inline credential helper carrying a username and a
-// raw token (a push opens the sealed one; a first-run clone holds the
-// one from the environment) through the environment of one subprocess.
-func helperEnv(username, token string) (config, env []string) {
-	if username == "" {
-		// GitHub, Gitea, and GitLab accept a token with any username.
-		username = "yana"
+// keyFilePrefix names the per-process key files under .sync.
+const keyFilePrefix = "ssh-key-"
+
+// knownHosts is where this server remembers the hosts it has pushed to.
+func (l *Layer) knownHosts() string {
+	return filepath.Join(l.root, ".sync", "known_hosts")
+}
+
+// sweepKeyFiles removes key files a crash left behind.
+func (l *Layer) sweepKeyFiles() {
+	old, _ := filepath.Glob(filepath.Join(l.root, ".sync", keyFilePrefix+"*"))
+	for _, f := range old {
+		_ = os.Remove(f)
 	}
-	config = append(config,
-		"credential.helper=",
-		`credential.helper=!f() { printf 'username=%s\npassword=%s\n' "$YANA_GIT_USERNAME" "$YANA_GIT_PASSWORD"; }; f`,
-	)
-	return config, append(env, "YANA_GIT_USERNAME="+username, "YANA_GIT_PASSWORD="+token)
+}
+
+// shellQuote quotes s for the shell git runs GIT_SSH_COMMAND through.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // Push pushes HEAD to one remote now and records the outcome on its row.
@@ -304,10 +331,11 @@ func (l *Layer) Push(ctx context.Context, r index.GitRemote) error {
 }
 
 func (l *Layer) push(ctx context.Context, r index.GitRemote) error {
-	config, env, err := l.credentialEnv(r)
+	config, env, cleanup, err := l.remoteEnv(r)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 	_, err = l.gitEnv(ctx, config, env, "push", "--", r.URL, "HEAD")
 	return err
 }
@@ -320,10 +348,11 @@ func (l *Layer) Test(ctx context.Context, r index.GitRemote) (refs int, err erro
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	config, env, err := l.credentialEnv(r)
+	config, env, cleanup, err := l.remoteEnv(r)
 	if err != nil {
 		return 0, err
 	}
+	defer cleanup()
 	out, err := l.gitEnv(ctx, config, env, "ls-remote", "--heads", "--", r.URL)
 	if err != nil {
 		return 0, err

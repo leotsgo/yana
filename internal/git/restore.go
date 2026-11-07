@@ -75,10 +75,11 @@ func (l *Layer) cloneIfEmpty(ctx context.Context) (bool, error) {
 		l.log.Warn("YANA_GIT_REMOTE is not a usable remote; running git init", "err", err)
 		return false, nil
 	}
-	config, env, err := l.credentialEnv(index.GitRemote{ID: "env", Name: "remote", URL: clean, Enabled: true})
+	config, env, cleanup, err := l.remoteEnv(index.GitRemote{ID: "env", Name: "remote", URL: clean, Enabled: true})
 	if err != nil {
 		return false, l.cloneFailed(err)
 	}
+	defer cleanup()
 	pctx, pcancel := context.WithTimeout(ctx, time.Minute)
 	defer pcancel()
 	// An empty backup is the fresh-install case, not a failure: the
@@ -145,10 +146,11 @@ func (l *Layer) FetchRestore(ctx context.Context, r index.GitRemote) (string, er
 	if !l.available {
 		return "", errors.New("git history is unavailable")
 	}
-	config, env, err := l.credentialEnv(r)
+	config, env, cleanup, err := l.remoteEnv(r)
 	if err != nil {
 		return "", err
 	}
+	defer cleanup()
 	ctx, cancel := context.WithTimeout(ctx, restoreTimeout)
 	defer cancel()
 	if _, err := l.gitEnv(ctx, config, env, "fetch", "--no-tags", "--", r.URL, "+HEAD:"+RestoreRef); err != nil {

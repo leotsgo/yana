@@ -223,6 +223,7 @@ func (l *Layer) Ensure(ctx context.Context) error {
 		return errors.New("git binary not found on PATH")
 	}
 	l.available = true
+	l.sweepKeyFiles()
 	if _, err := os.Stat(filepath.Join(l.root, ".git")); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return err

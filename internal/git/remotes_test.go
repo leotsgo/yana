@@ -49,6 +49,7 @@ func TestIsSSH(t *testing.T) {
 }
 
 func TestSealRoundTrip(t *testing.T) {
+	fakeSSH(t)
 	dir := t.TempDir()
 	opts := testOptions()
 	opts.SecretPath = filepath.Join(dir, ".sync", "git_secret")
@@ -69,9 +70,9 @@ func TestSealRoundTrip(t *testing.T) {
 	if err := again.Ensure(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	remote := index.GitRemote{ID: "r", Name: "x", URL: "/nowhere", Secret: sealed, HasSecret: true, Enabled: true}
+	remote := index.GitRemote{ID: "r", Name: "x", URL: sshURL, Secret: sealed, Enabled: true}
 	if _, err := again.Test(context.Background(), remote); err == nil || strings.Contains(err.Error(), "credential") {
-		t.Fatalf("test with the right key should fail on the URL, not the credential: %v", err)
+		t.Fatalf("test with the right key should fail on the remote, not the credential: %v", err)
 	}
 	other := testOptions()
 	other.SecretPath = filepath.Join(t.TempDir(), "git_secret")
