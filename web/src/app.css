@@ -1209,6 +1209,12 @@ details.callout:not([open]) > summary.callout-title { margin-bottom: 0; }
 /* Backup remotes: the edit form opens under its row; errors stay on the row. */
 .remote-row .settings-row-sub code { font-size: 12px; word-break: break-all; }
 .remote-form { flex-basis: 100%; padding: 8px 0 4px; }
+.key-block { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.key-value { display: block; width: 100%; box-sizing: border-box; padding: 10px 12px; font: 12px/1.5 var(--mono); color: var(--ink); background: var(--bg); border: 1px dashed var(--line-2); border-radius: var(--r-sm); word-break: break-all; user-select: all; }
+.key-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.key-panel { display: flex; flex-direction: column; gap: 8px; }
+.key-panel .field-hint { margin: 0; }
+.key-panel .field-hint code { font-size: 12px; word-break: break-all; }
 .settings-row-sub.error { color: var(--danger); }
 .facts .error-detail { font-size: 12px; word-break: break-word; }
 .auth-input {

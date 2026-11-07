@@ -250,14 +250,16 @@ export interface GitRemote {
   url: string
   schedule: RemoteSchedule
   push_hour: number
-  username: string
-  has_secret: boolean
   enabled: boolean
   created_at: string
   pushes: number
   last_push: string
   last_error: string
   last_error_at: string
+  /** The remote's own ed25519 key, public half; '' for a path remote. */
+  public_key: string
+  /** The host fingerprint this server trusts; '' until first contact. */
+  host_key: string
 }
 
 export interface GitRemoteInput {
@@ -265,10 +267,9 @@ export interface GitRemoteInput {
   url?: string
   schedule?: RemoteSchedule
   push_hour?: number
-  username?: string
-  token?: string
-  clear_token?: boolean
   enabled?: boolean
+  /** From newGitKey; sent on create only, and only for an SSH address. */
+  sealed_key?: string
 }
 
 /** What a backup holds, reported before anything is touched. */
@@ -574,7 +575,10 @@ export const api = {
     post<{ ok: boolean }>(`/api/notes/${encodeURIComponent(id)}/history/restore`, { revision, path }),
   gitSnapshot: () => post<{ ok: boolean; commits: number }>('/api/git/snapshot', {}),
   gitRemotes: () => get<{ remotes: GitRemote[] }>('/api/git/remotes'),
-  createGitRemote: (input: GitRemoteInput) => post<GitRemote>('/api/git/remotes', input),
+  newGitKey: () => post<{ public_key: string; sealed_key: string }>('/api/git/keys', {}),
+  createGitRemote: (input: GitRemoteInput) => post<{ remote: GitRemote; push_error: string }>('/api/git/remotes', input),
+  replaceGitKey: (id: string) => post<{ public_key: string }>(`/api/git/remotes/${encodeURIComponent(id)}/key`, {}),
+  forgetHostKey: (id: string) => post<{ ok: boolean }>(`/api/git/remotes/${encodeURIComponent(id)}/host-key`, {}, 'DELETE'),
   updateGitRemote: (id: string, input: GitRemoteInput) => post<GitRemote>(`/api/git/remotes/${encodeURIComponent(id)}`, input, 'PUT'),
   deleteGitRemote: (id: string) => post<{ ok: boolean }>(`/api/git/remotes/${encodeURIComponent(id)}`, {}, 'DELETE'),
   pushGitRemote: (id: string) => post<{ ok: boolean; remote: GitRemote }>(`/api/git/remotes/${encodeURIComponent(id)}/push`, {}),

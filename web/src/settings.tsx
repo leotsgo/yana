@@ -1341,16 +1341,36 @@ interface RemoteDraft {
   url: string
   schedule: RemoteSchedule
   pushHour: number
-  username: string
-  token: string
-  clearToken: boolean
   enabled: boolean
 }
 
-const emptyDraft: RemoteDraft = { name: '', url: '', schedule: 'nightly', pushHour: 2, username: '', token: '', clearToken: false, enabled: true }
+const emptyDraft: RemoteDraft = { name: '', url: '', schedule: 'nightly', pushHour: 2, enabled: true }
 
 function draftOf(r: GitRemote): RemoteDraft {
-  return { name: r.name, url: r.url, schedule: r.schedule, pushHour: r.push_hour, username: r.username, token: '', clearToken: false, enabled: r.enabled }
+  return { name: r.name, url: r.url, schedule: r.schedule, pushHour: r.push_hour, enabled: r.enabled }
+}
+
+/** An absolute path is a bare repository on a mounted disk; anything else
+ * is SSH and has a key. The server draws the same line. */
+const isPathURL = (url: string): boolean => url.trim().startsWith('/')
+
+/** A remote's public key with a Copy button; Task 8's setup flow shares it. */
+export function KeyBlock({ publicKey }: { publicKey: string }) {
+  const [note, setNote] = useState('')
+  return (
+    <div class="key-block">
+      <code class="key-value">{publicKey}</code>
+      <div class="key-actions">
+        <button type="button" class="btn small" onClick={() => void copyText(publicKey, setNote, 'the key')}>
+          <Icon name="copy" />
+          Copy key
+        </button>
+        <span class="muted" role="status">
+          {note}
+        </span>
+      </div>
+    </div>
+  )
 }
 
 /** Backup remotes: where the history is pushed, and when. Owner-only. */
@@ -1362,6 +1382,9 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [draft, setDraft] = useState<RemoteDraft>(emptyDraft)
   const [msg, setMsg] = useState('')
+  // The key made when "Add remote" opens, held until the remote is saved.
+  const [newKey, setNewKey] = useState<{ public_key: string; sealed_key: string } | null>(null)
+  const [keyOpen, setKeyOpen] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     try {
@@ -1387,11 +1410,18 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
   const startNew = () => {
     setDraft(emptyDraft)
     setMsg('')
+    setNewKey(null)
+    setKeyOpen(null)
     setEditing('new')
+    api
+      .newGitKey()
+      .then(setNewKey)
+      .catch((err: unknown) => setMsg(msgOf(err, 'Could not make a key.')))
   }
   const startEdit = (r: GitRemote) => {
     setDraft(draftOf(r))
     setMsg('')
+    setKeyOpen(null)
     setEditing(r.id)
   }
   const cancel = () => {
@@ -1407,22 +1437,76 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
       url: draft.url.trim(),
       schedule: draft.schedule,
       push_hour: draft.pushHour,
-      username: draft.username.trim(),
       enabled: draft.enabled,
     }
-    if (draft.token !== '') input.token = draft.token
-    else if (draft.clearToken) input.clear_token = true
     setBusy('save')
     setMsg('')
-    const p = editing === 'new' ? api.createGitRemote(input) : api.updateGitRemote(editing, input)
-    p.then((r) => {
-      say(editing === 'new' ? `Added ${r.name}.` : `Saved ${r.name}.`)
-      setEditing(null)
-      void reload()
-      onStatus()
-    })
+    if (editing === 'new') {
+      if (!isPathURL(draft.url)) input.sealed_key = newKey?.sealed_key
+      api
+        .createGitRemote(input)
+        .then(({ remote, push_error }) => {
+          void reload()
+          onStatus()
+          if (push_error) {
+            // Saved, but the first push failed: stay on the remote so the
+            // owner can fix the key and push again, not add it twice.
+            setDraft(draftOf(remote))
+            setEditing(remote.id)
+            setMsg(push_error)
+            return
+          }
+          say(`Added ${remote.name}.`)
+          setEditing(null)
+        })
+        .catch((err: unknown) => setMsg(msgOf(err, 'Could not add the remote.')))
+        .finally(() => setBusy(null))
+      return
+    }
+    api
+      .updateGitRemote(editing, input)
+      .then((r) => {
+        say(`Saved ${r.name}.`)
+        setEditing(null)
+        void reload()
+        onStatus()
+      })
       .catch((err: unknown) => setMsg(msgOf(err, 'Could not save the remote.')))
       .finally(() => setBusy(null))
+  }
+
+  const makeKey = (r: GitRemote) => {
+    const run = () => {
+      setBusy(r.id)
+      api
+        .replaceGitKey(r.id)
+        .then(() => say(`Made a new key for ${r.name}. Add it to the repository.`))
+        .catch((err: unknown) => say(msgOf(err, 'Could not make a key.')))
+        .finally(() => {
+          setBusy(null)
+          void reload()
+        })
+    }
+    if (r.public_key === '') return run()
+    confirm({
+      title: `Make a new key for ${r.name}?`,
+      body: 'The old key stops working. Add the new one to the repository.',
+      confirmLabel: 'Make a new key',
+      danger: true,
+      onConfirm: run,
+    })
+  }
+
+  const forgetHost = (r: GitRemote) => {
+    setBusy(r.id)
+    api
+      .forgetHostKey(r.id)
+      .then(() => say(`Forgot the host key for ${r.name}. The next push learns it again.`))
+      .catch((err: unknown) => say(msgOf(err, 'Could not forget the host key.')))
+      .finally(() => {
+        setBusy(null)
+        void reload()
+      })
   }
 
   const push = (r: GitRemote) => {
@@ -1460,6 +1544,7 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
           .then(() => {
             say(`Removed ${r.name}.`)
             if (editing === r.id) setEditing(null)
+            if (keyOpen === r.id) setKeyOpen(null)
             void reload()
             onStatus()
           })
@@ -1470,44 +1555,31 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
   }
 
   const current = editing !== 'new' ? remotes?.find((r) => r.id === editing) : undefined
+  // The key block hides while the address is a folder path.
+  const showKey = !isPathURL(draft.url) && (editing === 'new' || current?.public_key !== '')
+  const keyText = editing === 'new' ? newKey?.public_key : current?.public_key
   const form = (
     <form class="settings-form" onSubmit={save}>
       <label class="field">
         <span class="field-label">Name</span>
         <input class="input" type="text" required maxLength={48} placeholder="github" value={draft.name} onInput={(ev) => setDraft({ ...draft, name: (ev.target as HTMLInputElement).value })} />
       </label>
+      {showKey && (
+        <div class="field">
+          <span class="field-label">1 · Add this key to the repository, with write access</span>
+          {keyText ? <KeyBlock publicKey={keyText} /> : <span class="muted">{editing === 'new' && !msg ? 'Making a key…' : 'No key yet.'}</span>}
+        </div>
+      )}
       <label class="field">
-        <span class="field-label">Repository URL</span>
-        <input class="input" type="text" required placeholder="https://github.com/you/notes.git" value={draft.url} onInput={(ev) => setDraft({ ...draft, url: (ev.target as HTMLInputElement).value })} />
-        <span class="field-hint">HTTPS with a token, SSH with a key the server can read, or a path to a bare repository on a mounted disk.</span>
+        <span class="field-label">{showKey ? '2 · ' : ''}Repository address</span>
+        <input class="input mono" type="text" required placeholder="git@github.com:you/notes.git" value={draft.url} onInput={(ev) => setDraft({ ...draft, url: (ev.target as HTMLInputElement).value })} />
+        <span class="field-hint">SSH (git@host:path or ssh://…) or a bare repository on a mounted disk.</span>
       </label>
       <Choice label="Push" value={draft.schedule} options={SCHEDULES} onChange={(v) => setDraft({ ...draft, schedule: v })} />
       {draft.schedule === 'nightly' && (
         <label class="field">
           <span class="field-label">At (hour, server time)</span>
           <input class="input narrow" type="number" min={0} max={23} value={draft.pushHour} onInput={(ev) => setDraft({ ...draft, pushHour: Number((ev.target as HTMLInputElement).value) })} />
-        </label>
-      )}
-      <label class="field">
-        <span class="field-label">Username</span>
-        <input class="input" type="text" autocomplete="off" placeholder="optional; any name works with a token" value={draft.username} onInput={(ev) => setDraft({ ...draft, username: (ev.target as HTMLInputElement).value })} />
-      </label>
-      <label class="field">
-        <span class="field-label">Token</span>
-        <input
-          class="input"
-          type="password"
-          autocomplete="new-password"
-          placeholder={current?.has_secret ? 'unchanged' : 'a personal access token with write access to this one repository'}
-          value={draft.token}
-          onInput={(ev) => setDraft({ ...draft, token: (ev.target as HTMLInputElement).value })}
-        />
-        <span class="field-hint">Stored encrypted on the server and never shown again. Not needed for SSH or a local path.</span>
-      </label>
-      {current?.has_secret && draft.token === '' && (
-        <label class="check">
-          <input type="checkbox" checked={draft.clearToken} onChange={(ev) => setDraft({ ...draft, clearToken: (ev.target as HTMLInputElement).checked })} />
-          Remove the stored token
         </label>
       )}
       {editing !== 'new' && (
@@ -1520,9 +1592,9 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
         {msg}
       </p>
       <div class="form-actions">
-        <button type="submit" class="btn primary" disabled={busy !== null || draft.name.trim() === '' || draft.url.trim() === ''}>
+        <button type="submit" class="btn primary" disabled={busy !== null || draft.name.trim() === '' || draft.url.trim() === '' || (editing === 'new' && !isPathURL(draft.url) && !newKey)}>
           <Icon name="save" />
-          {editing === 'new' ? 'Add remote' : 'Save'}
+          {editing === 'new' ? 'Test and add' : 'Save'}
         </button>
         <button type="button" class="btn" onClick={cancel}>
           Cancel
@@ -1534,7 +1606,7 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
   return (
     <Block
       title="Backups"
-      lead="Push the history to other git repositories: a private GitHub or Gitea repository, or a bare repository on another disk. Each push carries only the commits that remote has not seen."
+      lead="Push the history to other git repositories over SSH, or to a bare repository on another disk. Each SSH remote has its own key. Each push carries only the commits that remote has not seen."
     >
       {error ? (
         <p class="error">{error}</p>
@@ -1552,7 +1624,6 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
                   {r.name}
                   <span class="badge">{scheduleLabel(r)}</span>
                   {!r.enabled && <span class="badge warn">off</span>}
-                  {r.has_secret && <span class="badge">token</span>}
                 </span>
                 <span class="settings-row-sub">
                   <code>{r.url}</code> · {r.pushes > 0 ? `pushed ${r.pushes} ${r.pushes === 1 ? 'time' : 'times'}, last ${fmtDate(r.last_push)}` : 'never pushed'}
@@ -1564,6 +1635,12 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
                 )}
               </div>
               <div class="settings-row-actions">
+                {!isPathURL(r.url) && (
+                  <button type="button" class="btn small" aria-expanded={keyOpen === r.id} disabled={busy !== null} onClick={() => setKeyOpen(keyOpen === r.id ? null : r.id)}>
+                    <Icon name="key" />
+                    Key
+                  </button>
+                )}
                 <button type="button" class="btn small" disabled={busy !== null} onClick={() => push(r)}>
                   <Icon name="commit" />
                   Push now
@@ -1581,6 +1658,26 @@ function BackupsBlock({ user, say, confirm, onStatus }: { user: auth.User | null
                   Remove
                 </button>
               </div>
+              {keyOpen === r.id && (
+                <div class="remote-form key-panel">
+                  <p class="field-hint">Add this key to {r.url} with write access. It only opens that repository.</p>
+                  {r.public_key ? <KeyBlock publicKey={r.public_key} /> : <p class="muted">No key yet.</p>}
+                  <div class="key-actions">
+                    <button type="button" class="btn small" disabled={busy !== null} onClick={() => makeKey(r)}>
+                      <Icon name="refresh" />
+                      {r.public_key ? 'Make a new key' : 'Make a key'}
+                    </button>
+                  </div>
+                  {r.host_key && (
+                    <p class="field-hint">
+                      Host <code>{r.host_key}</code>{' '}
+                      <button type="button" class="btn small" disabled={busy !== null} onClick={() => forgetHost(r)}>
+                        Forget
+                      </button>
+                    </p>
+                  )}
+                </div>
+              )}
               {editing === r.id && <div class="remote-form">{form}</div>}
             </li>
           ))}
@@ -1681,7 +1778,7 @@ function RestoreBlock({ user, say, onChanged, onStatus }: { user: auth.User | nu
   return (
     <Block
       title="Restore from a backup"
-      lead="Bring the tree back from a backup remote: the disaster-recovery path for the notes. A fresh install with YANA_GIT_REMOTE set restores itself on first start."
+      lead="Bring the tree back from a backup remote: the disaster-recovery path for the notes."
     >
       <div class="pref-row">
         <label class="pref-label" for="restore-remote">
