@@ -13,7 +13,8 @@ import (
 )
 
 // sshHost returns the host a validated address names, as known_hosts spells
-// it: [host]:port when the address gives a port. ok is false for a path.
+// it: [host]:port when the address gives a port other than 22. ok is
+// false for a path.
 func sshHost(raw string) (host, known string, ok bool) {
 	if !IsSSH(raw) {
 		return "", "", false
@@ -23,7 +24,7 @@ func sshHost(raw string) (host, known string, ok bool) {
 		if err != nil || u.Hostname() == "" {
 			return "", "", false
 		}
-		if p := u.Port(); p != "" {
+		if p := u.Port(); p != "" && p != "22" {
 			return u.Hostname(), "[" + u.Hostname() + "]:" + p, true
 		}
 		return u.Hostname(), u.Hostname(), true
@@ -81,12 +82,14 @@ func ExplainGitError(raw string, err error) string {
 	case strings.Contains(msg, "Permission denied (publickey)"):
 		say = host + " refused the key. Check that it is added to this repository with write access."
 	case strings.Contains(msg, "Host key verification failed"), strings.Contains(msg, "REMOTE HOST IDENTIFICATION HAS CHANGED"):
-		say = host + " presented a different host key than the one this server remembers. If that change is expected, forget the host key in Settings › Backup."
+		say = host + " presented a different host key than the one this server remembers. If that change is expected, forget the host key in Settings → Data → Backups."
 	case strings.Contains(msg, "Could not resolve hostname"):
 		_, after, _ := strings.Cut(msg, "Could not resolve hostname ")
 		after, _, _ = strings.Cut(after, "\n")
 		name, _, _ := strings.Cut(after, ":")
 		say = "Could not find " + strings.TrimSpace(name) + ". Check the address."
+	case strings.Contains(msg, "No user exists for uid"):
+		say = "ssh cannot run as this server's user id, which has no entry in the container's /etc/passwd. Run the container as root, as uid 1000, or add a passwd entry for its uid."
 	case strings.Contains(msg, "does not appear to be a git repository"):
 		say = "There is no repository at that address, or this key cannot see it."
 	default:

@@ -170,8 +170,8 @@ func (l *Layer) Bootstrap(ctx context.Context, r index.GitRemote, phase func(Boo
 	phase(PhaseFetching)
 	fctx, fcancel := context.WithTimeout(ctx, restoreTimeout)
 	defer fcancel()
-	if _, err := l.gitEnv(fctx, config, env, "fetch", "--no-tags", "--", r.URL, "+HEAD:"+RestoreRef); err != nil {
-		return 0, fmt.Errorf("fetch %s: %w", RedactURL(r.URL), err)
+	if err := l.fetchBackup(fctx, config, env, r.URL, RedactURL(r.URL)); err != nil {
+		return 0, err
 	}
 
 	// Every path the backup brings must be new: the checkout then
@@ -201,6 +201,28 @@ func (l *Layer) Bootstrap(ctx context.Context, r index.GitRemote, phase func(Boo
 	l.mu.Unlock()
 	l.log.Info("restored an empty notes folder from a backup", "url", RedactURL(r.URL), "commits", commits)
 	return commits, nil
+}
+
+// ErrNoMainBranch is a remote whose HEAD names no branch and that holds
+// no main either.
+var ErrNoMainBranch = errors.New("That repository has no main branch to restore from.")
+
+// fetchBackup fetches the remote's HEAD into the hidden ref. A bare
+// repository made by plain `git init --bare` points HEAD at an unborn
+// master while this server pushes main, so a missing HEAD falls back to
+// main. Other failures are wrapped with label.
+func (l *Layer) fetchBackup(ctx context.Context, config, env []string, url, label string) error {
+	_, err := l.gitEnv(ctx, config, env, "fetch", "--no-tags", "--", url, "+HEAD:"+RestoreRef)
+	if err != nil && strings.Contains(err.Error(), "couldn't find remote ref HEAD") {
+		_, err = l.gitEnv(ctx, config, env, "fetch", "--no-tags", "--", url, "+refs/heads/main:"+RestoreRef)
+		if err != nil && strings.Contains(err.Error(), "couldn't find remote ref") {
+			return ErrNoMainBranch
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("fetch %s: %w", label, err)
+	}
+	return nil
 }
 
 // fetchedPaths lists every file in the fetched backup's tree.
@@ -428,8 +450,8 @@ func (l *Layer) FetchRestore(ctx context.Context, r index.GitRemote) (string, er
 	defer cleanup()
 	ctx, cancel := context.WithTimeout(ctx, restoreTimeout)
 	defer cancel()
-	if _, err := l.gitEnv(ctx, config, env, "fetch", "--no-tags", "--", r.URL, "+HEAD:"+RestoreRef); err != nil {
-		return "", fmt.Errorf("fetch %s: %w", r.Name, err)
+	if err := l.fetchBackup(ctx, config, env, r.URL, r.Name); err != nil {
+		return "", err
 	}
 	out, err := l.git(ctx, "rev-parse", "--verify", RestoreRef)
 	if err != nil {

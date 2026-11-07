@@ -239,7 +239,7 @@ export function SetupFlow({ onDone }: { onDone: () => void }) {
       ) : status?.phase === 'done' ? (
         <Card>
           <div class="setup-ok">
-            Restored {status.notes === 0 ? 'your notes' : `${status.notes} ${status.notes === 1 ? 'note' : 'notes'}`}. New changes back up to <code>{status.url}</code> nightly at 02:00; change that in Settings › Backup.
+            Restored {status.notes === 0 ? 'your notes' : `${status.notes} ${status.notes === 1 ? 'note' : 'notes'}`}. New changes back up to <code>{status.url}</code> nightly at 02:00; change that in Settings → Data → Backups.
           </div>
           <button class="btn primary large" type="button" onClick={onDone}>
             Open notes

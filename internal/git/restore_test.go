@@ -214,6 +214,18 @@ func TestRestoreOverUnrelatedHistory(t *testing.T) {
 	}
 }
 
+func TestFetchRestoreFromPlainBareRepository(t *testing.T) {
+	ctx := context.Background()
+	l := newLayer(t, testOptions())
+	commit, err := l.FetchRestore(ctx, index.GitRemote{ID: "r", Name: "backup", URL: masterHeadRemote(t), Enabled: true})
+	if err != nil {
+		t.Fatalf("fetch from a repository whose HEAD is master: %v", err)
+	}
+	if p, err := l.PreviewRestore(ctx, commit); err != nil || p.Notes != 1 {
+		t.Fatalf("preview of main: %+v %v", p, err)
+	}
+}
+
 func TestRestoreTimestampsDiffer(t *testing.T) {
 	// Two tags a second apart must both exist; the format itself is what
 	// matters here, the round trip above covers the behaviour.

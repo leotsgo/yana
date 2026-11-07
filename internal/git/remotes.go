@@ -210,7 +210,7 @@ func (l *Layer) remoteEnv(r index.GitRemote) (config, env []string, cleanup func
 		return config, nil, cleanup, nil
 	}
 	if len(r.Secret) == 0 {
-		return nil, nil, nil, errors.New("this remote has no key yet; make one in Settings › Backup")
+		return nil, nil, nil, errors.New("this remote has no key yet; make one in Settings → Data → Backups")
 	}
 	pemText, err := l.open(r.Secret)
 	if err != nil {
@@ -236,7 +236,7 @@ func (l *Layer) remoteEnv(r index.GitRemote) (config, env []string, cleanup func
 		return nil, nil, nil, werr
 	}
 	env = []string{"GIT_SSH_COMMAND=ssh -i " + shellQuote(keyFile) +
-		" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new" +
+		" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=accept-new" +
 		" -o UserKnownHostsFile=" + shellQuote(l.knownHosts())}
 	return config, env, func() { _ = os.Remove(keyFile) }, nil
 }

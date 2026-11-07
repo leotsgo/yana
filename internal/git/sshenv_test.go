@@ -24,6 +24,7 @@ func fakeSSH(t *testing.T) (out string) {
 	out = t.TempDir()
 	bin := t.TempDir()
 	script := `#!/bin/sh
+echo "$@" > "$OUT/args"
 while [ $# -gt 0 ]; do
   if [ "$1" = "-i" ]; then key="$2"; fi
   shift
@@ -67,6 +68,12 @@ func TestSSHCommandUsesKeyFile(t *testing.T) {
 	mode, _ := os.ReadFile(filepath.Join(out, "mode"))
 	if strings.TrimSpace(string(mode)) != "600" {
 		t.Fatalf("key file mode = %q, want 600", mode)
+	}
+	args, _ := os.ReadFile(filepath.Join(out, "args"))
+	for _, want := range []string{"IdentitiesOnly=yes", "BatchMode=yes", "ConnectTimeout=30", "StrictHostKeyChecking=accept-new"} {
+		if !strings.Contains(string(args), want) {
+			t.Fatalf("ssh args %q lack %s", args, want)
+		}
 	}
 }
 
@@ -118,7 +125,9 @@ func TestExplainGitError(t *testing.T) {
 		{"git@github.com:me/n.git", "git@github.com: Permission denied (publickey).",
 			"github.com refused the key. Check that it is added to this repository with write access."},
 		{"git@github.com:me/n.git", "Host key verification failed.",
-			"github.com presented a different host key than the one this server remembers. If that change is expected, forget the host key in Settings › Backup."},
+			"github.com presented a different host key than the one this server remembers. If that change is expected, forget the host key in Settings → Data → Backups."},
+		{"git@github.com:me/n.git", "No user exists for uid 1234",
+			"ssh cannot run as this server's user id, which has no entry in the container's /etc/passwd."},
 		{"git@nope:me/n.git", "ssh: Could not resolve hostname nope",
 			"Could not find nope. Check the address."},
 		{"/x", "fatal: '/x' does not appear to be a git repository",
@@ -170,5 +179,42 @@ func TestHostKeyAndForget(t *testing.T) {
 	}
 	if err := (git.New(t.TempDir(), testOptions(), nil)).ForgetHost("git@example.invalid:x"); err != nil {
 		t.Fatalf("ForgetHost with no known_hosts: %v", err)
+	}
+}
+
+func TestHostKeyPort22IsDefault(t *testing.T) {
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		t.Skip("ssh-keygen not on PATH")
+	}
+	keys := t.TempDir()
+	runCmd(t, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", filepath.Join(keys, "k"))
+	pub, err := os.ReadFile(filepath.Join(keys, "k.pub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := strings.Join(strings.Fields(string(pub))[:2], " ")
+	dir := t.TempDir()
+	putFile(t, dir, ".sync/known_hosts", "example.com "+key+"\n[example.com]:2222 "+key+"\n")
+	l := git.New(dir, testOptions(), nil)
+	for _, url := range []string{"ssh://git@example.com:22/n.git", "ssh://git@example.com/n.git", "git@example.com:n.git", "ssh://git@example.com:2222/n.git"} {
+		if got := l.HostKey(url); !strings.HasPrefix(got, "example.com SHA256:") {
+			t.Errorf("HostKey(%s) = %q", url, got)
+		}
+	}
+	if err := l.ForgetHost("ssh://git@example.com:22/n.git"); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.HostKey("git@example.com:n.git"); got != "" {
+		t.Errorf("port 22 forgot the wrong entry; example.com still known: %q", got)
+	}
+	if got := l.HostKey("ssh://git@example.com:2222/n.git"); got == "" {
+		t.Error("forgetting port 22 also dropped [example.com]:2222")
+	}
+}
+
+func runCmd(t testing.TB, name string, args ...string) {
+	t.Helper()
+	if out, err := exec.Command(name, args...).CombinedOutput(); err != nil {
+		t.Fatalf("%s %v: %v\n%s", name, args, err, out)
 	}
 }

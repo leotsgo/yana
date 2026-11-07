@@ -380,3 +380,54 @@ func TestBootstrapIntoExistingEmptyDir(t *testing.T) {
 		t.Fatal("a/one.md not restored")
 	}
 }
+
+// masterHeadRemote is a bare repository made by plain `git init --bare`:
+// HEAD names an unborn master while yana's pushes land on main.
+func masterHeadRemote(t testing.TB) string {
+	t.Helper()
+	bare := filepath.Join(t.TempDir(), "plain.git")
+	runGit(t, t.TempDir(), "init", "--bare", bare)
+	runGit(t, bare, "symbolic-ref", "HEAD", "refs/heads/master")
+	src := t.TempDir()
+	runGit(t, src, "init", "-b", "main")
+	putFile(t, src, "a/one.md", "one\n")
+	runGit(t, src, "add", "-A")
+	runGit(t, src, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "notes: backup")
+	runGit(t, src, "push", bare, "main")
+	return bare
+}
+
+func TestBootstrapFromPlainBareRepository(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	l := git.New(dir, testOptions(), nil)
+	if err := l.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r := index.GitRemote{ID: "r", Name: "backup", URL: masterHeadRemote(t), Enabled: true}
+	if _, err := l.Bootstrap(ctx, r, nil); err != nil {
+		t.Fatalf("bootstrap from a repository whose HEAD is master: %v", err)
+	}
+	if readFile(t, dir, "a/one.md") != "one\n" {
+		t.Fatal("main was not restored")
+	}
+}
+
+func TestBootstrapWithoutMainBranch(t *testing.T) {
+	ctx := context.Background()
+	bare := masterHeadRemote(t)
+	// Only a branch neither HEAD nor main names.
+	runGit(t, bare, "branch", "-m", "main", "other")
+	dir := t.TempDir()
+	l := git.New(dir, testOptions(), nil)
+	if err := l.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_, err := l.Bootstrap(ctx, index.GitRemote{ID: "r", Name: "backup", URL: bare, Enabled: true}, nil)
+	if err == nil || err.Error() != "That repository has no main branch to restore from." {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(markerPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("marker written: %v", err)
+	}
+}
