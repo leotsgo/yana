@@ -180,7 +180,7 @@ func (s *Server) handleGitSnapshot(w http.ResponseWriter, r *http.Request) {
 // --- backup remotes ------------------------------------------------------------
 //
 // Remotes are owner-only like snapshots: a push carries every space.
-// Responses never include the credential, only whether one is stored.
+// Responses never include the private key, only its public half.
 
 func (s *Server) gitOwnerOnly(w http.ResponseWriter, r *http.Request) bool {
 	if s.gitUnavailable(w) {
@@ -196,26 +196,27 @@ func (s *Server) gitOwnerOnly(w http.ResponseWriter, r *http.Request) bool {
 var remoteNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$`)
 
 // remoteBody is the request shape for creating and editing a remote.
+// SealedKey is read on create only; PUT never changes the key.
 type remoteBody struct {
-	Name     string `json:"name"`
-	URL      string `json:"url"`
-	Schedule string `json:"schedule"`
-	PushHour *int   `json:"push_hour"`
-	Enabled  *bool  `json:"enabled"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Schedule  string `json:"schedule"`
+	PushHour  *int   `json:"push_hour"`
+	Enabled   *bool  `json:"enabled"`
+	SealedKey string `json:"sealed_key"`
 }
 
-// applyRemoteBody validates body onto r. It reports whether the stored
-// credential should be kept as is.
-func (s *Server) applyRemoteBody(w http.ResponseWriter, body remoteBody, r *index.GitRemote, create bool) (keepSecret bool, ok bool) {
+// applyRemoteBody validates body onto r.
+func (s *Server) applyRemoteBody(w http.ResponseWriter, body remoteBody, r *index.GitRemote, create bool) bool {
 	name := strings.TrimSpace(body.Name)
 	if !remoteNamePattern.MatchString(name) {
 		writeError(w, http.StatusBadRequest, "name must be 1 to 48 letters, digits, spaces, dots, underscores or dashes")
-		return false, false
+		return false
 	}
 	clean, err := git.ParseRemoteURL(body.URL)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
-		return false, false
+		return false
 	}
 	schedule := body.Schedule
 	if schedule == "" {
@@ -223,12 +224,12 @@ func (s *Server) applyRemoteBody(w http.ResponseWriter, body remoteBody, r *inde
 	}
 	if !git.ValidSchedule(schedule) {
 		writeError(w, http.StatusBadRequest, "schedule must be commit, hourly, or nightly")
-		return false, false
+		return false
 	}
 	if body.PushHour != nil {
 		if *body.PushHour < 0 || *body.PushHour > 23 {
 			writeError(w, http.StatusBadRequest, "push_hour must be 0 to 23")
-			return false, false
+			return false
 		}
 		r.PushHour = *body.PushHour
 	} else if create {
@@ -240,7 +241,30 @@ func (s *Server) applyRemoteBody(w http.ResponseWriter, body remoteBody, r *inde
 	} else if create {
 		r.Enabled = true
 	}
-	return false, true
+	return true
+}
+
+// shown readies a remote for a response: the stored key never leaves
+// (Secret has no JSON form), and the host key this server remembers rides
+// along so the owner can see what it trusts.
+func (s *Server) shown(r index.GitRemote) index.GitRemote {
+	r.Secret = nil
+	r.HostKey = s.Git.HostKey(r.URL)
+	return r
+}
+
+// handleGitKeyCreate makes a key for a remote that does not exist yet, so
+// the owner can install the public half before the remote is added.
+func (s *Server) handleGitKeyCreate(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	pub, sealed, err := s.Git.NewKey()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"public_key": pub, "sealed_key": sealed})
 }
 
 func (s *Server) handleGitRemotes(w http.ResponseWriter, r *http.Request) {
@@ -252,12 +276,16 @@ func (s *Server) handleGitRemotes(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if remotes == nil {
-		remotes = []index.GitRemote{}
+	out := make([]index.GitRemote, len(remotes))
+	for i, rm := range remotes {
+		out[i] = s.shown(rm)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"remotes": remotes})
+	writeJSON(w, http.StatusOK, map[string]any{"remotes": out})
 }
 
+// handleGitRemoteCreate tests the candidate first and saves nothing when
+// the test fails, then pushes once so a read-only key shows up now rather
+// than at the first scheduled push.
 func (s *Server) handleGitRemoteCreate(w http.ResponseWriter, r *http.Request) {
 	if !s.gitOwnerOnly(w, r) {
 		return
@@ -267,7 +295,26 @@ func (s *Server) handleGitRemoteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	remote := index.GitRemote{ID: git.NewRemoteID(), CreatedAt: time.Now().UTC()}
-	if _, ok := s.applyRemoteBody(w, body, &remote, true); !ok {
+	if !s.applyRemoteBody(w, body, &remote, true) {
+		return
+	}
+	switch {
+	case git.IsSSH(remote.URL) && body.SealedKey == "":
+		writeError(w, http.StatusBadRequest, "make a key first, add its public half to the repository, then add the remote")
+		return
+	case !git.IsSSH(remote.URL) && body.SealedKey != "":
+		writeError(w, http.StatusBadRequest, "a folder on this machine needs no key")
+		return
+	case body.SealedKey != "":
+		sealed, pub, err := s.Git.OpenKey(body.SealedKey)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		remote.Secret, remote.PublicKey = sealed, pub
+	}
+	if _, err := s.Git.Test(r.Context(), remote); err != nil {
+		writeError(w, http.StatusBadGateway, git.ExplainGitError(remote.URL, err))
 		return
 	}
 	if err := s.DB.CreateGitRemote(r.Context(), remote); err != nil {
@@ -275,8 +322,23 @@ func (s *Server) handleGitRemoteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Git.Reload(r.Context())
-	remote.Secret = nil
-	writeJSON(w, http.StatusCreated, remote)
+	pushErr := ""
+	if remote.Enabled {
+		_, err := s.Git.Snapshot(r.Context())
+		if err == nil {
+			err = s.Git.Push(r.Context(), remote)
+		}
+		if err != nil {
+			pushErr = "Added, but the first push failed: " + strings.TrimRight(git.ExplainGitError(remote.URL, err), ". \n") +
+				". If this is a deploy key, check that it has write access."
+		}
+	}
+	saved, err := s.DB.GetGitRemote(r.Context(), remote.ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"remote": s.shown(saved), "push_error": pushErr})
 }
 
 func (s *Server) handleGitRemoteUpdate(w http.ResponseWriter, r *http.Request) {
@@ -302,9 +364,15 @@ func (s *Server) handleGitRemoteUpdate(w http.ResponseWriter, r *http.Request) {
 	if body.Schedule == "" {
 		body.Schedule = remote.Schedule
 	}
-	_, ok := s.applyRemoteBody(w, body, &remote, false)
-	if !ok {
+	oldURL := remote.URL
+	if !s.applyRemoteBody(w, body, &remote, false) {
 		return
+	}
+	if remote.URL != oldURL {
+		if _, err := s.Git.Test(r.Context(), remote); err != nil {
+			writeError(w, http.StatusBadGateway, git.ExplainGitError(remote.URL, err))
+			return
+		}
 	}
 	if err := s.DB.UpdateGitRemote(r.Context(), remote); err != nil {
 		writeRemoteError(w, r, s, err)
@@ -316,8 +384,58 @@ func (s *Server) handleGitRemoteUpdate(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	remote.Secret = nil
-	writeJSON(w, http.StatusOK, remote)
+	writeJSON(w, http.StatusOK, s.shown(remote))
+}
+
+// handleGitRemoteKey replaces a remote's key. The old one is gone for
+// good, so the owner has to install the new public half before the next
+// push works.
+func (s *Server) handleGitRemoteKey(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	remote, err := s.DB.GetGitRemote(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeRemoteError(w, r, s, err)
+		return
+	}
+	if !git.IsSSH(remote.URL) {
+		writeError(w, http.StatusBadRequest, "a folder on this machine has no key")
+		return
+	}
+	pub, sealedKey, err := s.Git.NewKey()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	sealed, _, err := s.Git.OpenKey(sealedKey)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.DB.SetGitRemoteKey(r.Context(), remote.ID, pub, sealed); err != nil {
+		writeRemoteError(w, r, s, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"public_key": pub})
+}
+
+// handleGitRemoteHostKeyForget drops the host key this server remembers
+// for a remote, for the day the host's key legitimately changes.
+func (s *Server) handleGitRemoteHostKeyForget(w http.ResponseWriter, r *http.Request) {
+	if !s.gitOwnerOnly(w, r) {
+		return
+	}
+	remote, err := s.DB.GetGitRemote(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeRemoteError(w, r, s, err)
+		return
+	}
+	if err := s.Git.ForgetHost(remote.URL); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleGitRemoteDelete(w http.ResponseWriter, r *http.Request) {
@@ -349,7 +467,7 @@ func (s *Server) handleGitRemotePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Git.Push(r.Context(), remote); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, git.ExplainGitError(remote.URL, err))
 		return
 	}
 	remote, err = s.DB.GetGitRemote(r.Context(), remote.ID)
@@ -357,8 +475,7 @@ func (s *Server) handleGitRemotePush(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	remote.Secret = nil
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "remote": remote})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "remote": s.shown(remote)})
 }
 
 // handleGitRemoteTest checks the remote is reachable with its credentials.
@@ -373,7 +490,7 @@ func (s *Server) handleGitRemoteTest(w http.ResponseWriter, r *http.Request) {
 	}
 	refs, err := s.Git.Test(r.Context(), remote)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, git.ExplainGitError(remote.URL, err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "branches": refs})
@@ -421,7 +538,7 @@ func (s *Server) handleGitRestorePreview(w http.ResponseWriter, r *http.Request)
 	}
 	commit, err := s.Git.FetchRestore(r.Context(), remote)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, git.ExplainGitError(remote.URL, err))
 		return
 	}
 	preview, err := s.Git.PreviewRestore(r.Context(), commit)
@@ -464,7 +581,7 @@ func (s *Server) handleGitRestore(w http.ResponseWriter, r *http.Request) {
 	ctx := context.WithoutCancel(r.Context())
 	commit, err := s.Git.FetchRestore(ctx, remote)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, git.ExplainGitError(remote.URL, err))
 		return
 	}
 	res, err := s.Git.Restore(ctx, commit, func(ctx context.Context, paths []git.RestorePath) {

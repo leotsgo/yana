@@ -58,7 +58,7 @@ var ErrBadRemoteURL = errors.New("remote must be an SSH address (git@host:path o
 // key file is unavailable.
 var ErrNoSealKey = errors.New("credential storage is unavailable on this server")
 
-var scpLike = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:[^\s]+$`)
+var scpLike = regexp.MustCompile(`^[A-Za-z0-9._-]+@[A-Za-z0-9._][A-Za-z0-9._-]*:[^\s]+$`)
 
 // ParseRemoteURL validates a remote address: an SSH address or an
 // absolute path. Credentials never ride in an address, so one with a
@@ -70,7 +70,7 @@ func ParseRemoteURL(raw string) (string, error) {
 	}
 	if strings.Contains(raw, "://") {
 		u, err := url.Parse(raw)
-		if err != nil || u.Scheme != "ssh" || u.Host == "" {
+		if err != nil || u.Scheme != "ssh" || u.Host == "" || strings.HasPrefix(u.Hostname(), "-") {
 			return "", ErrBadRemoteURL
 		}
 		if u.User != nil {

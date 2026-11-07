@@ -28,6 +28,7 @@ func TestParseRemoteURL(t *testing.T) {
 	for _, in := range []string{
 		"https://github.com/me/notes.git", "http://h/x", "git://h/x", "ssh://me:pw@h/x",
 		"ext::sh -c x", "-oProxyCommand=x", "relative/path", "",
+		"git@-host:path", "ssh://git@-oProxyCommand=x/path",
 	} {
 		if _, err := git.ParseRemoteURL(in); !errors.Is(err, git.ErrBadRemoteURL) {
 			t.Errorf("%q: err = %v, want ErrBadRemoteURL", in, err)

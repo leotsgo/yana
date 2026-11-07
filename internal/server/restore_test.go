@@ -71,10 +71,11 @@ func TestGitRestoreFromRemote(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitOut(t, bare, "init", "--bare", "-b", "main")
-	var remote index.GitRemote
-	if code := e.post(t, "/api/git/remotes", map[string]any{"name": "backup", "url": bare, "schedule": "commit"}, &remote); code != 201 {
+	var created struct{ Remote index.GitRemote }
+	if code := e.post(t, "/api/git/remotes", map[string]any{"name": "backup", "url": bare, "schedule": "commit"}, &created); code != 201 {
 		t.Fatalf("create remote: %d", code)
 	}
+	remote := created.Remote
 	var pushed struct {
 		OK     bool
 		Remote index.GitRemote
@@ -177,26 +178,31 @@ func TestGitRestoreFromRemote(t *testing.T) {
 func TestGitRestoreRefusals(t *testing.T) {
 	e := newGitEnv(t)
 
-	var off index.GitRemote
-	if code := e.post(t, "/api/git/remotes", map[string]any{"name": "off", "url": filepath.Join(t.TempDir(), "x.git"), "enabled": false}, &off); code != 201 {
+	var off struct{ Remote index.GitRemote }
+	if code := e.post(t, "/api/git/remotes", map[string]any{"name": "off", "url": bareRepo(t), "enabled": false}, &off); code != 201 {
 		t.Fatalf("create disabled: %d", code)
 	}
-	if code := e.post(t, "/api/git/remotes/"+off.ID+"/restore/preview", map[string]any{}, nil); code != 400 {
+	if code := e.post(t, "/api/git/remotes/"+off.Remote.ID+"/restore/preview", map[string]any{}, nil); code != 400 {
 		t.Fatalf("disabled preview: %d", code)
 	}
-	if code := e.post(t, "/api/git/remotes/"+off.ID+"/restore", map[string]any{"confirm": "off"}, nil); code != 400 {
+	if code := e.post(t, "/api/git/remotes/"+off.Remote.ID+"/restore", map[string]any{"confirm": "off"}, nil); code != 400 {
 		t.Fatalf("disabled restore: %d", code)
 	}
 
-	var dead index.GitRemote
-	if code := e.post(t, "/api/git/remotes", map[string]any{"name": "dead", "url": filepath.Join(t.TempDir(), "missing.git")}, &dead); code != 201 {
+	// A remote that has since gone away: it can only be made while it exists.
+	deadBare := bareRepo(t)
+	var dead struct{ Remote index.GitRemote }
+	if code := e.post(t, "/api/git/remotes", map[string]any{"name": "dead", "url": deadBare}, &dead); code != 201 {
 		t.Fatalf("create dead: %d", code)
 	}
+	if err := os.RemoveAll(deadBare); err != nil {
+		t.Fatal(err)
+	}
 	var errOut struct{ Error string }
-	if code := e.post(t, "/api/git/remotes/"+dead.ID+"/restore/preview", map[string]any{}, &errOut); code != 502 || errOut.Error == "" {
+	if code := e.post(t, "/api/git/remotes/"+dead.Remote.ID+"/restore/preview", map[string]any{}, &errOut); code != 502 || errOut.Error == "" {
 		t.Fatalf("unreachable preview: %d %q", code, errOut.Error)
 	}
-	if code := e.post(t, "/api/git/remotes/"+dead.ID+"/restore", map[string]any{"confirm": "dead"}, &errOut); code != 502 {
+	if code := e.post(t, "/api/git/remotes/"+dead.Remote.ID+"/restore", map[string]any{"confirm": "dead"}, &errOut); code != 502 {
 		t.Fatalf("unreachable restore: %d", code)
 	}
 	if _, err := os.Stat(filepath.Join(e.dir, "home", "hist.md")); err != nil {
