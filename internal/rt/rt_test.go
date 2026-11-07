@@ -17,12 +17,12 @@ import (
 	"github.com/coder/websocket"
 	"github.com/vmihailenco/msgpack/v5"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
-	"github.com/madeofpendletonwool/yana/internal/ydoc"
+	"github.com/leotsgo/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/ydoc"
 )
 
 // Timings mirrored from the reconcile harness: fast enough for a short

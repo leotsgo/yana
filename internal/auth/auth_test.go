@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
-	"github.com/madeofpendletonwool/yana/internal/spaces"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/spaces"
 )
 
 func newService(t *testing.T) (*Service, *index.DB) {

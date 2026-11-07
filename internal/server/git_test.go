@@ -13,12 +13,12 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
-	"github.com/madeofpendletonwool/yana/internal/git"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/git"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/scanner"
 )
 
 // gitEnv is an env with a reconciliation loop and a live git history

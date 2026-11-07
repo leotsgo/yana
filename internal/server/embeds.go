@@ -13,9 +13,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/drawing"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/render"
+	"github.com/leotsgo/yana/internal/drawing"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/render"
 )
 
 // embedSpanRe matches the spans the renderer emits for ![[targets]].

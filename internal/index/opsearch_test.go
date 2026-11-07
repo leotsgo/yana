@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/search"
+	"github.com/leotsgo/yana/internal/search"
 )
 
 // seedOps writes a small tree exercising every operator:

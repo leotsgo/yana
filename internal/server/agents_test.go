@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/spaces"
+	"github.com/leotsgo/yana/internal/spaces"
 )
 
 func TestAgentTokenEndpoints(t *testing.T) {

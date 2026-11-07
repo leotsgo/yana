@@ -11,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/madeofpendletonwool/yana/internal/fsutil"
+	"github.com/leotsgo/yana/internal/fsutil"
 )
 
 // readYana decodes the file at rel into v; found is false when there is

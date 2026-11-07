@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/render"
+	"github.com/leotsgo/yana/internal/render"
 )
 
 // Note is one row of the notes table.

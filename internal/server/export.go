@@ -12,9 +12,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/export"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/export"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/pathsafe"
 )
 
 // exporter builds the export dependencies for one request.

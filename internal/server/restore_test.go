@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
-	"github.com/madeofpendletonwool/yana/internal/git"
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/git"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 // gitOut runs git in dir and returns its combined output.

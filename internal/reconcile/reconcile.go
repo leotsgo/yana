@@ -46,13 +46,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
-	"github.com/madeofpendletonwool/yana/internal/fsutil"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
-	"github.com/madeofpendletonwool/yana/internal/spaces"
-	"github.com/madeofpendletonwool/yana/internal/ydoc"
+	"github.com/leotsgo/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/fsutil"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/spaces"
+	"github.com/leotsgo/yana/internal/ydoc"
 )
 
 // AuthorFilesystem tags every operation that originated as a file edit.

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
-	"github.com/madeofpendletonwool/yana/internal/git"
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/git"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 // restoreAuthor tags the CRDT edit a restore makes. It maps to the human

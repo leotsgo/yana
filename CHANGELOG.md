@@ -9,6 +9,8 @@ under Unreleased until the next tag; see
 
 ## Unreleased
 
+- The Go module is `github.com/leotsgo/yana`, and `docker-compose.yml`
+  pulls `ghcr.io/leotsgo/yana`.
 - Making, moving, renaming and deleting a note no longer wait on a pass
   over every note of its space: only the links that could name the note
   are recomputed. A deleted note leaves the sidebar at once, and making

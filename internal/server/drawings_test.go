@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madeofpendletonwool/yana/internal/drawing"
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/drawing"
+	"github.com/leotsgo/yana/internal/frontmatter"
 )
 
 const textScene = `{"type":"excalidraw","version":2,"elements":[{"type":"text","text":"zebrafish","originalText":"zebrafish","isDeleted":false,"link":null}],"appState":{},"files":{}}`

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/frontmatter"
 )
 
 // Acceptance 5: kill the process mid-write-back; on restart no note is

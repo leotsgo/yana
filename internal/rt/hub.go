@@ -19,8 +19,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/reconcile"
 )
 
 // Options bound the relay. Zero values take the defaults noted on each

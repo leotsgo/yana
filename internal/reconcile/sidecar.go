@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/fsutil"
+	"github.com/leotsgo/yana/internal/fsutil"
 )
 
 // The sidecar is the document's full state as one Yjs V1 update, written

@@ -8,8 +8,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/reconcile"
 )
 
 // trashAllow builds the space filter for the caller: nil (everything)

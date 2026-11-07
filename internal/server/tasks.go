@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 // tickAuthor tags the CRDT edit a tick makes when the server runs

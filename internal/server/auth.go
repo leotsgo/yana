@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/auth"
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/auth"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 const refreshTokenCookie = "yana_refresh"

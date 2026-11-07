@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
-	"github.com/madeofpendletonwool/yana/internal/fsutil"
-	"github.com/madeofpendletonwool/yana/internal/guide"
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/fsutil"
+	"github.com/leotsgo/yana/internal/guide"
+	"github.com/leotsgo/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/scanner"
 )
 
 // The starter note. The owner's first sign-in seeds an empty tree with

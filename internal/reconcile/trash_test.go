@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 // deleteViaApp runs the in-app delete path and checks the basics: the

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
-	"github.com/madeofpendletonwool/yana/internal/spaces"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/spaces"
 )
 
 // Sentinel errors for the agent token surface.

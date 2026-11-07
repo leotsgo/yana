@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 func TestGraphEndpoint(t *testing.T) {

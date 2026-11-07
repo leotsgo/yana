@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/render"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/render"
 )
 
 // SiteStats reports what a site export wrote.

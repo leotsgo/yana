@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 // TreeNode is one directory or note in the sidebar tree.

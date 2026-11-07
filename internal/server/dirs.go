@@ -19,11 +19,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/fsutil"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/fsutil"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/scanner"
 )
 
 // dirParam cleans a folder path from a request. A folder sits inside a

@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/templates"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/templates"
 )
 
 // TemplatesFolder is the folder, in every space, whose notes are

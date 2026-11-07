@@ -29,9 +29,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/export"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/export"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/scanner"
 )
 
 // publicLinkRate is the requests one link may make per minute, page and

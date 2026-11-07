@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/git"
-	"github.com/madeofpendletonwool/yana/internal/spaces"
+	"github.com/leotsgo/yana/internal/git"
+	"github.com/leotsgo/yana/internal/spaces"
 )
 
 // agentRunGap is how far apart two commits by the same agent can fall

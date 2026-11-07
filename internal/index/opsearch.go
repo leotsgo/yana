@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/search"
+	"github.com/leotsgo/yana/internal/search"
 )
 
 // imageExts are the file name endings has:image recognises in a note's

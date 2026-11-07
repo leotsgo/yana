@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/frontmatter"
 )
 
 // ErrNoteNotInHistory is returned when no revision of a path holds the

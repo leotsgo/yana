@@ -20,19 +20,19 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/madeofpendletonwool/yana/internal/auth"
-	"github.com/madeofpendletonwool/yana/internal/config"
-	"github.com/madeofpendletonwool/yana/internal/fsutil"
-	"github.com/madeofpendletonwool/yana/internal/git"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/mcp"
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
-	"github.com/madeofpendletonwool/yana/internal/rt"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
-	"github.com/madeofpendletonwool/yana/internal/search"
-	"github.com/madeofpendletonwool/yana/internal/server"
-	"github.com/madeofpendletonwool/yana/web"
+	"github.com/leotsgo/yana/internal/auth"
+	"github.com/leotsgo/yana/internal/config"
+	"github.com/leotsgo/yana/internal/fsutil"
+	"github.com/leotsgo/yana/internal/git"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/mcp"
+	"github.com/leotsgo/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/rt"
+	"github.com/leotsgo/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/search"
+	"github.com/leotsgo/yana/internal/server"
+	"github.com/leotsgo/yana/web"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".

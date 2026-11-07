@@ -1,4 +1,4 @@
-module github.com/madeofpendletonwool/yana
+module github.com/leotsgo/yana
 
 go 1.26.5
 

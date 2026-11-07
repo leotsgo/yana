@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf16"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/frontmatter"
 )
 
 // IsObsidian reports whether content is a drawing written by Obsidian's

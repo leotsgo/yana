@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/scanner"
 )
 
 // contentEnv is a main server plus the content origin on its own

@@ -7,8 +7,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/madeofpendletonwool/yana/internal/auth"
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/auth"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {

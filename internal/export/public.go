@@ -14,8 +14,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/render"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/render"
 )
 
 // PublicRefs is how the page reaches what sits beside and behind the

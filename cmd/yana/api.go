@@ -40,8 +40,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/vmihailenco/msgpack/v5"
 
-	"github.com/madeofpendletonwool/yana/internal/scanner"
-	"github.com/madeofpendletonwool/yana/internal/wikilink"
+	"github.com/leotsgo/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/wikilink"
 )
 
 func apiMain(args []string, stdin io.Reader, stdout io.Writer) int {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madeofpendletonwool/yana/internal/spaces"
+	"github.com/leotsgo/yana/internal/spaces"
 )
 
 // getBytes fetches a path and returns status, content type, and body.

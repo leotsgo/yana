@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/drawing"
+	"github.com/leotsgo/yana/internal/drawing"
 )
 
 // conflictNameRe matches the stem of a conflict copy's file name:

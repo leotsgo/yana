@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/drawing"
-	"github.com/madeofpendletonwool/yana/internal/render"
-	"github.com/madeofpendletonwool/yana/internal/wikilink"
+	"github.com/leotsgo/yana/internal/drawing"
+	"github.com/leotsgo/yana/internal/render"
+	"github.com/leotsgo/yana/internal/wikilink"
 )
 
 // OutboundLink is one wikilink of a note, resolved or not. Kind is

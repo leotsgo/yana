@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/git"
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/git"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 func (e *gitEnv) request(t *testing.T, method, path string, body any, out any) int {

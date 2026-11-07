@@ -20,11 +20,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/auth"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/auth"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/scanner"
 )
 
 // ProtocolVersion is the newest spec this server speaks; the versions a

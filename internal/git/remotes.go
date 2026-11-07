@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/fsutil"
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/fsutil"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 // Push schedules. Every schedule pushes only when there is a commit the

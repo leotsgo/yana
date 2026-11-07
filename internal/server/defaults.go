@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/spaces"
+	"github.com/leotsgo/yana/internal/spaces"
 )
 
 // defaultsRel is the defaults file, relative to the notes root.

@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/fsutil"
+	"github.com/leotsgo/yana/internal/fsutil"
 )
 
 // conventionsName is the file this handler writes, at the space root.

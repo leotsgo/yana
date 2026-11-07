@@ -21,7 +21,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/madeofpendletonwool/yana/internal/fsutil"
+	"github.com/leotsgo/yana/internal/fsutil"
 	_ "modernc.org/sqlite"
 )
 

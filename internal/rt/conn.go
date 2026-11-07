@@ -13,7 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/vmihailenco/msgpack/v5"
 
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/reconcile"
 )
 
 // conn is one WebSocket connection. Its read loop owns the connection's

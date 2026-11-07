@@ -18,14 +18,14 @@ import (
 	"github.com/coder/websocket"
 	"github.com/vmihailenco/msgpack/v5"
 
-	"github.com/madeofpendletonwool/yana/internal/auth"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/mcp"
-	"github.com/madeofpendletonwool/yana/internal/pathsafe"
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
-	"github.com/madeofpendletonwool/yana/internal/rt"
-	"github.com/madeofpendletonwool/yana/internal/scanner"
-	"github.com/madeofpendletonwool/yana/internal/spaces"
+	"github.com/leotsgo/yana/internal/auth"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/mcp"
+	"github.com/leotsgo/yana/internal/pathsafe"
+	"github.com/leotsgo/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/rt"
+	"github.com/leotsgo/yana/internal/scanner"
+	"github.com/leotsgo/yana/internal/spaces"
 )
 
 // authFixture is a full stack with accounts on: root, index, scanner,

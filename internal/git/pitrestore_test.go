@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
-	"github.com/madeofpendletonwool/yana/internal/git"
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/git"
+	"github.com/leotsgo/yana/internal/reconcile"
 )
 
 // reconcileOpts are the reconciler timings the restore tests need: fast

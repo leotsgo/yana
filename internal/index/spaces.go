@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/spaces"
+	"github.com/leotsgo/yana/internal/spaces"
 )
 
 // Space membership queries: the spaces and space_members tables are the

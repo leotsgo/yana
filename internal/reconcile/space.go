@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/spaces"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/spaces"
 )
 
 // syncSpaceFile handles one changed .space.yml path from the watcher.

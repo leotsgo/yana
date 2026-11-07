@@ -2,7 +2,7 @@ services:
   yana:
     build:
       context: .
-    image: ghcr.io/madeofpendletonwool/yana:latest
+    image: ghcr.io/leotsgo/yana:latest
     container_name: yana
     restart: unless-stopped
     env_file:

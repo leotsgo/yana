@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/madeofpendletonwool/yana/internal/guide"
+	"github.com/leotsgo/yana/internal/guide"
 )
 
 // The owner's first sign-in on an empty tree writes the starter note

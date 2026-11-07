@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/frontmatter"
 )
 
 const (

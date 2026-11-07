@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/config"
-	"github.com/madeofpendletonwool/yana/internal/drawing"
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
-	"github.com/madeofpendletonwool/yana/internal/fsutil"
+	"github.com/leotsgo/yana/internal/config"
+	"github.com/leotsgo/yana/internal/drawing"
+	"github.com/leotsgo/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/fsutil"
 )
 
 // drawingsMain runs `yana drawings convert [--apply]` and returns the exit

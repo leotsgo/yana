@@ -13,7 +13,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/drawing"
+	"github.com/leotsgo/yana/internal/drawing"
 )
 
 // Rule says which step of the resolution order matched.

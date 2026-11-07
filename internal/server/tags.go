@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 // allowedSpaces is the caller's space filter for index queries: nil when

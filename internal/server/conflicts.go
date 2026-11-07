@@ -18,10 +18,10 @@ import (
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 
-	"github.com/madeofpendletonwool/yana/internal/drawing"
-	"github.com/madeofpendletonwool/yana/internal/frontmatter"
-	"github.com/madeofpendletonwool/yana/internal/index"
-	"github.com/madeofpendletonwool/yana/internal/reconcile"
+	"github.com/leotsgo/yana/internal/drawing"
+	"github.com/leotsgo/yana/internal/frontmatter"
+	"github.com/leotsgo/yana/internal/index"
+	"github.com/leotsgo/yana/internal/reconcile"
 )
 
 // handleConflicts lists every conflict copy in the caller's spaces.

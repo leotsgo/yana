@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/index"
+	"github.com/leotsgo/yana/internal/index"
 )
 
 func (e *linksEnv) del(t *testing.T, path string, out any) int {

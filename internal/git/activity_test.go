@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/madeofpendletonwool/yana/internal/git"
+	"github.com/leotsgo/yana/internal/git"
 )
 
 func TestActivityLogListsStatusesKindsAndRenames(t *testing.T) {

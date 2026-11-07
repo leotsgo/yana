@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/madeofpendletonwool/yana/internal/testpdf"
+	"github.com/leotsgo/yana/internal/testpdf"
 )
 
 func TestExtract(t *testing.T) {
