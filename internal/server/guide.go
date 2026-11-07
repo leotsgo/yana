@@ -17,8 +17,8 @@ import (
 	"github.com/leotsgo/yana/internal/scanner"
 )
 
-// The starter note. The owner's first sign-in seeds an empty tree with
-// it; Help re-creates it in a space on request. Either way the files
+// The starter note. The owner's choice of an empty notebook seeds the
+// tree with it; Help re-creates it in a space on request. Either way the files
 // are written once with O_EXCL and left alone afterwards: they are
 // ordinary notes, and deleting them is deleting them.
 
@@ -85,33 +85,6 @@ func (s *Server) seedGuide(ctx context.Context, space string) (rel string, creat
 		rel = space + "/" + rel
 	}
 	return rel, created, nil
-}
-
-// treeIsEmpty reports whether the notes root holds no note at all, on
-// disk and in the index: the only state the guide is seeded into
-// unasked. Dot-prefixed entries (.sync, .git) do not count.
-func (s *Server) treeIsEmpty(ctx context.Context) bool {
-	if n, _, err := s.DB.Counts(ctx); err != nil || n > 0 {
-		return false
-	}
-	empty := true
-	_ = filepath.WalkDir(s.Root.Dir(), func(p string, d fs.DirEntry, err error) error {
-		if err != nil || p == s.Root.Dir() {
-			return nil
-		}
-		if strings.HasPrefix(d.Name(), ".") {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !d.IsDir() && scanner.KindOf(d.Name()) != "" {
-			empty = false
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return empty
 }
 
 // handleGuide (POST /api/guide, {space}) makes sure the guide exists in

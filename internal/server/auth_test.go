@@ -19,6 +19,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/leotsgo/yana/internal/auth"
+	"github.com/leotsgo/yana/internal/git"
 	"github.com/leotsgo/yana/internal/index"
 	"github.com/leotsgo/yana/internal/mcp"
 	"github.com/leotsgo/yana/internal/pathsafe"
@@ -42,9 +43,16 @@ type authFixture struct {
 	srv  *Server
 	ts   *httptest.Server
 	log  *slog.Logger
+	gl   *git.Layer // nil unless built by newAuthGitFixture
 }
 
-func newAuthFixture(t *testing.T) *authFixture {
+func newAuthFixture(t *testing.T) *authFixture { t.Helper(); return newAuthFixtureWith(t, false) }
+
+// newAuthGitFixture is newAuthFixture with a live git layer over the
+// (empty) root, for the setup choice.
+func newAuthGitFixture(t *testing.T) *authFixture { t.Helper(); return newAuthFixtureWith(t, true) }
+
+func newAuthFixtureWith(t *testing.T, withGit bool) *authFixture {
 	t.Helper()
 	dir := t.TempDir()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -98,7 +106,14 @@ func newAuthFixture(t *testing.T) *authFixture {
 		Log:     log,
 		Version: "test",
 	})
-	f.srv = New(Deps{DB: db, Root: root, Log: log, Version: "test", Sync: rec, RT: hub, Scanner: sc, Auth: as, MCP: agents})
+	if withGit {
+		f.gl = git.New(dir, git.Options{Quiet: time.Hour, Interval: time.Hour, DB: db, SecretPath: filepath.Join(dir, ".sync", "git_secret")}, log)
+		if err := f.gl.Ensure(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(f.gl.Close)
+	}
+	f.srv = New(Deps{DB: db, Root: root, Log: log, Version: "test", Sync: rec, RT: hub, Scanner: sc, Auth: as, MCP: agents, Git: f.gl})
 	f.srv.SetReady(true)
 	f.ts = httptest.NewServer(f.srv)
 	t.Cleanup(f.ts.Close)

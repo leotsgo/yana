@@ -337,6 +337,7 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 		SearchJS:      web.ExportSearchJS(),
 		Favicon:       web.Favicon(),
 		Rich:          web.ExportRich(),
+		Base:          ctx,
 	})
 	if cfg.ContentListen != "" && cfg.ContentListen != "off" {
 		// The content secret signs view tokens and derives public-link

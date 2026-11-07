@@ -10,14 +10,14 @@ import (
 	"github.com/leotsgo/yana/internal/guide"
 )
 
-// The owner's first sign-in on an empty tree writes the starter note
-// and what it references; the wikilink between the two notes resolves
-// and the one to a missing note is reported.
-func TestSetupSeedsGuideIntoEmptyTree(t *testing.T) {
-	f := newAuthFixture(t)
-	code, body := doPost(t, f.ts, "POST", "/api/auth/setup", "", map[string]string{"username": "owner", "password": "owner-password"})
-	if code != http.StatusCreated {
-		t.Fatalf("setup: %d %v", code, body)
+// Choosing an empty notebook after setup writes the starter note and
+// what it references; the wikilink between the two notes resolves and
+// the one to a missing note is reported.
+func TestSetupEmptySeedsGuide(t *testing.T) {
+	f := newAuthGitFixture(t)
+	owner := setupOwner(t, f)
+	if code, body := doPost(t, f.ts, "POST", "/api/setup/empty", owner, map[string]any{}); code != http.StatusOK {
+		t.Fatalf("empty: %d %v", code, body)
 	}
 	for _, g := range guide.Files() {
 		if _, err := os.Stat(filepath.Join(f.dir, filepath.FromSlash(g.Rel))); err != nil {

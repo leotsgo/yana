@@ -85,13 +85,17 @@ type Deps struct {
 	// Daily is the daily note's path pattern and template; zero values
 	// fall back to DefaultDaily.
 	Daily DailyConfig
+	// Base is the server's lifetime, cancelled on shutdown: background
+	// jobs (the setup restore) run on it. nil means context.Background.
+	Base context.Context
 }
 
 // Server holds handler state.
 type Server struct {
 	Deps
-	ready atomic.Bool
-	mux   *http.ServeMux
+	ready   atomic.Bool
+	mux     *http.ServeMux
+	restore restoreJob
 }
 
 // New wires the routes. Call SetReady once the first scan has finished.
@@ -103,6 +107,13 @@ func New(d Deps) *Server {
 	s := &Server{Deps: d, mux: http.NewServeMux()}
 	s.routes()
 	return s
+}
+
+func (s *Server) base() context.Context {
+	if s.Base == nil {
+		return context.Background()
+	}
+	return s.Base
 }
 
 // SetReady flips /readyz to 200.
@@ -142,6 +153,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/auth/refresh", s.handleRefresh)
 	s.mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	s.mux.HandleFunc("GET /api/setup", s.authed(s.handleSetupState))
+	s.mux.HandleFunc("POST /api/setup/empty", s.authed(s.handleSetupEmpty))
+	s.mux.HandleFunc("POST /api/setup/restore", s.authed(s.handleSetupRestore))
+	s.mux.HandleFunc("GET /api/setup/restore", s.authed(s.handleSetupRestoreStatus))
 	s.mux.HandleFunc("GET /api/auth/sessions", s.authed(s.handleSessions))
 	s.mux.HandleFunc("DELETE /api/auth/sessions/{id}", s.authed(s.handleSessionRevoke))
 	s.mux.HandleFunc("GET /api/users", s.authed(s.handleUsers))
