@@ -174,6 +174,11 @@ func (l *Layer) Bootstrap(ctx context.Context, r index.GitRemote, phase func(Boo
 		return 0, fmt.Errorf("fetch %s: %w", RedactURL(r.URL), err)
 	}
 
+	// Every path the backup brings must be new: the checkout then
+	// overwrites nothing and a rollback removes only what it wrote.
+	if err := l.checkFetchedTree(ctx); err != nil {
+		return 0, err
+	}
 	prev := ""
 	if out, err := l.git(ctx, "rev-parse", "--verify", "HEAD"); err == nil {
 		prev = strings.TrimSpace(out)
@@ -196,6 +201,86 @@ func (l *Layer) Bootstrap(ctx context.Context, r index.GitRemote, phase func(Boo
 	l.mu.Unlock()
 	l.log.Info("restored an empty notes folder from a backup", "url", RedactURL(r.URL), "commits", commits)
 	return commits, nil
+}
+
+// fetchedPaths lists every file in the fetched backup's tree.
+func (l *Layer) fetchedPaths(ctx context.Context) ([]string, error) {
+	out, err := l.git(ctx, "ls-tree", "-r", "--name-only", "-z", RestoreRef)
+	if err != nil {
+		return nil, fmt.Errorf("list the restored tree: %w", err)
+	}
+	var paths []string
+	for _, rel := range strings.Split(out, "\x00") {
+		if rel != "" {
+			paths = append(paths, rel)
+		}
+	}
+	return paths, nil
+}
+
+// treePathOK reports whether a path from a backup's tree may be written:
+// a clean relative path that stays in the root and is not under .git,
+// .sync or .trash, which belong to this server. A crafted tree can hold
+// any of those; git fetch does not refuse them.
+func treePathOK(rel string) bool {
+	if !fs.ValidPath(rel) || rel == "." {
+		return false
+	}
+	first, _, _ := strings.Cut(rel, "/")
+	for _, own := range []string{".git", ".sync", ".trash"} {
+		if strings.EqualFold(first, own) {
+			return false
+		}
+	}
+	return true
+}
+
+// checkFetchedTree refuses a backup whose tree holds a path that may not
+// be written, or one that already exists on disk — the path itself or
+// any directory above it. Only .gitignore, which the server owns, may
+// already be there.
+func (l *Layer) checkFetchedTree(ctx context.Context) error {
+	paths, err := l.fetchedPaths(ctx)
+	if err != nil {
+		return err
+	}
+	files := map[string]bool{}
+	for _, rel := range paths {
+		files[rel] = true
+	}
+	for _, rel := range paths {
+		if !treePathOK(rel) {
+			return fmt.Errorf("the backup holds %q, which cannot be restored", rel)
+		}
+		if rel == ".gitignore" {
+			continue
+		}
+		for p := rel; p != "."; p = path.Dir(p) {
+			// A file that is also a directory above another file is a
+			// crafted tree, not a backup.
+			if p != rel && files[p] {
+				return fmt.Errorf("the backup holds %q as both a file and a folder", p)
+			}
+			if _, err := os.Lstat(filepath.Join(l.root, filepath.FromSlash(p))); err == nil {
+				return fmt.Errorf("the notes folder holds %q, which the backup also has; move it away and try again", p)
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// realParents reports whether every directory above rel is a real
+// directory, not a symlink that would lead a removal out of the root.
+func (l *Layer) realParents(rel string) bool {
+	for d := path.Dir(rel); d != "."; d = path.Dir(d) {
+		fi, err := os.Lstat(filepath.Join(l.root, filepath.FromSlash(d)))
+		if err != nil || !fi.IsDir() {
+			return false
+		}
+	}
+	return true
 }
 
 // moveTo points the branch and the index at the fetched backup, writes
@@ -232,13 +317,15 @@ func (l *Layer) rollbackBootstrap(prev string) error {
 		return errors.New("the restore marker does not name a commit")
 	}
 	ctx := context.Background()
-	out, err := l.git(ctx, "ls-tree", "-r", "--name-only", "-z", RestoreRef)
+	paths, err := l.fetchedPaths(ctx)
 	if err != nil {
-		return fmt.Errorf("list the restored tree: %w", err)
+		return err
 	}
 	dirs := map[string]bool{}
-	for _, rel := range strings.Split(out, "\x00") {
-		if rel == "" {
+	for _, rel := range paths {
+		// Bootstrap refused such trees before writing anything; this
+		// holds even for a ref that changed under a pending marker.
+		if !treePathOK(rel) || !l.realParents(rel) {
 			continue
 		}
 		if err := os.Remove(filepath.Join(l.root, filepath.FromSlash(rel))); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -281,14 +368,29 @@ func (l *Layer) rollbackBootstrap(prev string) error {
 	return l.FinishBootstrap()
 }
 
+// AbortBootstrap undoes a bootstrap that has not been finished, exactly
+// as a restart would; the server calls it when it cannot take the
+// restored tree on. Without a pending bootstrap it does nothing.
+func (l *Layer) AbortBootstrap() error {
+	l.committing.Lock()
+	defer l.committing.Unlock()
+	prev, err := os.ReadFile(l.markerPath())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return l.rollbackBootstrap(strings.TrimSpace(string(prev)))
+}
+
 // recoverBootstrap runs from Ensure: a marker left behind is a bootstrap
 // the server never finished taking on, and it is undone.
 func (l *Layer) recoverBootstrap() {
-	prev, err := os.ReadFile(l.markerPath())
-	if err != nil {
+	if _, err := os.Stat(l.markerPath()); err != nil {
 		return
 	}
-	if err := l.rollbackBootstrap(strings.TrimSpace(string(prev))); err != nil {
+	if err := l.AbortBootstrap(); err != nil {
 		l.log.Error("could not undo an interrupted restore", "err", err)
 		return
 	}

@@ -210,3 +210,146 @@ func TestBootstrapInterruptedIsRolledBack(t *testing.T) {
 		})
 	}
 }
+
+// craftRemote builds, with plumbing, a bare repository whose one commit
+// holds exactly the given paths (at most one directory deep), names a
+// porcelain commit would refuse included.
+func craftRemote(t testing.TB, paths ...string) string {
+	t.Helper()
+	bare := bareRemote(t)
+	blob := strings.TrimSpace(runGitIn(t, bare, "x\n", "hash-object", "-w", "--stdin"))
+	top := ""
+	sub := map[string]string{}
+	var dirs []string
+	for _, p := range paths {
+		dir, file, nested := strings.Cut(p, "/")
+		if !nested {
+			top += "100644 blob " + blob + "\t" + p + "\n"
+			continue
+		}
+		if _, ok := sub[dir]; !ok {
+			dirs = append(dirs, dir)
+		}
+		sub[dir] += "100644 blob " + blob + "\t" + file + "\n"
+	}
+	for _, d := range dirs {
+		tree := strings.TrimSpace(runGitIn(t, bare, sub[d], "mktree"))
+		top += "040000 tree " + tree + "\t" + d + "\n"
+	}
+	tree := strings.TrimSpace(runGitIn(t, bare, top, "mktree"))
+	commit := strings.TrimSpace(runGitIn(t, bare, "", "-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", tree, "-m", "crafted"))
+	runGit(t, bare, "update-ref", "refs/heads/main", commit)
+	return bare
+}
+
+// runGitIn runs git in dir with stdin.
+func runGitIn(t testing.TB, dir, stdin string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+func TestBootstrapRefusesUnsafeTree(t *testing.T) {
+	for _, bad := range []string{"../victim", ".git/config", ".GIT/config", ".sync/x", ".trash/x"} {
+		t.Run(bad, func(t *testing.T) {
+			ctx := context.Background()
+			bare := craftRemote(t, "n.md", bad)
+			outer := t.TempDir()
+			dir := filepath.Join(outer, "root")
+			putFile(t, outer, "victim", "outside")
+			putFile(t, dir, ".sync/x", "server state")
+			l := git.New(dir, testOptions(), nil)
+			if err := l.Ensure(ctx); err != nil {
+				t.Fatal(err)
+			}
+			config := readFile(t, dir, ".git/config")
+			check := func(when string) {
+				t.Helper()
+				if readFile(t, outer, "victim") != "outside" {
+					t.Fatalf("%s: a file outside the root was touched", when)
+				}
+				if readFile(t, dir, ".git/config") != config {
+					t.Fatalf("%s: .git/config was touched", when)
+				}
+				if readFile(t, dir, ".sync/x") != "server state" {
+					t.Fatalf("%s: .sync was touched", when)
+				}
+				if _, err := os.Stat(filepath.Join(dir, "n.md")); !os.IsNotExist(err) {
+					t.Fatalf("%s: the crafted tree was checked out", when)
+				}
+			}
+			_, err := l.Bootstrap(ctx, index.GitRemote{ID: "r", Name: "backup", URL: bare, Enabled: true}, nil)
+			if err == nil || !strings.Contains(err.Error(), "cannot be restored") {
+				t.Fatalf("err = %v, want a refusal", err)
+			}
+			if _, err := os.Stat(markerPath(dir)); !os.IsNotExist(err) {
+				t.Fatalf("marker written for a refused tree: %v", err)
+			}
+			check("after the refusal")
+			// Defense in depth: a marker over the crafted ref (still
+			// fetched) must not let recovery remove those paths either.
+			putFile(t, dir, ".sync/restore-pending", "")
+			if err := git.New(dir, testOptions(), nil).Ensure(ctx); err != nil {
+				t.Fatal(err)
+			}
+			check("after recovery")
+		})
+	}
+}
+
+func TestBootstrapRefusesCollisions(t *testing.T) {
+	ctx := context.Background()
+	bare := craftRemote(t, "docs", "lost+found/notes.md")
+	dir := t.TempDir()
+	putFile(t, dir, "docs/keep.bin", "dir in the way")
+	putFile(t, dir, "lost+found", "file in the way")
+	l := git.New(dir, testOptions(), nil)
+	if err := l.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_, err := l.Bootstrap(ctx, index.GitRemote{ID: "r", Name: "backup", URL: bare, Enabled: true}, nil)
+	if err == nil || !strings.Contains(err.Error(), "move it away") {
+		t.Fatalf("err = %v, want a collision refusal", err)
+	}
+	if readFile(t, dir, "docs/keep.bin") != "dir in the way" || readFile(t, dir, "lost+found") != "file in the way" {
+		t.Fatal("a foreign file was destroyed")
+	}
+	if _, err := os.Stat(markerPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("marker written for a refused tree: %v", err)
+	}
+}
+
+func TestBootstrapAbort(t *testing.T) {
+	ctx := context.Background()
+	bare := seedRemote(t, map[string]string{"a/one.md": "one\n"})
+	dir := t.TempDir()
+	putFile(t, dir, "lost+found/keep.bin", "keep")
+	l := git.New(dir, testOptions(), nil)
+	if err := l.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.AbortBootstrap(); err != nil {
+		t.Fatalf("abort with nothing pending: %v", err)
+	}
+	if _, err := l.Bootstrap(ctx, index.GitRemote{ID: "r", Name: "backup", URL: bare, Enabled: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.AbortBootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	if empty, err := l.HoldsNoNotes(); err != nil || !empty {
+		t.Fatalf("HoldsNoNotes after abort = %v, %v", empty, err)
+	}
+	if _, err := os.Stat(markerPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("marker survived abort: %v", err)
+	}
+	if readFile(t, dir, "lost+found/keep.bin") != "keep" {
+		t.Fatal("abort disturbed a foreign file")
+	}
+}
