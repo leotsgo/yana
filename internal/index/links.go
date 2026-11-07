@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path"
 	"strings"
 	"time"
 
@@ -102,6 +103,63 @@ func RecomputeSpaceLinks(tx *sql.Tx, space string) error {
 	}
 	for _, it := range items {
 		if err := writeLinks(tx, it.id, it.kind, res, it.rel, it.body); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RecomputeLinksForNew recomputes the links a newly indexed note can
+// change: its own, and those of the notes in its space whose raw targets
+// could name it. A target reaches a note through its path, its filename
+// or an alias, and every path or filename spelling contains the note's
+// stem, so a target holding neither the stem nor an alias resolves as it
+// did before. A new note then costs its would-be linkers, not every body
+// in the space. The note row and its aliases must already exist in tx.
+func RecomputeLinksForNew(tx *sql.Tx, noteID string) error {
+	var rel, space string
+	if err := tx.QueryRow(`SELECT rel_path, space FROM notes WHERE id = ?`, noteID).Scan(&rel, &space); err != nil {
+		return err
+	}
+	aliases, err := AliasesOfTx(tx, noteID)
+	if err != nil {
+		return err
+	}
+	stem, _ := drawing.SplitExt(path.Base(rel))
+	ids := map[string]struct{}{noteID: {}}
+	for _, needle := range append(aliases, stem) {
+		rows, err := tx.Query(`SELECT DISTINCT l.from_id FROM links l JOIN notes n ON n.id = l.from_id
+			WHERE n.space = ? AND instr(l.raw_target, ?) > 0`, space, strings.TrimSpace(needle))
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids[id] = struct{}{}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
+	res, err := spaceResolver(tx, space)
+	if err != nil {
+		return err
+	}
+	for id := range ids {
+		var from string
+		if err := tx.QueryRow(`SELECT rel_path FROM notes WHERE id = ?`, id).Scan(&from); err != nil {
+			return err
+		}
+		kind, raw, err := rawBodyOfTx(tx, id)
+		if err != nil {
+			return err
+		}
+		if err := writeLinks(tx, id, kind, res, from, raw); err != nil {
 			return err
 		}
 	}

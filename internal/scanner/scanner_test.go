@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -481,5 +482,61 @@ func TestIndexDrawingUnparseable(t *testing.T) {
 	out, err := f.db.OutboundLinks(ctx, n.ID)
 	if err != nil || len(out) != 0 {
 		t.Fatalf("links = %+v, %v", out, err)
+	}
+}
+
+// A new note recomputes only the links that could name it; the outcome
+// must match redoing the whole space.
+func TestScanOneFreshMatchesSpaceRecompute(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.write(t, "s/a.md", "[[target]] [[dup]] [[nick]] [[sketch]] [[sub/target]] [[other]]\n")
+	f.write(t, "s/x/dup.md", "# dup\n")
+	f.write(t, "s/sketch.excalidraw.md", "# sketch\n")
+	f.write(t, "s/b.md", "[[other]] [[x/dup]]\n")
+	if _, err := f.sc.Scan(ctx); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := func() string {
+		var out []string
+		err := f.db.Write(ctx, func(tx *sql.Tx) error {
+			rows, err := tx.Query(`SELECT n.rel_path, l.raw_target, COALESCE(t.rel_path, '-') FROM links l
+				JOIN notes n ON n.id = l.from_id LEFT JOIN notes t ON t.id = l.to_id ORDER BY 1, 2`)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var a, b, c string
+				if err := rows.Scan(&a, &b, &c); err != nil {
+					return err
+				}
+				out = append(out, a+" "+b+" -> "+c)
+			}
+			return rows.Err()
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(out, "\n")
+	}
+	for _, nw := range []struct{ rel, body string }{
+		{"s/target.md", "[[a]]\n"},
+		{"s/y/dup.md", "# second dup\n"},
+		{"s/z.md", "---\naliases: [nick]\n---\n# z\n"},
+		{"s/sketch.md", "# a note beats a drawing\n"},
+		{"s/sub/target.md", "# by path\n"},
+	} {
+		f.write(t, nw.rel, nw.body)
+		if err := f.sc.ScanOne(ctx, nw.rel); err != nil {
+			t.Fatal(err)
+		}
+		got := snapshot()
+		if err := f.db.Write(ctx, func(tx *sql.Tx) error { return index.RecomputeSpaceLinks(tx, "s") }); err != nil {
+			t.Fatal(err)
+		}
+		if want := snapshot(); got != want {
+			t.Fatalf("after adding %s:\ngot\n%s\nwant\n%s", nw.rel, got, want)
+		}
 	}
 }

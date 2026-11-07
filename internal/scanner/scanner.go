@@ -395,8 +395,8 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 		if err := index.RecomputeConflictsIn(tx, dirScope(it.note.RelPath)); err != nil {
 			return err
 		}
-		// A new note can resolve targets that were unresolved; a moved one
-		// changes how the whole space resolves. Both redo the space.
+		// A moved note changes how the whole space resolves, so the space
+		// is redone; a new one only touches the targets that could name it.
 		if moved {
 			if old.Space != it.note.Space {
 				if err := index.RecomputeSpaceLinks(tx, old.Space); err != nil {
@@ -406,7 +406,7 @@ func (s *Scanner) ScanOne(ctx context.Context, rel string) error {
 			return index.RecomputeSpaceLinks(tx, it.note.Space)
 		}
 		if fresh {
-			return index.RecomputeSpaceLinks(tx, it.note.Space)
+			return index.RecomputeLinksForNew(tx, it.note.ID)
 		}
 		// A changed alias list also changes how other notes' links
 		// resolve, so the space is redone; otherwise only this note's.
