@@ -79,6 +79,9 @@ type Result struct {
 }
 
 // New builds a scanner over root writing to db.
+// SettleTime is how long a file must sit untouched before it is indexed.
+func (s *Scanner) SettleTime() time.Duration { return s.opts.SettleTime }
+
 func New(root *pathsafe.Root, db *index.DB, opts Options, log *slog.Logger) *Scanner {
 	if opts.Now == nil {
 		opts.Now = time.Now

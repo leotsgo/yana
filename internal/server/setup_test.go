@@ -116,6 +116,28 @@ func TestSetupRestoreFromPathRemote(t *testing.T) {
 	}
 }
 
+// Notes without a yana id are freshly written by the checkout, so the
+// first scan defers them; the restore reports done only once they are in.
+func TestSetupRestoreIndexesNotesWithoutIDs(t *testing.T) {
+	f := newAuthGitFixture(t)
+	owner := setupOwner(t, f)
+	bare := bareRepo(t)
+	work := t.TempDir()
+	writeFile(t, work, "a/one.md", "# One\n")
+	writeFile(t, work, "b/two.md", "# Two\n")
+	gitOut(t, work, "init", "-q", "-b", "main")
+	gitOut(t, work, "add", "-A")
+	gitOut(t, work, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "two")
+	gitOut(t, work, "push", "-q", bare, "main")
+
+	if code, st := doPost(t, f.ts, "POST", "/api/setup/restore", owner, map[string]any{"url": bare}); code != http.StatusAccepted {
+		t.Fatalf("restore: %d %v", code, st)
+	}
+	if st := waitRestore(t, f, owner); st["phase"] != "done" || st["notes"] != float64(2) {
+		t.Fatalf("final status: %v", st)
+	}
+}
+
 func TestSetupRestoreRefusals(t *testing.T) {
 	f := newAuthGitFixture(t)
 	owner := setupOwner(t, f)

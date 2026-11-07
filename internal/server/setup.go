@@ -236,12 +236,30 @@ func (s *Server) runRestore(ctx context.Context, remote index.GitRemote) {
 
 	s.restore.update(func(st *RestoreStatus) { st.Phase = phaseIndexing })
 	if s.Scanner != nil {
-		if _, err := s.Scanner.Scan(ctx); err != nil {
-			fail(err)
-			return
+		// From here the folder is restored, so a scan error is only
+		// logged: the watcher and the next start's scan pick up the rest.
+		if err := s.indexRestored(ctx); err != nil {
+			s.Log.Warn("the restored notes are not all indexed yet", "err", err)
 		}
 	}
 	s.restore.update(func(st *RestoreStatus) { st.Phase = phaseDone })
+}
+
+// indexRestored scans the restored tree. The checkout just wrote every
+// file, so notes without an id are too young for one and the scan defers
+// them; it waits them out and scans again, a few rounds at most.
+func (s *Server) indexRestored(ctx context.Context) error {
+	for round := 0; ; round++ {
+		res, err := s.Scanner.Scan(ctx)
+		if err != nil || len(res.Deferred) == 0 || round == 5 {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(s.Scanner.SettleTime()):
+		}
+	}
 }
 
 // createBackupRemote saves the restored-from backup as the remote
