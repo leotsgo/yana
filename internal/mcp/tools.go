@@ -997,6 +997,10 @@ func (h *Handler) toolDrawFlowchart(ctx context.Context, agent auth.AgentIdentit
 	if err != nil {
 		return errResult("%s", drawingError(err))
 	}
+	// Layout is about cubic and runs under the drawing lock.
+	if len(g.Nodes) > 300 || len(g.Edges) > 1000 {
+		return errResult("too large for a drawing (at most 300 nodes and 1000 edges); write a mermaid block instead")
+	}
 	if h.Limit != nil && !h.Limit.Allow(author) {
 		return errResult("the agent write rate is exceeded; slow down and retry")
 	}

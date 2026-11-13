@@ -1232,3 +1232,31 @@ func TestDrawFlowchartNoOpKeepsFile(t *testing.T) {
 		t.Errorf("base changed")
 	}
 }
+
+func TestDrawFlowchartTooLarge(t *testing.T) {
+	f := newFixture(t)
+	const want = "too large for a drawing (at most 300 nodes and 1000 edges); write a mermaid block instead"
+	nodes := "flowchart LR\n"
+	for i := 0; i < 301; i++ {
+		nodes += fmt.Sprintf("  n%d\n", i)
+	}
+	edges := "flowchart LR\n"
+	for i := 0; i < 1001; i++ {
+		edges += fmt.Sprintf("  a%d --> b%d\n", i%30, i%31)
+	}
+	for _, m := range []string{nodes, edges} {
+		txt, isErr := f.call(t, "draw_flowchart", map[string]any{"space": "homelab", "path": "big.excalidraw.md", "mermaid": m})
+		if !isErr || txt != want {
+			t.Fatalf("too large accepted: %v %s", isErr, txt)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "homelab", "big.excalidraw.md")); err == nil {
+		t.Fatal("a refused draw created the file")
+	}
+	// exactly at the limits is fine
+	ok := "flowchart LR\n"
+	for i := 0; i < 300; i++ {
+		ok += fmt.Sprintf("  n%d\n", i)
+	}
+	f.draw(t, map[string]any{"path": "big.excalidraw.md", "mermaid": ok})
+}
