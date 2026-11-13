@@ -153,7 +153,7 @@ func toolList() []map[string]any {
 		},
 		{
 			"name":        "draw_flowchart",
-			"description": "Draw a Mermaid flowchart as an Excalidraw drawing (*.excalidraw.md) the user can rearrange by hand. Use it when the user asks for a drawing; a mermaid block in a note is still fine otherwise. New path: laid out automatically. Existing drawing: pass base from read_note; nodes and edges you send are added or updated by id, nothing moves, and nothing is deleted unless listed in remove. Put the returned embed in a note to show the drawing there. Flowcharts only.",
+			"description": "Draw a Mermaid flowchart as an Excalidraw drawing (*.excalidraw.md) the user can rearrange by hand. Use it when the user asks for a drawing; a mermaid block in a note is still fine otherwise. New path: laid out automatically. Existing drawing: pass base from read_note; nodes and edges you send are added or updated by id, nothing moves, and nothing is deleted unless listed in remove. Put the returned embed in a note to show the drawing there. Flowcharts only. An edge you send replaces that edge's label and line style; send only the edges you mean to change.",
 			"inputSchema": req(
 				map[string]any{
 					"space":       str("space name"),
@@ -302,11 +302,11 @@ func (h *Handler) spaceScope(agent auth.AgentIdentity, space string) (string, *t
 }
 
 // resolveNote finds a note by id or path and checks the token may see
-// its space.
-func (h *Handler) resolveNote(ctx context.Context, agent auth.AgentIdentity, ref string) (index.Note, *toolResult) {
+// its space. param names the argument ref came from, for the error.
+func (h *Handler) resolveNote(ctx context.Context, agent auth.AgentIdentity, param, ref string) (index.Note, *toolResult) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
-		return index.Note{}, errResult("note is required")
+		return index.Note{}, errResult("%s is required", param)
 	}
 	var (
 		n   index.Note
@@ -478,7 +478,7 @@ func sortNodes(n *treeNode) {
 }
 
 func (h *Handler) toolReadNote(ctx context.Context, agent auth.AgentIdentity, ref string) *toolResult {
-	n, res := h.resolveNote(ctx, agent, ref)
+	n, res := h.resolveNote(ctx, agent, "note", ref)
 	if res != nil {
 		return res
 	}
@@ -668,7 +668,7 @@ func (h *Handler) toolAppendNote(ctx context.Context, agent auth.AgentIdentity, 
 	if h.Sync == nil {
 		return errResult("%v", errNoSync)
 	}
-	n, res := h.resolveNote(ctx, agent, ref)
+	n, res := h.resolveNote(ctx, agent, "note", ref)
 	if res != nil {
 		return res
 	}
@@ -744,7 +744,7 @@ func (h *Handler) toolMoveNote(ctx context.Context, agent auth.AgentIdentity, re
 	if h.Sync == nil {
 		return errResult("%v", errNoSync)
 	}
-	n, res := h.resolveNote(ctx, agent, ref)
+	n, res := h.resolveNote(ctx, agent, "note", ref)
 	if res != nil {
 		return res
 	}
@@ -1086,7 +1086,7 @@ func (h *Handler) createDrawing(abs, rel string, g flowchart.Graph, now time.Tim
 }
 
 func (h *Handler) toolAddDrawingImage(ctx context.Context, agent auth.AgentIdentity, author, ref, asset, data, near, base string, width float64) *toolResult {
-	n, res := h.resolveNote(ctx, agent, ref)
+	n, res := h.resolveNote(ctx, agent, "drawing", ref)
 	if res != nil {
 		return res
 	}

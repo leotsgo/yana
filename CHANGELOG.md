@@ -17,6 +17,7 @@ under Unreleased until the next tag; see
   on a drawing now gives the agent the flowchart back as Mermaid, the
   layout of everything on the canvas, and its pictures. An agent working
   from an old read is refused rather than undoing your changes.
+  Flowcharts over 300 nodes or 1000 edges stay mermaid blocks.
 - Backup remotes work over SSH. Each remote has its own key, made by
   the server: Settings → Data → Backups shows the public key first, to
   add to the repository as a deploy key with write access, then asks for

@@ -200,7 +200,8 @@ func TestInitializeAndToolList(t *testing.T) {
 	// tools/list via the raw rpc helper.
 	var list struct {
 		Tools []struct {
-			Name string `json:"name"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
 		} `json:"tools"`
 	}
 	raw, isErr := f.rpc(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
@@ -218,6 +219,9 @@ func TestInitializeAndToolList(t *testing.T) {
 		if list.Tools[i].Name != w {
 			t.Fatalf("tool %d is %s, want %s", i, list.Tools[i].Name, w)
 		}
+	}
+	if d := list.Tools[8].Description; !strings.HasSuffix(d, " An edge you send replaces that edge's label and line style; send only the edges you mean to change.") {
+		t.Fatalf("draw_flowchart description: %s", d)
 	}
 
 	// A notification answers 202 with no body.
@@ -1259,4 +1263,14 @@ func TestDrawFlowchartTooLarge(t *testing.T) {
 		ok += fmt.Sprintf("  n%d\n", i)
 	}
 	f.draw(t, map[string]any{"path": "big.excalidraw.md", "mermaid": ok})
+}
+
+func TestAddDrawingImageNeedsDrawing(t *testing.T) {
+	f := newFixture(t)
+	if txt, isErr := f.call(t, "add_drawing_image", map[string]any{"data": "x", "base": "b"}); !isErr || txt != "drawing is required" {
+		t.Fatalf("got %v %s", isErr, txt)
+	}
+	if txt, isErr := f.call(t, "read_note", map[string]any{}); !isErr || txt != "note is required" {
+		t.Fatalf("read_note: %v %s", isErr, txt)
+	}
 }

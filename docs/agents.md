@@ -141,8 +141,12 @@ The result also carries `base`, the hash of the file as read.
 Changing an existing drawing needs that `base`. `draw_flowchart`
 upserts the nodes and edges it is sent by id, places new nodes next to
 the ones they connect to, moves nothing that is there, and deletes only
-the ids listed in `remove`; `add_drawing_image` puts a picture beside
-the `near` node or below everything. If the drawing changed since the
+the ids listed in `remove`. An edge it is sent replaces that edge's
+label and line style, so send only the edges you mean to change. A
+flowchart over 300 nodes or 1000 edges is refused; write a mermaid
+block instead. A new node in a subgraph with no free room around it is
+refused rather than put on top of something. `add_drawing_image` puts
+a picture beside the `near` node or below everything. If the drawing changed since the
 read, the write is refused with "the drawing changed since you read it;
 read it again", and any refusal writes nothing. A drawing the server
 cannot read is never written. Writes go through the same lock as a save
