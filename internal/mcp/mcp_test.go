@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -1163,5 +1164,71 @@ func TestDrawingContentCaps(t *testing.T) {
 	content, images := drawingContent(v, scene)
 	if len(images) != 5 || strings.Count(content, " image (not included)\n") != 1 {
 		t.Fatalf("got %d images:\n%s", len(images), content)
+	}
+}
+
+// browserJSON marshals v compactly with object keys in reverse order, as a
+// serializer other than Go's would.
+func browserJSON(v any) string {
+	switch x := v.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+		parts := make([]string, len(keys))
+		for i, k := range keys {
+			kb, _ := json.Marshal(k)
+			parts[i] = string(kb) + ":" + browserJSON(x[k])
+		}
+		return "{" + strings.Join(parts, ",") + "}"
+	case []any:
+		parts := make([]string, len(x))
+		for i, e := range x {
+			parts[i] = browserJSON(e)
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func TestDrawFlowchartNoOpKeepsFile(t *testing.T) {
+	f := newFixture(t)
+	r := f.draw(t, map[string]any{"path": "arch.excalidraw.md", "mermaid": "flowchart LR\n  subgraph G [Group]\n    a[Router] -->|uplink| b[Switch]\n  end\n  b --> c\n"})
+	// the browser saves it with its own key order and no files key
+	fm := frontmatter.Parse(f.readFile(t, r.Path))
+	_, scene, err := drawing.Parse(fm.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(scene, &m); err != nil {
+		t.Fatal(err)
+	}
+	delete(m, "files")
+	saved := append(append([]byte{}, fm.Head...), drawing.Encode([]byte(browserJSON(m)))...)
+	if err := os.WriteFile(filepath.Join(f.dir, filepath.FromSlash(r.Path)), saved, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	txt, isErr := f.call(t, "read_note", map[string]any{"note": r.Path})
+	var read struct{ Base, Content string }
+	if isErr || json.Unmarshal([]byte(txt), &read) != nil {
+		t.Fatalf("read failed: %s", txt)
+	}
+	mermaid := read.Content[strings.Index(read.Content, "flowchart"):strings.Index(read.Content, "\nlayout:")]
+	r2 := f.draw(t, map[string]any{"path": r.Path[len("homelab/"):], "mermaid": mermaid, "base": read.Base})
+	if !bytes.Equal(f.readFile(t, r.Path), saved) {
+		t.Fatal("a no-op resend rewrote the file")
+	}
+	for k, n := range r2.Stats {
+		if n != 0 {
+			t.Errorf("stats %s = %d", k, n)
+		}
+	}
+	if r2.Base != read.Base {
+		t.Errorf("base changed")
 	}
 }

@@ -28,7 +28,8 @@ func (e *UnknownIDsError) Error() string { return "unknown ids: " + strings.Join
 // their place and size, except that a node box grows to fit a longer label
 // and a subgraph grows to hold new members. New nodes are laid out next to
 // the nodes they connect to. Only elements whose content changed are bumped.
-// sceneJSON is not modified; on error nothing is returned.
+// sceneJSON is not modified, and comes back as it is when nothing changed;
+// on error nothing is returned.
 func Apply(sceneJSON []byte, g Graph, remove []string, now time.Time) ([]byte, Stats, error) {
 	v, err := Read(sceneJSON)
 	if err != nil {
@@ -95,6 +96,9 @@ func Apply(sceneJSON []byte, g Graph, remove []string, now time.Time) ([]byte, S
 	a.edges(handled)
 	for _, id := range remove {
 		a.remove(items[id])
+	}
+	if len(a.dirty) == 0 && len(a.adds) == 0 {
+		return sceneJSON, a.st, nil // nothing changed: keep the file's own bytes
 	}
 	if err := a.flush(); err != nil {
 		return nil, Stats{}, err
