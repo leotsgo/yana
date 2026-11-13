@@ -488,6 +488,8 @@ export function renderDrawingEmbeds(root: HTMLElement, onOpen: OpenNote): void {
       block.prepend(got.svg.cloneNode(true))
       block.classList.add('drawn')
       block.title = `Open ${got.title}`
+      if (block.dataset['wired']) return
+      block.dataset['wired'] = '1'
       block.addEventListener('click', (ev) => {
         // The link inside opens it already.
         if ((ev.target as Element).closest('a')) return
@@ -501,11 +503,10 @@ export function renderDrawingEmbeds(root: HTMLElement, onOpen: OpenNote): void {
   }
 }
 
-// One SVG per drawing and theme, cloned into each render. A save from
-// this tab drops it; a drawing that cannot be drawn is null (the link
-// stays), and a failed fetch is forgotten so the next render tries again.
-// ponytail: a save from another device shows after a reload; drop the
-// entry on the relay's change notice if that matters.
+// One SVG per drawing and theme, cloned into each render. A save drops it
+// (this tab's, or another's via refreshDrawingEmbeds); a drawing that
+// cannot be drawn is null (the link stays), and a failed fetch is
+// forgotten so the next render tries again.
 interface Embed {
   svg: SVGSVGElement
   title: string
@@ -530,6 +531,19 @@ function embedSvg(id: string, dark: boolean) {
     e = entry
   }
   return e
+}
+
+/** Redraws the embeds of drawing `id` under `root` after it changed
+ * elsewhere. The old image stays until the new one is ready. */
+export function refreshDrawingEmbeds(root: HTMLElement, id: string, onOpen: OpenNote): void {
+  forgetEmbed(id)
+  for (const block of root.querySelectorAll<HTMLElement>('.drawing-embed[data-id]')) {
+    if (block.dataset['id'] !== id) continue
+    block.querySelector(':scope > svg')?.remove()
+    block.classList.remove('drawn')
+    delete block.dataset['drawn']
+  }
+  renderDrawingEmbeds(root, onOpen)
 }
 
 function forgetEmbed(id: string): void {

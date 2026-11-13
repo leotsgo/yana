@@ -20,7 +20,7 @@ import type { MoveResult, Note } from './api'
 import { PageBacklinks } from './backlinks'
 import * as cache from './cache'
 import { fmtBytes, fmtDate } from './dom'
-import { DrawingNote, renderDrawingEmbeds } from './drawing'
+import { DrawingNote, refreshDrawingEmbeds, renderDrawingEmbeds } from './drawing'
 import { Editor } from './editor'
 import { FormatBar } from './format'
 import type { Completions } from './editor'
@@ -41,6 +41,7 @@ import * as outbox from './outbox'
 import type { OpenMode } from './prefs'
 import * as sessions from './sessions'
 import { SyncClient, presence } from './sync'
+import { SpaceWatch } from './watch'
 import type { PresenceState, PresenceUser, SyncEvents, SyncStatus } from './sync'
 import type { FlatNote } from './tree'
 
@@ -877,6 +878,41 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, hi
   // a task line opened from the tasks page.
   const scrolled = useRef(false)
 
+  // One watch on the note's space while the render holds drawing embeds:
+  // another device's or an agent's save redraws them. It reads the
+  // current host and onOpen, so a re-render needs no new watch.
+  const embedWatch = useRef<{ watch: SpaceWatch; timer?: number } | null>(null)
+  const latest = useRef({ onOpen })
+  latest.current = { onOpen }
+  const watchEmbeds = (el: HTMLElement) => {
+    const has = el.querySelector('.drawing-embed[data-id]') !== null
+    if (!has) {
+      stopEmbedWatch()
+      return
+    }
+    if (embedWatch.current) return
+    const state: { watch: SpaceWatch; timer?: number } = {
+      watch: new SpaceWatch('user:embeds', (id) => {
+        window.clearTimeout(state.timer)
+        state.timer = window.setTimeout(() => {
+          const root = host.current
+          if (root) refreshDrawingEmbeds(root, id, latest.current.onOpen)
+        }, 300)
+      }),
+    }
+    state.watch.watch([note.space])
+    state.watch.start()
+    embedWatch.current = state
+  }
+  const stopEmbedWatch = () => {
+    const s = embedWatch.current
+    if (!s) return
+    window.clearTimeout(s.timer)
+    s.watch.destroy()
+    embedWatch.current = null
+  }
+  useEffect(() => stopEmbedWatch, [])
+
   const wire = (el: HTMLElement) => {
     rewriteRelative(el, note.base)
     wireWikiLinks(el, note, onOpen, onLinkMenu)
@@ -884,6 +920,7 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, hi
     wireAttachments(el, note, phone)
     renderRich(el)
     renderDrawingEmbeds(el, onOpen)
+    watchEmbeds(el)
     if (highlight && markText(el, highlight, !scrolled.current)) scrolled.current = true
     if (taskLine !== null && markTaskLine(el, taskLine, !scrolled.current)) scrolled.current = true
   }
