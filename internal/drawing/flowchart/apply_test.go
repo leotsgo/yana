@@ -443,3 +443,97 @@ func TestApplyLeavesInputAlone(t *testing.T) {
 		t.Error("input mutated")
 	}
 }
+
+// grownMemberOverlaps is every live element outside subgraph sg (other than
+// sg's ancestors' boxes) that the new node id or sg's grown box overlaps.
+func grownMemberOverlaps(t *testing.T, out []byte, sg, id string) []string {
+	t.Helper()
+	v, err := Read(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := mustScene(t, out)
+	parent := map[string]string{}
+	for _, it := range v.Items {
+		parent[it.ID] = it.Parent
+	}
+	own := map[string]bool{id: true} // sg, its ancestors, the new node
+	for p := sg; p != ""; p = parent[p] {
+		own[p] = true
+	}
+	inside := map[string]bool{}
+	for _, it := range v.Items {
+		if own[it.ID] || it.Kind == "node" && it.Parent == sg {
+			for _, e := range it.Elements {
+				inside[e] = true
+			}
+		}
+	}
+	host, n := yel(s, sg), yel(s, id)
+	if n == nil {
+		t.Fatalf("%s not added", id)
+	}
+	var bad []string
+	for _, e := range s.Live() {
+		if inside[e.ID()] || e.Type() == "arrow" {
+			continue // arrows from members cross the border anyway
+		}
+		if hits(box(n), bbox(e)) {
+			bad = append(bad, id+" on "+e.Type()+" "+e.YanaID()+e.Text())
+		}
+		if hits(box(host), bbox(e)) {
+			bad = append(bad, sg+" over "+e.Type()+" "+e.YanaID()+e.Text())
+		}
+	}
+	return bad
+}
+
+func TestApplyIntoSubgraphLeavesNeighboursAlone(t *testing.T) {
+	for _, dir := range []string{"LR", "TB", "RL", "BT"} {
+		raw := newScene(t, "flowchart "+dir+"\nsubgraph FE [Frontend]\n  UI\nend\nsubgraph BE [Backend]\n  API\nend\nUI --> API")
+		out, _ := mustApply(t, raw, "flowchart "+dir+"\nsubgraph FE\n  Cache\nend")
+		if bad := grownMemberOverlaps(t, out, "FE", "Cache"); len(bad) > 0 {
+			t.Errorf("%s: %v", dir, bad)
+		}
+		s := mustScene(t, out)
+		if c, ui, a := yel(s, "Cache"), yel(s, "UI"), arrowBetween(s, yel(s, "UI"), yel(s, "API")); hits(box(c), bbox(a)) || hits(box(c), box(ui)) {
+			t.Errorf("%s: Cache %v on UI %v or its arrow %v", dir, box(c), box(ui), bbox(a))
+		}
+	}
+}
+
+func TestApplyIntoNestedSubgraphKeepsSibling(t *testing.T) {
+	raw := newScene(t, "flowchart LR\nsubgraph T [Top]\n  subgraph I [Inner]\n    A\n  end\n  B\nend\nA --> B")
+	out, _ := mustApply(t, raw, "flowchart LR\nsubgraph I\n  C\nend")
+	v, err := Read(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range v.Items {
+		if it.ID == "B" && it.Parent != "T" || it.ID == "C" && it.Parent != "I" {
+			t.Errorf("%s in=%s", it.ID, it.Parent)
+		}
+	}
+	if bad := grownMemberOverlaps(t, out, "I", "C"); len(bad) > 0 {
+		t.Error(bad)
+	}
+}
+
+func TestApplyIntoSubgraphNoRoom(t *testing.T) {
+	raw := newScene(t, "flowchart LR\nsubgraph FE [Frontend]\n  UI\nend")
+	// the owner boxed FE in on every side it could grow to
+	raw = editScene(t, raw, func(s *Scene) {
+		f := yel(s, "FE")
+		for _, b := range []Box{{f.X() + f.W() + 1, f.Y() - 2000, 4000, 4000}, {f.X() - 2000, f.Y() + f.H() + 1, 4000, 4000}} {
+			s.Elements = append(s.Elements, newShape("rectangle", b.X, b.Y, b.W, b.H, now))
+		}
+	})
+	keep := string(raw)
+	_, _, err := Apply(raw, mustParse(t, "flowchart LR\nsubgraph FE\n  Cache\nend"), nil, later)
+	if err == nil || err.Error() != "no free room in subgraph FE; move things apart or remove some" {
+		t.Errorf("err = %v", err)
+	}
+	if string(raw) != keep {
+		t.Error("input mutated")
+	}
+}

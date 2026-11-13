@@ -88,7 +88,10 @@ func Apply(sceneJSON []byte, g Graph, remove []string, now time.Time) ([]byte, S
 			}
 		}
 	}
-	handled := a.addNodes()
+	handled, err := a.addNodes()
+	if err != nil {
+		return nil, Stats{}, err
+	}
 	a.edges(handled)
 	for _, id := range remove {
 		a.remove(items[id])
@@ -440,7 +443,7 @@ func hits(a, b Box) bool {
 
 // addNodes draws the nodes and subgraphs the drawing lacks, in groups of
 // connected new nodes, and returns the indexes of the edges drawn with them.
-func (a *applier) addNodes() map[int]bool {
+func (a *applier) addNodes() (map[int]bool, error) {
 	g := a.g
 	isNewSG := map[string]bool{}
 	sgParent := map[string]string{}
@@ -520,6 +523,7 @@ func (a *applier) addNodes() map[int]bool {
 
 	handled := map[int]bool{}
 	var placed []Box
+	var err error
 	for _, r := range roots {
 		m, h := members[r], hostOf[r]
 		cg := Graph{Dir: g.Dir}
@@ -559,8 +563,8 @@ func (a *applier) addNodes() map[int]bool {
 		var x, y float64
 		if h == "" {
 			x, y = a.spot(cb, m, placed)
-		} else {
-			x, y = a.inside(h, cb)
+		} else if x, y, err = a.inside(h, cb); err != nil {
+			return nil, err
 		}
 		for _, e := range els {
 			e["x"], e["y"] = e.X()+x-cb.X, e.Y()+y-cb.Y
@@ -577,7 +581,7 @@ func (a *applier) addNodes() map[int]bool {
 		}
 		a.add(frame, els...)
 	}
-	return handled
+	return handled, nil
 }
 
 // spot is where a top-level group of new nodes (members m, size of b) goes:
@@ -618,6 +622,12 @@ func (a *applier) spot(b Box, m map[string]bool, placed []Box) (float64, float64
 // freeSpot looks for a place for b near (x,y), stepping along the cross axis
 // (y when horiz) until a 20-margin around it overlaps no obstacle.
 func freeSpot(obstacles []Box, x, y float64, b Box, horiz bool) (float64, float64, bool) {
+	return stepOut(x, y, b, horiz, func(c Box) bool { return roomFor(obstacles, c) })
+}
+
+// stepOut tries b at (x,y), then 40, 80, ... away on either side along the
+// cross axis (y when horiz), and returns the first spot free accepts.
+func stepOut(x, y float64, b Box, horiz bool, free func(Box) bool) (float64, float64, bool) {
 	for i := 0; i < 100; i++ {
 		step := float64((i+1)/2) * 40
 		if i%2 == 0 {
@@ -627,18 +637,22 @@ func freeSpot(obstacles []Box, x, y float64, b Box, horiz bool) (float64, float6
 		if horiz {
 			c = Box{x, y + step, b.W, b.H}
 		}
-		free := true
-		for _, o := range obstacles {
-			if hits(Box{c.X - 20, c.Y - 20, c.W + 40, c.H + 40}, o) {
-				free = false
-				break
-			}
-		}
-		if free {
+		if free(c) {
 			return c.X, c.Y, true
 		}
 	}
 	return 0, 0, false
+}
+
+// roomFor reports whether b with a 20 margin around it overlaps no obstacle.
+func roomFor(obstacles []Box, b Box) bool {
+	m := Box{b.X - 20, b.Y - 20, b.W + 40, b.H + 40}
+	for _, o := range obstacles {
+		if hits(m, o) {
+			return false
+		}
+	}
+	return true
 }
 
 // pastAll is the corner past all obstacles: right of them when horiz, else below.
@@ -655,11 +669,13 @@ func pastAll(obstacles []Box, horiz bool) (float64, float64) {
 
 func box(e El) Box { return Box{e.X(), e.Y(), e.W(), e.H()} }
 
-// inside is where a group of new nodes goes in existing subgraph h: past its
-// current members in the flow direction (right for LR/RL, else below).
-// ponytail: ignores edges to existing nodes and may run past h's siblings
-// when h grows; anchor and shift like spot if crowded subgraphs need it.
-func (a *applier) inside(h string, b Box) (float64, float64) {
+// inside is where a group of new nodes (size of b) goes in existing subgraph
+// h: past its current members in the flow direction (right for LR/RL, else
+// below), else beside them (below for LR/RL, else right), stepping outward
+// like freeSpot. A spot counts only if the group overlaps nothing and growing
+// h and its ancestors to hold it covers nothing that was not in them already.
+// ponytail: ignores edges to existing nodes; anchor like spot if crowded subgraphs need it.
+func (a *applier) inside(h string, b Box) (float64, float64, error) {
 	it := a.items[h]
 	he := a.byID[it.Elements[0]]
 	own := map[string]bool{}
@@ -684,25 +700,89 @@ func (a *applier) inside(h string, b Box) (float64, float64) {
 			}
 		}
 	}
-	x, y := he.X()+sgPad, he.Y()+sgPad+sgTitleH
-	if len(ms) > 0 {
-		u := union(ms)
-		if a.g.Dir == "LR" || a.g.Dir == "RL" {
-			x = u.X + u.W + rankGap
-		} else {
-			y = u.Y + u.H + rankGap
+
+	// Obstacles: everything drawn so far but the boxes of h and its ancestors.
+	// Each of those boxes may grow over only what it already overlaps.
+	shell := map[string]bool{}
+	for s := h; s != ""; s = a.items[s].Parent {
+		for _, id := range a.items[s].Elements {
+			shell[id] = true
 		}
 	}
-	return x, y
+	all := a.s.Live()
+	for _, els := range a.adds {
+		all = append(all, els...)
+	}
+	var obstacles []Box
+	for _, e := range all {
+		if !shell[e.ID()] {
+			obstacles = append(obstacles, bbox(e))
+		}
+	}
+	var outside [][]Box // per box from h outward: obstacles it does not overlap yet
+	for s := h; s != ""; s = a.items[s].Parent {
+		cur := box(a.byID[a.items[s].Elements[0]])
+		var obs []Box
+		for _, o := range obstacles {
+			if !hits(o, cur) {
+				obs = append(obs, o)
+			}
+		}
+		outside = append(outside, obs)
+	}
+	x0, y0 := he.X()+sgPad, he.Y()+sgPad+sgTitleH
+	free := func(c Box) bool {
+		if c.X < x0 || c.Y < y0 || !roomFor(obstacles, c) {
+			return false // boxes grow right and down only
+		}
+		for i, g := range a.growth(h, c) {
+			for _, o := range outside[i] {
+				if hits(g, o) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+
+	horiz := a.g.Dir == "LR" || a.g.Dir == "RL"
+	flow, cross := [2]float64{x0, y0}, [2]float64{x0, y0}
+	if len(ms) > 0 {
+		u := union(ms)
+		if horiz {
+			flow[0], cross[1] = u.X+u.W+rankGap, u.Y+u.H+rankGap
+		} else {
+			flow[1], cross[0] = u.Y+u.H+rankGap, u.X+u.W+rankGap
+		}
+	}
+	if x, y, ok := stepOut(flow[0], flow[1], b, horiz, free); ok {
+		return x, y, nil
+	}
+	if x, y, ok := stepOut(cross[0], cross[1], b, !horiz, free); ok {
+		return x, y, nil
+	}
+	return 0, 0, fmt.Errorf("no free room in subgraph %s; move things apart or remove some", h)
+}
+
+// growth is the box of subgraph h and of each of its ancestors, inner first,
+// once grown to hold b plus padding.
+func (a *applier) growth(h string, b Box) []Box {
+	var out []Box
+	for ; h != ""; h = a.items[h].Parent {
+		e := a.byID[a.items[h].Elements[0]]
+		b = Box{e.X(), e.Y(), max(e.W(), b.X+b.W+sgPad-e.X()), max(e.H(), b.Y+b.H+sgPad-e.Y())}
+		out = append(out, b)
+	}
+	return out
 }
 
 // grow makes subgraph h and its ancestors big enough to hold b plus padding.
 func (a *applier) grow(h string, b Box) {
-	for ; h != ""; h = a.items[h].Parent {
+	for _, g := range a.growth(h, b) {
 		e := a.byID[a.items[h].Elements[0]]
-		a.set(e, "width", max(e.W(), b.X+b.W+sgPad-e.X()))
-		a.set(e, "height", max(e.H(), b.Y+b.H+sgPad-e.Y()))
-		b = box(e)
+		a.set(e, "width", g.W)
+		a.set(e, "height", g.H)
+		h = a.items[h].Parent
 	}
 }
 
