@@ -59,8 +59,47 @@ var shapeDefs = []shapeDef{
 	{">", []string{"]"}, []string{"asymmetric"}},
 }
 
-var textDecoder = strings.NewReplacer("<br>", "\n", "<br/>", "\n", "<br />", "\n",
-	"#quot;", `"`, "#amp;", "&", "#lt;", "<", "#gt;", ">", "#35;", "#")
+var brDecoder = strings.NewReplacer("<br>", "\n", "<br/>", "\n", "<br />", "\n")
+
+var namedEntities = map[string]string{"quot": `"`, "amp": "&", "lt": "<", "gt": ">"}
+
+// entityAt reports the decoded text and length of a Mermaid entity (#quot;,
+// #amp;, #lt;, #gt; or #NNN; with a decimal code point) at the start of s.
+func entityAt(s string) (string, int) {
+	j := strings.IndexByte(s, ';')
+	if len(s) < 3 || s[0] != '#' || j < 2 {
+		return "", 0
+	}
+	name := s[1:j]
+	if r, ok := namedEntities[name]; ok {
+		return r, j + 1
+	}
+	if n, err := strconv.Atoi(name); err == nil && name[0] != '+' && name[0] != '-' && n > 0 && n <= unicode.MaxRune {
+		return string(rune(n)), j + 1
+	}
+	return "", 0
+}
+
+// textDecoder turns <br> into newlines and decodes entities.
+type decoder struct{}
+
+func (decoder) Replace(s string) string {
+	s = brDecoder.Replace(s)
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '#' {
+			if t, n := entityAt(s[i:]); n > 0 {
+				b.WriteString(t)
+				i += n - 1
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+var textDecoder decoder
 
 // Parse reads a Mermaid flowchart.
 func Parse(src string) (Graph, error) {
@@ -110,9 +149,10 @@ func splitStmts(l string) []string {
 		case c == '"':
 			inQ = !inQ
 		case inQ:
-		case c == '#': // an entity such as #quot; is not a terminator
-			if j := strings.IndexByte(l[i:], ';'); j > 1 && isAlnum(l[i+1:i+j]) {
-				i += j
+		case c == '#': // a named entity such as #quot; is not a terminator; hex colours never match
+			// ponytail: numeric entities (#35;) are only recognised inside quotes, outside they could be a colour like #000;
+			if _, n := entityAt(l[i:]); n > 0 && namedEntities[l[i+1:i+n-1]] != "" {
+				i += n - 1
 			}
 		case c == '%' && strings.HasPrefix(l[i:], "%%"):
 			return append(out, l[start:i])
@@ -122,15 +162,6 @@ func splitStmts(l string) []string {
 		}
 	}
 	return append(out, l[start:])
-}
-
-func isAlnum(s string) bool {
-	for _, r := range s {
-		if r > unicode.MaxASCII || !(unicode.IsLetter(r) || unicode.IsDigit(r)) {
-			return false
-		}
-	}
-	return true
 }
 
 func (p *parser) header(st string) error {
@@ -342,7 +373,7 @@ func at(s string, j int, c string) bool {
 
 // readText reads a label starting at i up to the first of closers (a "" closer
 // means end of input). A leading quote makes the text opaque: it ends at the
-// last quote that is followed by a closer. Returns the decoded text, the index
+// first quote that is followed by a closer. Returns the decoded text, the index
 // of the matched closer, the index after it, and whether one was found.
 func readText(s string, i int, closers []string) (text string, which, end int, ok bool) {
 	j := i

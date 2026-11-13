@@ -85,6 +85,10 @@ func TestParseLabels(t *testing.T) {
 		"A[\"`**b**`\"]":        "**b**",
 		`A["a;b %% c"]`:         "a;b %% c",
 		`A[  spaced  ]`:         "spaced",
+		`A["a#92;"]`:            `a\`,
+		`A["#9829;"]`:           "♥",
+		`A["#35;"]`:             "#",
+		`A[a#quot;b]`:           `a"b`,
 	} {
 		if got := lbl(mustParse(t, "flowchart TB\n"+src), "A"); got != want {
 			t.Errorf("%s: %q want %q", src, got, want)
@@ -205,5 +209,16 @@ func TestParseErrors(t *testing.T) {
 		if want != "" && err.Error() != want {
 			t.Errorf("%q: %q want %q", src, err.Error(), want)
 		}
+	}
+}
+
+func TestParseStyleSemicolons(t *testing.T) {
+	g := mustParse(t, "flowchart TB\nA\nstyle A fill:#fff;\nclassDef c fill:#f00;\nB:::c; C")
+	if node(g, "A").Fill != "#ffffff" || node(g, "B").Fill != "#ff0000" || len(g.Nodes) != 3 {
+		t.Errorf("%+v", g.Nodes)
+	}
+	g = mustParse(t, "flowchart TB\nA\nstyle A fill:#000; B --> C")
+	if node(g, "A").Fill != "#000000" || len(g.Edges) != 1 {
+		t.Errorf("%+v %+v", g.Nodes, g.Edges)
 	}
 }
