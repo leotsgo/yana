@@ -222,3 +222,16 @@ func TestParseStyleSemicolons(t *testing.T) {
 		t.Errorf("%+v %+v", g.Nodes, g.Edges)
 	}
 }
+
+func TestSubgraphIDAsNode(t *testing.T) {
+	for src, line := range map[string]int{
+		"flowchart TB\nsubgraph S\nA\nend\nB --> S": 5,
+		"flowchart TB\nS --> B\nsubgraph S\nA\nend": 3,
+	} {
+		_, err := Parse(src)
+		var pe *ParseError
+		if !errors.As(err, &pe) || pe.Line != line || pe.Msg != "S is a subgraph; edges to subgraphs aren't supported yet" {
+			t.Errorf("%q: %v", src, err)
+		}
+	}
+}

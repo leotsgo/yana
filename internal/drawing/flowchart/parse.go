@@ -341,6 +341,9 @@ func (p *parser) subgraph(rest string) error {
 	if id == "" {
 		return p.errf("subgraph needs a name")
 	}
+	if _, ok := p.idx[id]; ok {
+		return p.errf(subgraphEdgeMsg, id)
+	}
 	parent := ""
 	if len(p.stack) > 0 {
 		parent = p.stack[len(p.stack)-1]
@@ -348,6 +351,17 @@ func (p *parser) subgraph(rest string) error {
 	p.g.Subgraphs = append(p.g.Subgraphs, Subgraph{id, title, parent})
 	p.stack, p.stackLine = append(p.stack, id), append(p.stackLine, p.line)
 	return nil
+}
+
+const subgraphEdgeMsg = "%s is a subgraph; edges to subgraphs aren't supported yet"
+
+func (p *parser) isSubgraph(id string) bool {
+	for _, s := range p.g.Subgraphs {
+		if s.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func isIDRune(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
@@ -504,6 +518,9 @@ func (p *parser) node() (string, error) {
 		}
 		p.uses = append(p.uses, use{p.line, id, p.s[p.i+3 : e]})
 		p.i = e
+	}
+	if p.isSubgraph(id) {
+		return "", p.errf(subgraphEdgeMsg, id)
 	}
 	i, ok := p.idx[id]
 	if !ok {

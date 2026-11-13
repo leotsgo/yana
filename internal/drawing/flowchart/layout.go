@@ -32,7 +32,39 @@ func nodeSize(n Node) (w, h float64) {
 
 // Layout positions every node and subgraph. Nested subgraph boxes contain their members.
 func Layout(g Graph) (nodes map[string]Box, subgraphs map[string]Box) {
-	l := &layouter{g: g, parent: map[string]string{}, size: map[string][2]float64{}, rel: map[string]map[string]Box{}}
+	nodes, subgraphs, _ = layoutRoutes(g)
+	return nodes, subgraphs
+}
+
+type pt struct{ X, Y float64 }
+
+// normalize moves nodes and subgraphs that name an unknown subgraph to the top level.
+func normalize(g Graph) Graph {
+	known := map[string]bool{}
+	for _, s := range g.Subgraphs {
+		known[s.ID] = true
+	}
+	g.Nodes = append([]Node(nil), g.Nodes...)
+	for i, n := range g.Nodes {
+		if !known[n.Subgraph] {
+			g.Nodes[i].Subgraph = ""
+		}
+	}
+	g.Subgraphs = append([]Subgraph(nil), g.Subgraphs...)
+	for i, s := range g.Subgraphs {
+		if !known[s.Parent] {
+			g.Subgraphs[i].Parent = ""
+		}
+	}
+	return g
+}
+
+// layoutRoutes is Layout plus, for every edge that spans more than one rank,
+// the absolute centres of its dummy nodes in From-to-To order (keyed by edge index).
+func layoutRoutes(g Graph) (nodes, subgraphs map[string]Box, routes map[int][]pt) {
+	g = normalize(g)
+	l := &layouter{g: g, parent: map[string]string{}, size: map[string][2]float64{}, rel: map[string]map[string]Box{},
+		relRoute: map[int][]pt{}, edgeUnit: map[int]string{}}
 	for _, n := range g.Nodes {
 		l.parent["n:"+n.ID] = n.Subgraph
 	}
@@ -41,8 +73,9 @@ func Layout(g Graph) (nodes map[string]Box, subgraphs map[string]Box) {
 	}
 	l.unit("")
 	nodes, subgraphs = map[string]Box{}, map[string]Box{}
-	l.place("", 0, 0, nodes, subgraphs)
-	return nodes, subgraphs
+	routes = map[int][]pt{}
+	l.place("", 0, 0, nodes, subgraphs, routes)
+	return nodes, subgraphs, routes
 }
 
 type layouter struct {
@@ -50,6 +83,9 @@ type layouter struct {
 	parent map[string]string // member key ("n:id" / "s:id") -> containing subgraph id
 	size   map[string][2]float64
 	rel    map[string]map[string]Box // unit id -> member key -> box relative to the unit's content origin
+	// relRoute: edge index -> dummy centres relative to its unit's content origin; edgeUnit: that unit.
+	relRoute map[int][]pt
+	edgeUnit map[int]string
 }
 
 // lift maps a node to the member of unit that contains it, or "".
@@ -146,14 +182,12 @@ func (l *layouter) unit(id string) (cw, ch float64) {
 			dfs(u)
 		}
 	}
-	var dag []pair
 	indeg := make([]int, n)
 	succ := make([][]int, n)
 	for _, e := range edges {
 		if back[e] {
 			e = pair{e.b, e.a}
 		}
-		dag = append(dag, e)
 		succ[e.a] = append(succ[e.a], e.b)
 		indeg[e.b]++
 	}
@@ -180,15 +214,43 @@ func (l *layouter) unit(id string) (cw, ch float64) {
 	for _, r := range rank {
 		nr = max(nr, r+1)
 	}
+
+	// Edges spanning several ranks get a dummy node in every rank they cross,
+	// so real nodes move aside and the arrow can route around them.
+	total := n
+	chainOf := map[pair][]int{} // original (a,b) -> dummies in a-to-b order
+	var segs []pair             // edges between adjacent ranks, dummies included
+	for _, e := range edges {
+		lo, hi := e.a, e.b
+		if back[e] {
+			lo, hi = hi, lo
+		}
+		prev := lo
+		var chain []int
+		for r := rank[lo] + 1; r < rank[hi]; r++ {
+			rank = append(rank, r)
+			tw, th = append(tw, 20), append(th, 0)
+			chain = append(chain, total)
+			segs = append(segs, pair{prev, total})
+			prev = total
+			total++
+		}
+		segs = append(segs, pair{prev, hi})
+		if back[e] {
+			for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+				chain[i], chain[j] = chain[j], chain[i]
+			}
+		}
+		chainOf[e] = chain
+	}
 	ranks := make([][]int, nr)
-	for i := 0; i < n; i++ {
+	for i := 0; i < total; i++ {
 		ranks[rank[i]] = append(ranks[rank[i]], i)
 	}
 
-	// Barycenter ordering, 4 alternating sweeps. ponytail: only neighbours in
-	// the adjacent rank count and long edges get no dummy nodes, so crossings
-	// are not minimal; add dummy nodes if layouts look tangled.
-	pos := make([]float64, n)
+	// Barycenter ordering, 4 alternating sweeps. ponytail: no crossing
+	// minimisation beyond these sweeps; add transpose/median passes if layouts look tangled.
+	pos := make([]float64, total)
 	setPos := func() {
 		for _, r := range ranks {
 			for p, v := range r {
@@ -219,7 +281,7 @@ func (l *layouter) unit(id string) (cw, ch float64) {
 			bary := map[int]float64{}
 			for _, v := range ranks[r] {
 				sum, cnt := 0.0, 0.0
-				for _, e := range dag {
+				for _, e := range segs {
 					var other int
 					switch {
 					case down && e.b == v:
@@ -258,7 +320,7 @@ func (l *layouter) unit(id string) (cw, ch float64) {
 		}
 		cw = max(cw, rw[r])
 	}
-	tx, ty := make([]float64, n), make([]float64, n)
+	tx, ty := make([]float64, total), make([]float64, total)
 	y := 0.0
 	for r, vs := range ranks {
 		x := (cw - rw[r]) / 2
@@ -288,13 +350,43 @@ func (l *layouter) unit(id string) (cw, ch float64) {
 		rel[k] = b
 	}
 	l.rel[id] = rel
+	mp := func(cx, cy float64) pt { // top-to-bottom space -> real space
+		switch l.g.Dir {
+		case "LR":
+			return pt{cy, cx}
+		case "RL":
+			return pt{TH - cy, cx}
+		case "BT":
+			return pt{cx, TH - cy}
+		}
+		return pt{cx, cy}
+	}
+	for i, e := range l.g.Edges {
+		a, aok := idx[l.lift(e.From, id)]
+		b, bok := idx[l.lift(e.To, id)]
+		if !aok || !bok || a == b || len(chainOf[pair{a, b}]) == 0 {
+			continue
+		}
+		var r []pt
+		for _, d := range chainOf[pair{a, b}] {
+			r = append(r, mp(tx[d]+tw[d]/2, ty[d]+th[d]/2))
+		}
+		l.relRoute[i], l.edgeUnit[i] = r, id
+	}
 	if horiz {
 		return TH, cw
 	}
 	return cw, TH
 }
 
-func (l *layouter) place(unit string, ox, oy float64, nodes, sgs map[string]Box) {
+func (l *layouter) place(unit string, ox, oy float64, nodes, sgs map[string]Box, routes map[int][]pt) {
+	for i, r := range l.relRoute {
+		if l.edgeUnit[i] == unit {
+			for _, p := range r {
+				routes[i] = append(routes[i], pt{p.X + ox, p.Y + oy})
+			}
+		}
+	}
 	for k, b := range l.rel[unit] {
 		b.X += ox
 		b.Y += oy
@@ -302,7 +394,7 @@ func (l *layouter) place(unit string, ox, oy float64, nodes, sgs map[string]Box)
 			nodes[k[2:]] = b
 		} else {
 			sgs[k[2:]] = b
-			l.place(k[2:], b.X+sgPad, b.Y+sgPad+sgTitleH, nodes, sgs)
+			l.place(k[2:], b.X+sgPad, b.Y+sgPad+sgTitleH, nodes, sgs, routes)
 		}
 	}
 }

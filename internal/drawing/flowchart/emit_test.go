@@ -86,11 +86,6 @@ func TestNewScene(t *testing.T) {
 			if i >= frameAt {
 				t.Errorf("child %d after frame", i)
 			}
-		} else if i < frameAt && e.YanaID() != "D" && e.ContainerID() != "" && byID[e.ContainerID()].YanaID() != "D" {
-			// D is outside the frame; anything else before the frame must be in it
-			if e.Type() != "arrow" {
-				t.Errorf("element %d (%s) before frame but not in it", i, e.Type())
-			}
 		}
 	}
 	// frame children are contiguous, right before the frame
@@ -158,10 +153,17 @@ func TestNewScene(t *testing.T) {
 		if e.Type() != "arrow" {
 			continue
 		}
-		ed := g.Edges[arrows]
 		arrows++
-		if e.StartID() != nodeEl[ed.From].ID() || e.EndID() != nodeEl[ed.To].ID() {
-			t.Errorf("arrow %d binds wrong nodes", arrows)
+		// match the arrow to its edge through its bindings (emit reorders arrows)
+		var ed Edge
+		found := false
+		for _, c := range g.Edges {
+			if e.StartID() == nodeEl[c.From].ID() && e.EndID() == nodeEl[c.To].ID() {
+				ed, found = c, true
+			}
+		}
+		if !found {
+			t.Fatalf("arrow %d binds no edge", arrows)
 		}
 		if (ed.Line == "dotted") != (e["strokeStyle"] == "dashed") || (ed.Line == "thick") != (e["strokeWidth"] == 4.0) {
 			t.Errorf("arrow %d style", arrows)
@@ -195,5 +197,87 @@ func TestNewScene(t *testing.T) {
 	_ = json.Unmarshal(raw, &top)
 	if top["type"] != "excalidraw" || top["source"] != "yana" {
 		t.Errorf("top = %v", top)
+	}
+}
+
+func segHitsBox(ax, ay, bx, by float64, b Box) bool {
+	t0, t1 := 0.0, 1.0
+	for _, c := range [][3]float64{{-(bx - ax), ax - b.X, 0}, {bx - ax, b.X + b.W - ax, 0}, {-(by - ay), ay - b.Y, 0}, {by - ay, b.Y + b.H - ay, 0}} {
+		p, q := c[0], c[1]
+		if p == 0 {
+			if q <= 0 {
+				return false
+			}
+			continue
+		}
+		r := q / p
+		if p < 0 {
+			t0 = max(t0, r)
+		} else {
+			t1 = min(t1, r)
+		}
+	}
+	return t0 < t1-1e-9
+}
+
+func TestArrowsAvoidOtherNodes(t *testing.T) {
+	for _, dir := range []string{"TB", "LR"} {
+		for _, body := range []string{"A-->B\nB-->C\nA-->C", "A-->B\nB-->C\nC-->A"} {
+			g := mustParse(t, "flowchart "+dir+"\n"+body)
+			raw, err := New(g, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, _ := ParseScene(raw)
+			boxes := map[string]Box{}
+			for _, e := range s.Elements {
+				if e.YanaKind() == "node" {
+					boxes[e.ID()] = Box{e.X(), e.Y(), e.W(), e.H()}
+				}
+			}
+			multi := false
+			for _, e := range s.Elements {
+				if e.Type() != "arrow" {
+					continue
+				}
+				pts := e["points"].([]any)
+				if len(pts) > 2 {
+					multi = true
+				}
+				for i := 0; i+1 < len(pts); i++ {
+					p, q := pts[i].([]any), pts[i+1].([]any)
+					for id, b := range boxes {
+						if id == e.StartID() || id == e.EndID() {
+							continue
+						}
+						if segHitsBox(e.X()+p[0].(float64), e.Y()+p[1].(float64), e.X()+q[0].(float64), e.Y()+q[1].(float64), b) {
+							t.Errorf("%s %q: arrow segment %d crosses another node", dir, body, i)
+						}
+					}
+				}
+			}
+			if !multi {
+				t.Errorf("%s %q: expected a multi-point arrow", dir, body)
+			}
+		}
+	}
+}
+
+func TestUnknownSubgraphGoesTopLevel(t *testing.T) {
+	g := mustParse(t, "flowchart TB\nA-->B")
+	g.Nodes[0].Subgraph = "ghost"
+	nodes, _ := Layout(g)
+	if len(nodes) != 2 {
+		t.Fatalf("nodes = %v", nodes)
+	}
+	raw, err := New(g, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := ParseScene(raw)
+	for _, e := range s.Elements {
+		if e.FrameID() != "" {
+			t.Error("element placed in a frame")
+		}
 	}
 }

@@ -47,7 +47,8 @@ func shapeElement(n Node, b Box, now time.Time) El {
 }
 
 func emit(g Graph, now time.Time) []El {
-	nodes, sgs := Layout(g)
+	g = normalize(g)
+	nodes, sgs, routes := layoutRoutes(g)
 	sgParent := map[string]string{}
 	for _, s := range g.Subgraphs {
 		sgParent[s.ID] = s.Parent
@@ -124,7 +125,7 @@ func emit(g Graph, now time.Time) []El {
 		grp.shapes = append(grp.shapes, e, t)
 	}
 
-	for _, ed := range g.Edges {
+	for ei, ed := range g.Edges {
 		from, to := byID[ed.From], byID[ed.To]
 		if from == nil || to == nil {
 			continue
@@ -137,12 +138,21 @@ func emit(g Graph, now time.Time) []El {
 		if ed.From == ed.To {
 			selfLoop(a, from)
 		}
+		if r := routes[ei]; len(r) > 0 && ed.From != ed.To {
+			throughRoute(a, from, to, r)
+		}
 		if ed.Line == "thick" {
 			a["strokeWidth"] = 4.0
 		}
 		els := []El{a}
 		if ed.Label != "" {
-			els = append(els, newText(a, ed.Label, "middle", now))
+			t := newText(a, ed.Label, "middle", now)
+			if pts, _ := a["points"].([]any); len(pts) > 2 { // label on the middle bend
+				p, _ := pts[len(pts)/2].([]any)
+				t["x"] = a.X() + p[0].(float64) - t.W()/2
+				t["y"] = a.Y() + p[1].(float64) - t.H()/2
+			}
+			els = append(els, t)
 		}
 		gk := ""
 		if nodeTop[ed.From] == nodeTop[ed.To] {
@@ -164,6 +174,25 @@ func emit(g Graph, now time.Time) []El {
 		out = append(out, frames[s.ID])
 	}
 	return append(out, groups[""].arrows...)
+}
+
+// throughRoute makes a an arrow that runs from the border of from, through the
+// dummy-node centres, to the border of to, drawn as a smooth curve.
+func throughRoute(a, from, to El, route []pt) {
+	sx, sy := clip(from, route[0].X, route[0].Y)
+	last := route[len(route)-1]
+	ex, ey := clip(to, last.X, last.Y)
+	all := append(append([]pt{{sx, sy}}, route...), pt{ex, ey})
+	minX, minY, maxX, maxY := sx, sy, sx, sy
+	pts := make([]any, len(all))
+	for i, p := range all {
+		pts[i] = []any{p.X - sx, p.Y - sy}
+		minX, maxX = min(minX, p.X), max(maxX, p.X)
+		minY, maxY = min(minY, p.Y), max(maxY, p.Y)
+	}
+	a["x"], a["y"], a["width"], a["height"] = sx, sy, maxX-minX, maxY-minY
+	a["points"] = pts
+	a["roundness"] = map[string]any{"type": 2.0}
 }
 
 // selfLoop turns the zero-length arrow of a self-edge into a small loop out of
