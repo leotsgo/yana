@@ -88,21 +88,25 @@ func (s *Scene) ByID(id string) El {
 
 // Append adds elements after the last one, giving them fractional indexes
 // after the last existing index. A scene with no index at all stays that way.
-func (s *Scene) Append(els ...El) {
-	last, any := "", false
+// On error nothing is changed.
+func (s *Scene) Append(els ...El) error {
+	last, indexed := "", false
 	for _, e := range s.Elements {
 		if ix := e.str("index"); ix != "" {
-			last, any = ix, true
+			last, indexed = ix, true
 		}
 	}
-	if any || len(s.Elements) == 0 {
-		if keys, err := nKeysBetween(last, "", len(els)); err == nil {
-			for i, e := range els {
-				e["index"] = keys[i]
-			}
+	if indexed || len(s.Elements) == 0 {
+		keys, err := nKeysBetween(last, "", len(els))
+		if err != nil {
+			return err
+		}
+		for i, e := range els {
+			e["index"] = keys[i]
 		}
 	}
 	s.Elements = append(s.Elements, els...)
+	return nil
 }
 
 func (e El) str(k string) string  { s, _ := e[k].(string); return s }

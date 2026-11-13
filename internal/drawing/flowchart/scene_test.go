@@ -14,7 +14,9 @@ func TestSceneRoundTripAndAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Append(El{"id": "b"}, El{"id": "c"})
+	if err := s.Append(El{"id": "b"}, El{"id": "c"}); err != nil {
+		t.Fatal(err)
+	}
 	out, _ := s.JSON()
 	for _, want := range []string{`"weird"`, `"zzz"`} {
 		if !strings.Contains(string(out), want) {
@@ -26,7 +28,7 @@ func TestSceneRoundTripAndAppend(t *testing.T) {
 		t.Errorf("indexes %q %q", b, c)
 	}
 	s2, _ := ParseScene([]byte(`{"elements":[{"id":"a"}]}`))
-	s2.Append(El{"id": "b"})
+	_ = s2.Append(El{"id": "b"})
 	if _, ok := s2.ByID("b")["index"]; ok {
 		t.Error("index added to index-less scene")
 	}
@@ -63,5 +65,36 @@ func TestConstructors(t *testing.T) {
 	ex, ey := ar.X()+end[0].(float64), ar.Y()+end[1].(float64)
 	if inside(a, ar.X(), ar.Y()) || inside(b, ex, ey) {
 		t.Error("arrow ends inside boxes")
+	}
+}
+
+func TestAppendBadIndexChangesNothing(t *testing.T) {
+	s, _ := ParseScene([]byte(`{"elements":[{"id":"a","index":"a00"}]}`))
+	e := El{"id": "b"}
+	if err := s.Append(e); err == nil {
+		t.Error("want error")
+	}
+	if len(s.Elements) != 1 {
+		t.Error("scene changed")
+	}
+	if _, ok := e["index"]; ok {
+		t.Error("element mutated")
+	}
+}
+
+func TestIntegerFieldsAreWhole(t *testing.T) {
+	e := newShape("rectangle", 0, 0, 10, 10, now)
+	s := &Scene{}
+	if err := s.Append(e); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := s.JSON()
+	for _, w := range []string{`"version": 1,`, `"updated": 1700000000000,`, `"angle": 0,`} {
+		if !strings.Contains(string(out), w) {
+			t.Errorf("missing %s", w)
+		}
+	}
+	if strings.Contains(string(out), "e+") || strings.Contains(string(out), `"seed": `+"0.") {
+		t.Error("exponent or fraction in output")
 	}
 }
