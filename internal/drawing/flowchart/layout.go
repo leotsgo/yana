@@ -143,13 +143,26 @@ func (l *layouter) unit(id string) (cw, ch float64) {
 	}
 
 	// Edges lifted to this unit's members; self-loops dropped, duplicates merged.
+	// lab is the size of the widest label on each, along and across the ranks.
 	type pair struct{ a, b int }
 	seen := map[pair]bool{}
 	var edges []pair
+	lab := map[pair][2]float64{}
 	for _, e := range l.g.Edges {
 		a, aok := idx[l.lift(e.From, id)]
 		b, bok := idx[l.lift(e.To, id)]
-		if !aok || !bok || a == b || seen[pair{a, b}] {
+		if !aok || !bok || a == b {
+			continue
+		}
+		if e.Label != "" {
+			w, h := TextSize(e.Label, 20)
+			if horiz {
+				w, h = h, w
+			}
+			old := lab[pair{a, b}]
+			lab[pair{a, b}] = [2]float64{max(old[0], h), max(old[1], w)}
+		}
+		if seen[pair{a, b}] {
 			continue
 		}
 		seen[pair{a, b}] = true
@@ -216,7 +229,13 @@ func (l *layouter) unit(id string) (cw, ch float64) {
 	}
 
 	// Edges spanning several ranks get a dummy node in every rank they cross,
-	// so real nodes move aside and the arrow can route around them.
+	// so real nodes move aside and the arrow can route around them. The
+	// label sits on the middle dummy, so that one is the label's size; a
+	// label between adjacent ranks widens the gap between them instead.
+	gap := make([]float64, nr)
+	for i := range gap {
+		gap[i] = rankGap
+	}
 	total := n
 	chainOf := map[pair][]int{} // original (a,b) -> dummies in a-to-b order
 	var segs []pair             // edges between adjacent ranks, dummies included
@@ -242,6 +261,12 @@ func (l *layouter) unit(id string) (cw, ch float64) {
 			}
 		}
 		chainOf[e] = chain
+		if sz, ok := lab[e]; ok && len(chain) == 0 {
+			gap[rank[lo]] = max(gap[rank[lo]], sz[0]+40)
+		} else if ok {
+			d := chain[len(chain)/2] // the bend edgeEls puts the label on
+			th[d], tw[d] = sz[0], max(tw[d], sz[1])
+		}
 	}
 	ranks := make([][]int, nr)
 	for i := 0; i < total; i++ {
@@ -328,9 +353,12 @@ func (l *layouter) unit(id string) (cw, ch float64) {
 			tx[v], ty[v] = x, y+(rh[r]-th[v])/2
 			x += tw[v] + nodeGap
 		}
-		y += rh[r] + rankGap
+		y += rh[r]
+		if r < nr-1 {
+			y += gap[r]
+		}
 	}
-	TH := max(y-rankGap, 0)
+	TH := y
 
 	// Map top-to-bottom space to the real direction.
 	rel := map[string]Box{}

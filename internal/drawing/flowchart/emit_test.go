@@ -281,3 +281,35 @@ func TestUnknownSubgraphGoesTopLevel(t *testing.T) {
 		}
 	}
 }
+
+func TestEdgeLabelsClearBoxes(t *testing.T) {
+	for _, src := range []string{
+		"flowchart LR\nagent -->|Bearer token| ingress",
+		"flowchart RL\nagent -->|Bearer token| ingress",
+		"flowchart TB\nagent -->|one<br>two<br>three<br>four| ingress",
+		"flowchart BT\nagent -->|one<br>two<br>three<br>four| ingress",
+		"flowchart LR\nA -->|a rather long label on a long edge| C\nA --> B --> C",
+		"flowchart TB\nA -->|a rather long label on a long edge| C\nA --> B --> C",
+		"flowchart TB\nA -->|first line here<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10| C\nA --> B --> C",
+		"flowchart LR\nsubgraph S\n  a\nend\nsubgraph T\n  b\nend\na -->|a label between two subgraphs| b",
+	} {
+		s := mustScene(t, newScene(t, src))
+		var boxes []El
+		for _, e := range s.Elements {
+			if e.YanaKind() != "" {
+				boxes = append(boxes, e)
+			}
+		}
+		for _, e := range s.Elements {
+			c := s.ByID(e.ContainerID())
+			if e.Type() != "text" || c == nil || c.Type() != "arrow" {
+				continue
+			}
+			for _, b := range boxes {
+				if b.YanaKind() == "node" && hits(box(e), box(b)) {
+					t.Errorf("%q: label %q %v on %s %v", src, e.Text(), box(e), b.YanaID(), box(b))
+				}
+			}
+		}
+	}
+}
