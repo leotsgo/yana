@@ -169,11 +169,15 @@ func yanaData(e El) map[string]any {
 func stamp(e El) { yanaData(e)["at"] = []any{e.X(), e.Y(), e.W(), e.H()} }
 
 // agentPlaced reports whether e still has the geometry an agent recorded for
-// it (within 0.5); a bound text goes by its container. Version bumps alone
-// (re-measured text, colours, labels) do not count as moving it.
+// it (within 0.5) and is not locked; a bound text goes by its container.
+// Version bumps alone (re-measured text, colours, labels) do not count as
+// moving it.
 func agentPlaced(e El, byID map[string]El) bool {
 	if c := byID[e.ContainerID()]; c != nil {
 		e = c
+	}
+	if locked, _ := e["locked"].(bool); locked {
+		return false
 	}
 	cd, _ := e["customData"].(map[string]any)
 	y, _ := cd["yana"].(map[string]any)
@@ -494,6 +498,11 @@ func hits(a, b Box) bool {
 	return a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H
 }
 
+// contains reports whether box o holds box i.
+func contains(o, i Box) bool {
+	return i.X >= o.X && i.Y >= o.Y && i.X+i.W <= o.X+o.W && i.Y+i.H <= o.Y+o.H
+}
+
 // addNodes draws the nodes and subgraphs the drawing lacks, in groups of
 // connected new nodes, and returns the indexes of the edges drawn with them.
 func (a *applier) addNodes() (map[int]bool, error) {
@@ -731,15 +740,19 @@ func box(e El) Box { return Box{e.X(), e.Y(), e.W(), e.H()} }
 // spot it makes room (see makeRoom) and looks again.
 // ponytail: ignores edges to existing nodes; anchor like spot if crowded subgraphs need it.
 func (a *applier) inside(h string, b Box) (float64, float64, error) {
-	it := a.items[h]
-	he := a.byID[it.Elements[0]]
-	own := map[string]bool{}
-	for _, id := range it.Elements {
-		own[id] = true
+	he := a.byID[a.items[h].Elements[0]]
+	// The boxes of h and its ancestors: neither members nor obstacles.
+	// Those boxes may grow over arrows and their labels (an arrow crossing a
+	// frame is normal) and over what they already overlap, nothing else.
+	shell := map[string]bool{}
+	for s := h; s != ""; s = a.items[s].Parent {
+		for _, id := range a.items[s].Elements {
+			shell[id] = true
+		}
 	}
 	var ms []Box
 	for _, e := range a.s.Elements {
-		if own[e.ID()] || e.Deleted() {
+		if shell[e.ID()] || e.Deleted() {
 			continue
 		}
 		cx, cy := e.X()+e.W()/2, e.Y()+e.H()/2
@@ -780,15 +793,7 @@ func (a *applier) inside(h string, b Box) (float64, float64, error) {
 		}
 	}
 
-	// Obstacles: everything drawn so far but the boxes of h and its ancestors.
-	// Those boxes may grow over arrows and their labels (an arrow crossing a
-	// frame is normal) and over what they already overlap, nothing else.
-	shell := map[string]bool{}
-	for s := h; s != ""; s = a.items[s].Parent {
-		for _, id := range a.items[s].Elements {
-			shell[id] = true
-		}
-	}
+	// Obstacles: everything drawn so far but the shell.
 	all := a.s.Live()
 	for _, els := range a.adds {
 		all = append(all, els...)
@@ -844,19 +849,25 @@ func (a *applier) inside(h string, b Box) (float64, float64, error) {
 	if a.g.Dir == "RL" || a.g.Dir == "BT" {
 		sign = -1
 	}
+	byUser := false
 	for i, ax := range []struct {
 		horiz bool
 		sign  float64
 	}{{horiz, sign}, {!horiz, 1}} {
 		an := order[i]
-		if undo, ok := a.makeRoom(h, Box{an.x, an.y, b.W, b.H}, all, shell, ax.horiz, ax.sign); ok {
+		undo, user := a.makeRoom(h, Box{an.x, an.y, b.W, b.H}, all, shell, ax.horiz, ax.sign)
+		byUser = byUser || user
+		if undo != nil {
 			if x, y, ok := search(); ok {
 				return x, y, nil
 			}
 			undo()
 		}
 	}
-	return 0, 0, fmt.Errorf("no free room in subgraph %s: the boxes in the way were placed by the user; add the new nodes one per call, or ask the user to make room", h)
+	if byUser {
+		return 0, 0, fmt.Errorf("no free room in subgraph %s: the boxes in the way were placed by the user; add the new nodes one per call, or ask the user to make room", h)
+	}
+	return 0, 0, fmt.Errorf("no free room in subgraph %s; add the new nodes one per call, or ask the user to make room", h)
 }
 
 // makeRoom opens a gap past subgraph h, along x when horiz (else y), on the
@@ -865,10 +876,14 @@ func (a *applier) inside(h string, b Box) (float64, float64, error) {
 // crossing L stretch by it, and arrows follow: points past L move, and an
 // end bound to a shifted box always does. Only what lies across from the
 // grown h, or in turn from what moves, is affected. It changes nothing and
-// returns false when something to shift or stretch (other than h's
-// ancestors, which grow anyway) was not placed by an agent, or would land
-// on something it did not cover before. undo puts everything back.
-func (a *applier) makeRoom(h string, c Box, all []El, shell map[string]bool, horiz bool, sign float64) (undo func(), ok bool) {
+// returns a nil undo when something to shift or stretch (other than h's
+// ancestors, which grow anyway) was not placed by an agent, or would change
+// how it sits against something that stays (overlap, hold, be held);
+// byUser says whether something of the user's was what stopped it. undo
+// puts everything back.
+// ponytail: O(changed × fixed) per call, and inside calls it per group of
+// new nodes; index the fixed boxes if drawings outgrow the 300-node cap.
+func (a *applier) makeRoom(h string, c Box, all []El, shell map[string]bool, horiz bool, sign float64) (undo func(), byUser bool) {
 	// along is a box's extent on the shift axis, negated when sign < 0 so
 	// that "past" is always higher; across is its extent on the other axis.
 	along := func(b Box) (float64, float64) {
@@ -894,15 +909,18 @@ func (a *applier) makeRoom(h string, c Box, all []El, shell map[string]bool, hor
 	if d <= 0 {
 		return nil, false
 	}
+	boxes := make([]Box, len(all))
+	for i, e := range all {
+		boxes[i] = bbox(e)
+	}
 	blo, bhi := across(union(grown))
 	inBand := func(b Box) bool { lo, hi := across(b); return lo < bhi && hi > blo }
 
-	// ponytail: O(n²) fixed point over the scene; fine at the 300-node cap.
 	shift, stretch := map[string]bool{}, map[string]bool{}
 	for grew := true; grew; {
 		grew = false
-		for _, e := range all {
-			id, b := e.ID(), bbox(e)
+		for i, e := range all {
+			id, b := e.ID(), boxes[i]
 			if shift[id] || stretch[id] || !a.solid(e) || e.ContainerID() != "" || !inBand(b) {
 				continue
 			}
@@ -915,23 +933,23 @@ func (a *applier) makeRoom(h string, c Box, all []El, shell map[string]bool, hor
 			default:
 				continue
 			}
-			if !shell[id] && !a.mine(e) {
-				return nil, false
+			if !(stretch[id] && shell[id]) && !a.mine(e) {
+				return nil, true
 			}
 			lo, hi = across(b)
 			blo, bhi, grew = min(blo, lo), max(bhi, hi), true
 		}
 	}
 
-	old := map[string]El{}
-	for _, e := range all {
-		old[e.ID()] = maps.Clone(e)
+	old := make([]El, len(all))
+	for i, e := range all {
+		old[i] = maps.Clone(e)
 	}
 	dirty := maps.Clone(a.dirty)
 	undo = func() {
-		for _, e := range all {
+		for i, e := range all {
 			clear(e)
-			maps.Copy(e, old[e.ID()])
+			maps.Copy(e, old[i])
 		}
 		a.dirty = dirty
 	}
@@ -982,19 +1000,31 @@ func (a *applier) makeRoom(h string, c Box, all []El, shell map[string]bool, hor
 		}
 	}
 
-	for _, e := range all {
-		was, now := bbox(old[e.ID()]), bbox(e)
-		if was == now || !a.solid(e) || e.ContainerID() != "" {
+	type fixedBox struct {
+		b    Box
+		mine bool
+	}
+	var fixed []fixedBox
+	var moved [][2]Box // was, now
+	for i, e := range all {
+		if !a.solid(e) {
 			continue
 		}
-		for _, o := range all {
-			if ob := bbox(o); a.solid(o) && bbox(old[o.ID()]) == ob && hits(now, ob) && !hits(was, ob) {
+		if now := bbox(e); now == boxes[i] {
+			fixed = append(fixed, fixedBox{now, a.mine(e)})
+		} else if e.ContainerID() == "" {
+			moved = append(moved, [2]Box{boxes[i], now})
+		}
+	}
+	for _, m := range moved {
+		for _, f := range fixed {
+			if hits(m[1], f.b) != hits(m[0], f.b) || contains(f.b, m[1]) != contains(f.b, m[0]) || contains(m[1], f.b) != contains(m[0], f.b) {
 				undo()
-				return nil, false
+				return nil, !f.mine
 			}
 		}
 	}
-	return undo, true
+	return undo, false
 }
 
 // linePts is the drawing position of each point of a line or arrow.

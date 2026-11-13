@@ -3,6 +3,7 @@ package flowchart
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -725,6 +726,14 @@ func TestApplyMakeRoomRespectsOwner(t *testing.T) {
 				}
 			}
 		}, false},
+		"owner locked c": {func(s *Scene) { yel(s, "c")["locked"] = true }, false},
+		// untouched boxes are not carried out of a shape the owner drew around them
+		"owner boxed B and C": {func(s *Scene) {
+			s.Elements = append(s.Elements, newShape("rectangle", 240, -20, 480, 196, now))
+		}, false},
+		"owner circled c": {func(s *Scene) {
+			s.Elements = append(s.Elements, newShape("ellipse", 430, 36, 270, 120, now))
+		}, false},
 	}
 	for name, tc := range cases {
 		raw := editScene(t, newScene(t, "flowchart LR\n"+pipeline), tc.edit)
@@ -739,5 +748,82 @@ func TestApplyMakeRoomRespectsOwner(t *testing.T) {
 		if string(raw) != keep {
 			t.Errorf("%s: input mutated", name)
 		}
+	}
+}
+
+// A parent frame is not a member of the subgraph rectangle it holds: the
+// new nodes go right below b, not below the parent.
+func TestApplyMakeRoomNested(t *testing.T) {
+	raw := newScene(t, "flowchart TB\nsubgraph O\n"+pipeline+"\nend")
+	out, _ := mustApply(t, raw, "flowchart TB\nsubgraph B\n  x --> y --> z\nend")
+	s := mustScene(t, out)
+	if b, x := yel(s, "b"), yel(s, "x"); x.Y() != b.Y()+b.H()+rankGap {
+		t.Errorf("x at %v, b at %v", box(x), box(b))
+	}
+}
+
+// When nothing of the user's is in the way, the refusal does not blame them.
+func TestApplyNoRoomNotUsers(t *testing.T) {
+	// an agent drew the box around B and C: shifting C would carry it out
+	raw := editScene(t, newScene(t, "flowchart LR\n"+pipeline), func(s *Scene) {
+		r := newShape("rectangle", 240, -20, 480, 196, now)
+		stamp(r)
+		s.Elements = append(s.Elements, r)
+	})
+	_, _, err := Apply(raw, mustParse(t, "flowchart LR\nsubgraph B\n  x --> y\nend"), nil, later)
+	if want := "no free room in subgraph B; add the new nodes one per call, or ask the user to make room"; err == nil || err.Error() != want {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// Making room in a large drawing stays quick: it runs under the drawing
+// lock, once per group of new nodes.
+func TestApplyMakeRoomLarge(t *testing.T) {
+	src, add := "flowchart LR\n", "flowchart LR\n"
+	for i := range 100 {
+		src += fmt.Sprintf("subgraph S%d\n  n%da --> n%db\nend\n", i, i, i)
+		if i > 0 {
+			src += fmt.Sprintf("n%db --> n%da\n", i-1, i)
+		}
+		add += fmt.Sprintf("subgraph S%d\n  x%d --> y%d --> z%d\nend\n", i, i, i, i)
+	}
+	raw := newScene(t, src)
+	start := time.Now()
+	mustApply(t, raw, add)
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("took %v", d)
+	}
+}
+
+// A shift that is taken back leaves every element as it was.
+func TestMakeRoomUndo(t *testing.T) {
+	raw := newScene(t, "flowchart LR\n"+pipeline)
+	v, err := Read(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := mustScene(t, raw)
+	a := &applier{s: s, g: Graph{Dir: "LR"}, items: map[string]Item{}, byID: map[string]El{},
+		orig: map[string]bool{}, fresh: map[string]bool{}, dirty: map[string]bool{}}
+	for _, it := range v.Items {
+		a.items[it.ID] = it
+	}
+	for _, e := range s.Elements {
+		a.byID[e.ID()], a.orig[e.ID()], a.fresh[e.ID()] = e, true, true
+	}
+	shell := map[string]bool{}
+	for _, id := range a.items["B"].Elements {
+		shell[id] = true
+	}
+	undo, _ := a.makeRoom("B", Box{490, 66, 320, 60}, s.Live(), shell, true, 1)
+	if undo == nil {
+		t.Fatal("no room made")
+	}
+	if c0 := yel(mustScene(t, raw), "c"); yel(s, "c").X() == c0.X() {
+		t.Fatal("c did not move")
+	}
+	undo()
+	if want := mustScene(t, raw).Elements; !reflect.DeepEqual(s.Elements, want) || len(a.dirty) != 0 {
+		t.Errorf("undo left %v (dirty %v)", s.Elements, a.dirty)
 	}
 }

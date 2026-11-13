@@ -10,10 +10,6 @@ func overlap(a, b Box) bool {
 	return a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H
 }
 
-func contains(o, i Box) bool {
-	return i.X >= o.X && i.Y >= o.Y && i.X+i.W <= o.X+o.W && i.Y+i.H <= o.Y+o.H
-}
-
 func TestLayoutNoOverlap(t *testing.T) {
 	var sb strings.Builder
 	sb.WriteString("flowchart TB\n")
