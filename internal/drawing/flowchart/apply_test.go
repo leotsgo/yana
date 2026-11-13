@@ -533,7 +533,7 @@ func TestApplyIntoSubgraphNoRoom(t *testing.T) {
 	})
 	keep := string(raw)
 	_, _, err := Apply(raw, mustParse(t, "flowchart LR\nsubgraph FE\n  Cache\nend"), nil, later)
-	if err == nil || err.Error() != "no free room in subgraph FE; move things apart or remove some" {
+	if err == nil || err.Error() != "no free room in subgraph FE; add the new nodes one per call, or ask the user to make room" {
 		t.Errorf("err = %v", err)
 	}
 	if string(raw) != keep {

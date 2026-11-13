@@ -783,7 +783,7 @@ func (a *applier) inside(h string, b Box) (float64, float64, error) {
 			return x, y, nil
 		}
 	}
-	return 0, 0, fmt.Errorf("no free room in subgraph %s; move things apart or remove some", h)
+	return 0, 0, fmt.Errorf("no free room in subgraph %s; add the new nodes one per call, or ask the user to make room", h)
 }
 
 // growth is the box of subgraph h and of each of its ancestors, inner first,
