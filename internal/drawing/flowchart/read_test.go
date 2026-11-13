@@ -222,3 +222,48 @@ func TestReadShapeFollowsOwnerType(t *testing.T) {
 		t.Errorf("shapes = %v", got)
 	}
 }
+
+// TestReadLinks: a link on any element shows on its layout line, quoted
+// when it holds spaces; an omitted item says so.
+func TestReadLinks(t *testing.T) {
+	scene := `{"type":"excalidraw","elements":[` +
+		`{"id":"n1","type":"rectangle","x":0,"y":0,"width":100,"height":50,"link":"[[Target]]"},` +
+		`{"id":"n2","type":"rectangle","x":300,"y":0,"width":100,"height":50,"link":null},` +
+		`{"id":"a1","type":"arrow","x":100,"y":25,"width":200,"height":0,"link":"https://x.example/a b",` +
+		`"startBinding":{"elementId":"n1"},"endBinding":{"elementId":"n2"},"endArrowhead":"arrow"},` +
+		`{"id":"f1","type":"frame","x":-50,"y":-50,"width":600,"height":200,"name":"G","link":"[[Group]]"},` +
+		`{"id":"t1","type":"text","x":0,"y":300,"width":50,"height":20,"text":"hi","link":"[[My Note]]"},` +
+		`{"id":"i1","type":"image","x":0,"y":400,"width":50,"height":50,"fileId":"f"}` +
+		`],"files":{}}`
+	v, err := Read([]byte(scene))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range v.Items {
+		if v.Items[i].Type == "image" {
+			v.Items[i].Omitted = true
+		}
+	}
+	txt := v.Text()
+	lines := map[string]string{}
+	for _, l := range strings.Split(txt, "\n") {
+		f := strings.Fields(l)
+		if len(f) > 1 {
+			lines[f[0]+" "+f[1]] = l
+		}
+	}
+	for key, want := range map[string]string{
+		"node " + v.Items[0].ID:     " link=[[Target]]",
+		"edge " + v.Items[2].ID:     ` link="https://x.example/a b"`,
+		"subgraph " + v.Items[3].ID: " link=[[Group]]",
+		"free " + v.Items[4].ID:     ` link="[[My Note]]"`,
+		"free " + v.Items[5].ID:     " image (not included)",
+	} {
+		if !strings.HasSuffix(lines[key], want) {
+			t.Errorf("%s: want suffix %q in\n%s", key, want, txt)
+		}
+	}
+	if strings.Contains(lines["node "+v.Items[1].ID], "link=") {
+		t.Errorf("a null link shows:\n%s", txt)
+	}
+}

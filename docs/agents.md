@@ -133,7 +133,8 @@ then a `layout:` section with one line per item: nodes with shape,
 position, size, subgraph and colours; edges as `from->to` (a second
 parallel edge is `from->to#2`) with line style and label; subgraphs;
 and free items (loose text, lines, pictures, other shapes) with derived
-ids. Pictures in the drawing come as image content blocks, at most 5
+ids. A line ends with `link=[[Target]]` when its element carries a
+link. Pictures in the drawing come as image content blocks, at most 5
 and 4 MiB together; the rest say `(not included)` on their layout line.
 The result also carries `base`, the hash of the file as read.
 

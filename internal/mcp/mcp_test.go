@@ -760,6 +760,7 @@ func TestMCPReadDrawing(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.Base != drawing.Hash(raw) || !strings.Contains(res.Content, `text="Router"`) ||
+		!strings.Contains(res.Content, "link=[[Target]]") ||
 		!strings.Contains(res.Content, "layout:") || strings.Contains(txt, `"elements"`) {
 		t.Fatalf("drawing read wrong: %s", txt)
 	}
@@ -899,12 +900,28 @@ func TestDrawFlowchartCreates(t *testing.T) {
 		t.Fatalf("read wrong: %s", txt)
 	}
 	// A drawing in a folder embeds by name too.
-	if r := f.draw(t, map[string]any{"path": "sub/deep.excalidraw.md", "mermaid": archMermaid}); r.Embed != "![[deep]]" {
-		t.Fatalf("embed %q", r.Embed)
+	deep := f.draw(t, map[string]any{"path": "sub/deep.excalidraw.md", "mermaid": archMermaid})
+	if deep.Embed != "![[deep]]" {
+		t.Fatalf("embed %q", deep.Embed)
 	}
 	// Two drawings with one name: the name is ambiguous, so the path is used.
-	if r := f.draw(t, map[string]any{"path": "other/deep.excalidraw.md", "mermaid": archMermaid}); r.Embed != "![[other/deep.excalidraw]]" {
-		t.Fatalf("embed %q", r.Embed)
+	other := f.draw(t, map[string]any{"path": "other/deep.excalidraw.md", "mermaid": archMermaid})
+	if other.Embed != "![[other/deep.excalidraw]]" {
+		t.Fatalf("embed %q", other.Embed)
+	}
+	// Every embed resolves to its drawing through the resolver the
+	// server's embed inlining uses, from notes anywhere in the space.
+	res, err := f.db.SpaceResolver(context.Background(), "homelab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []drawResult{r, other} {
+		target := strings.TrimSuffix(strings.TrimPrefix(d.Embed, "![["), "]]")
+		for _, from := range []string{"homelab/n.md", "homelab/other/n.md", "homelab/x/y/n.md"} {
+			if got := res.Resolve(target, from); !got.OK || got.ToID != d.ID {
+				t.Errorf("%s from %s resolves to %+v, want %s", d.Embed, from, got, d.ID)
+			}
+		}
 	}
 }
 
@@ -1088,6 +1105,18 @@ func TestAddDrawingImage(t *testing.T) {
 		t.Fatalf("add from asset failed: %s", txt)
 	}
 	_ = json.Unmarshal([]byte(txt), &res)
+
+	// A huge width is clamped.
+	txt, isErr = f.call(t, "add_drawing_image", map[string]any{"drawing": r.ID, "data": pic, "width": 1e9, "base": res.Base})
+	if isErr {
+		t.Fatalf("add with width failed: %s", txt)
+	}
+	_ = json.Unmarshal([]byte(txt), &res)
+	_, scene, _ := drawing.Parse(frontmatter.Parse(f.readFile(t, r.Path)).Body)
+	v, _ := flowchart.Read(scene)
+	if last := v.Items[len(v.Items)-1]; last.Type != "image" || last.W != 4000 {
+		t.Fatalf("width not clamped: %+v", last)
+	}
 	before := f.readFile(t, r.Path)
 
 	refused := func(args map[string]any, want string) {

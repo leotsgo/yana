@@ -238,7 +238,8 @@ func (h *Handler) callTool(ctx context.Context, agent auth.AgentIdentity, name s
 		}
 		return h.toolDrawFlowchart(ctx, agent, author, arg("space"), arg("path"), arg("mermaid"), arg("base"), remove)
 	case "add_drawing_image":
-		width, _ := a["width"].(float64)
+		width, _ := a["width"].(float64) // 0 or less: the image's own width
+		width = min(width, maxImageWidth)
 		return h.toolAddDrawingImage(ctx, agent, author, arg("drawing"), arg("asset"), arg("data"), arg("near"), arg("base"), width)
 	}
 	return nil // unreachable: dispatch refuses unknown names
@@ -522,6 +523,9 @@ func (h *Handler) toolReadNote(ctx context.Context, agent auth.AgentIdentity, re
 	return r
 }
 
+// maxImageWidth caps add_drawing_image's width, in drawing units.
+const maxImageWidth = 4000
+
 // Caps on the pictures read_note hands back with a drawing.
 const (
 	maxDrawingImages     = 5
@@ -531,7 +535,7 @@ const (
 // drawingContent is what an agent reads of a drawing: the flowchart as
 // Mermaid plus the layout of every item, never the scene JSON, and its
 // pictures as image blocks. A picture past the caps is marked
-// "(not included)" on its layout line.
+// omitted, which its layout line shows as "(not included)".
 func drawingContent(v flowchart.View, scene []byte) (string, []map[string]string) {
 	files, _ := flowchart.Files(scene) // a bad file reads as not included
 	var images []map[string]string
@@ -547,15 +551,10 @@ func drawingContent(v flowchart.View, scene []byte) (string, []map[string]string
 			"type": "image", "data": base64.StdEncoding.EncodeToString(f.Data), "mimeType": f.MimeType,
 		})
 	}
-	// Text ends with one layout line per item, in item order.
-	lines := strings.Split(strings.TrimSuffix(v.Text(), "\n"), "\n")
-	first := len(lines) - len(v.Items)
 	for i, it := range v.Items {
-		if it.Type == "image" && !included[it.FileID] {
-			lines[first+i] += " (not included)"
-		}
+		v.Items[i].Omitted = it.Type == "image" && !included[it.FileID]
 	}
-	return strings.Join(lines, "\n") + "\n", images
+	return v.Text(), images
 }
 
 func isDrawing(n index.Note) bool { return n.Kind == drawing.Kind || drawing.Is(n.RelPath) }
@@ -1037,8 +1036,12 @@ func (h *Handler) toolDrawFlowchart(ctx context.Context, agent auth.AgentIdentit
 	if changed {
 		h.drawingWritten(ctx, clean, author)
 	}
+	id := frontmatter.Parse(file).Meta.ID
+	if n, err := h.DB.GetNoteByPath(ctx, clean); id == "" && err == nil {
+		id = n.ID // a file without a frontmatter id yet
+	}
 	return textResult(map[string]any{
-		"id": frontmatter.Parse(file).Meta.ID, "path": clean, "created": created,
+		"id": id, "path": clean, "created": created,
 		"embed": h.embedText(ctx, sp, clean), "stats": stats, "base": drawing.Hash(file),
 	})
 }

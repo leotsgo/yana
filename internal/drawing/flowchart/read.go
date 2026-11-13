@@ -19,6 +19,8 @@ type Item struct {
 	From, To           string // edges; free arrows with one bound end ("" loose)
 	Parent             string // subgraph id
 	FileID             string // images
+	Link               string // the element's link, "" none
+	Omitted            bool   // set by the caller: shown as "(not included)"
 	arrow              bool
 	width              float64
 }
@@ -200,6 +202,7 @@ func Read(sceneJSON []byte) (View, error) {
 	for _, e := range live {
 		var it Item
 		it.Elements = []string{e.ID()}
+		it.Link = e.str("link")
 		pos(&it, e)
 		switch {
 		case isNodeEl(e):
@@ -276,7 +279,7 @@ func Read(sceneJSON []byte) (View, error) {
 	// Texts whose container never claimed them (a bound text of a free shape) stay free.
 	for _, e := range live {
 		if e.Type() == "text" && covered[e.ID()] && !used[e.ID()] {
-			it := Item{Kind: "free", ID: derive(e), Type: "text", Text: e.Text(), Elements: []string{e.ID()}}
+			it := Item{Kind: "free", ID: derive(e), Type: "text", Text: e.Text(), Elements: []string{e.ID()}, Link: e.str("link")}
 			pos(&it, e)
 			v.Items = append(v.Items, it)
 		}
@@ -421,6 +424,16 @@ func (v View) Text() string {
 			if it.Type == "image" {
 				b.WriteString(" image")
 			}
+		}
+		if it.Link != "" {
+			l := it.Link
+			if strings.ContainsAny(l, " \t\"\\") || strconv.Quote(l) != `"`+l+`"` {
+				l = strconv.Quote(l)
+			}
+			b.WriteString(" link=" + l)
+		}
+		if it.Omitted {
+			b.WriteString(" (not included)")
 		}
 		b.WriteByte('\n')
 	}
