@@ -674,10 +674,11 @@ func pastAll(obstacles []Box, horiz bool) (float64, float64) {
 func box(e El) Box { return Box{e.X(), e.Y(), e.W(), e.H()} }
 
 // inside is where a group of new nodes (size of b) goes in existing subgraph
-// h: past its current members in the flow direction (right for LR/RL, else
-// below), else beside them (below for LR/RL, else right), stepping outward
-// like freeSpot. A spot counts only if the group overlaps nothing and growing
-// h and its ancestors to hold it covers nothing that was not in them already.
+// h: past its current members in the flow direction, else after them across
+// the flow (below for LR/RL, right for TB/BT), else before them across it,
+// else against the flow, stepping outward like freeSpot. A spot counts only
+// if the group overlaps nothing and growing h and its ancestors (any way) to
+// hold it covers nothing solid that was not in them already.
 // ponytail: ignores edges to existing nodes; anchor like spot if crowded subgraphs need it.
 func (a *applier) inside(h string, b Box) (float64, float64, error) {
 	it := a.items[h]
@@ -740,10 +741,9 @@ func (a *applier) inside(h string, b Box) (float64, float64, error) {
 		}
 		outside = append(outside, obs)
 	}
-	x0, y0 := he.X()+sgPad, he.Y()+sgPad+sgTitleH
 	free := func(c Box) bool {
-		if c.X < x0 || c.Y < y0 || !roomFor(obstacles, c) {
-			return false // boxes grow right and down only
+		if !roomFor(obstacles, c) {
+			return false
 		}
 		for i, g := range a.growth(h, c) {
 			for _, o := range outside[i] {
@@ -755,43 +755,65 @@ func (a *applier) inside(h string, b Box) (float64, float64, error) {
 		return true
 	}
 
-	horiz := a.g.Dir == "LR" || a.g.Dir == "RL"
-	flow, cross := [2]float64{x0, y0}, [2]float64{x0, y0}
+	// Anchors beside the members, each walked like freeSpot: across the
+	// flow for the flow sides, along it for the cross sides.
+	type anchor struct {
+		x, y  float64
+		horiz bool // step along y
+	}
+	x0, y0 := he.X()+sgPad, he.Y()+sgPad+sgTitleH
+	order := []anchor{{x0, y0, true}, {x0, y0, false}} // an empty subgraph
 	if len(ms) > 0 {
 		u := union(ms)
-		if horiz {
-			flow[0], cross[1] = u.X+u.W+rankGap, u.Y+u.H+rankGap
-		} else {
-			flow[1], cross[0] = u.Y+u.H+rankGap, u.X+u.W+rankGap
+		right, left := anchor{u.X + u.W + rankGap, u.Y, true}, anchor{u.X - rankGap - b.W, u.Y, true}
+		below, above := anchor{u.X, u.Y + u.H + rankGap, false}, anchor{u.X, u.Y - rankGap - b.H, false}
+		switch a.g.Dir {
+		case "LR":
+			order = []anchor{right, below, above, left}
+		case "RL":
+			order = []anchor{left, below, above, right}
+		case "BT":
+			order = []anchor{above, right, left, below}
+		default:
+			order = []anchor{below, right, left, above}
 		}
 	}
-	if x, y, ok := stepOut(flow[0], flow[1], b, horiz, free); ok {
-		return x, y, nil
-	}
-	if x, y, ok := stepOut(cross[0], cross[1], b, !horiz, free); ok {
-		return x, y, nil
+	for _, an := range order {
+		if x, y, ok := stepOut(an.x, an.y, b, an.horiz, free); ok {
+			return x, y, nil
+		}
 	}
 	return 0, 0, fmt.Errorf("no free room in subgraph %s; move things apart or remove some", h)
 }
 
 // growth is the box of subgraph h and of each of its ancestors, inner first,
-// once grown to hold b plus padding.
+// once grown (any way) to hold b plus one padding and title per level.
+// Each level pads b again rather than its child, so a box grows only where
+// the new content needs it.
 func (a *applier) growth(h string, b Box) []Box {
 	var out []Box
 	for ; h != ""; h = a.items[h].Parent {
-		e := a.byID[a.items[h].Elements[0]]
-		b = Box{e.X(), e.Y(), max(e.W(), b.X+b.W+sgPad-e.X()), max(e.H(), b.Y+b.H+sgPad-e.Y())}
-		out = append(out, b)
+		b = Box{b.X - sgPad, b.Y - sgPad - sgTitleH, b.W + 2*sgPad, b.H + 2*sgPad + sgTitleH}
+		out = append(out, union([]Box{box(a.byID[a.items[h].Elements[0]]), b}))
 	}
 	return out
 }
 
 // grow makes subgraph h and its ancestors big enough to hold b plus padding.
+// Only the boxes change (and a rectangle's title, which rides on its top);
+// their members stay where they are.
 func (a *applier) grow(h string, b Box) {
 	for _, g := range a.growth(h, b) {
 		e := a.byID[a.items[h].Elements[0]]
-		a.set(e, "width", g.W)
-		a.set(e, "height", g.H)
+		changed := false
+		for k, v := range map[string]float64{"x": g.X, "y": g.Y, "width": g.W, "height": g.H} {
+			changed = a.set(e, k, v) || changed
+		}
+		if t := a.boundText(e); changed && t != nil && e.Type() != "frame" {
+			x, y := labelPos(e, t.W(), t.H(), "top")
+			a.set(t, "x", x)
+			a.set(t, "y", y)
+		}
 		h = a.items[h].Parent
 	}
 }

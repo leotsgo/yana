@@ -521,10 +521,13 @@ func TestApplyIntoNestedSubgraphKeepsSibling(t *testing.T) {
 
 func TestApplyIntoSubgraphNoRoom(t *testing.T) {
 	raw := newScene(t, "flowchart LR\nsubgraph FE [Frontend]\n  UI\nend")
-	// the owner boxed FE in on every side it could grow to
+	// the owner walled FE in on all four sides
 	raw = editScene(t, raw, func(s *Scene) {
 		f := yel(s, "FE")
-		for _, b := range []Box{{f.X() + f.W() + 1, f.Y() - 2000, 4000, 4000}, {f.X() - 2000, f.Y() + f.H() + 1, 4000, 4000}} {
+		for _, b := range []Box{
+			{f.X() + f.W() + 1, f.Y() - 2000, 4000, 4000}, {f.X() - 4001, f.Y() - 2000, 4000, 4000},
+			{f.X() - 2000, f.Y() + f.H() + 1, 4000, 4000}, {f.X() - 2000, f.Y() - 4001, 4000, 4000},
+		} {
 			s.Elements = append(s.Elements, newShape("rectangle", b.X, b.Y, b.W, b.H, now))
 		}
 	})
@@ -558,6 +561,46 @@ func TestApplyIntoSubgraphGrowsOverArrows(t *testing.T) {
 			}
 			if id := e.YanaID(); e.FrameID() != fe.ID() && e.ID() != fe.ID() && hits(box(fe), bbox(e)) {
 				t.Errorf("%s: FE %v over %s %s %v", dir, box(fe), e.Type(), id, bbox(e))
+			}
+		}
+	}
+}
+
+// A subgraph hemmed in right and below by its neighbours grows up or left.
+func TestApplyIntoSubgraphGrowsAnyWay(t *testing.T) {
+	cases := map[string]string{
+		"A": "subgraph A\n  a\nend\nsubgraph B\n  b\nend\nsubgraph C\n  c\nend\na --> c\nb --> c",
+		"I": "subgraph T\n  subgraph I\n    a\n  end\n  subgraph J\n    b\n  end\n  subgraph K\n    c\n  end\n  a --> c\n  b --> c\nend",
+	}
+	for _, dir := range []string{"LR", "TB"} {
+		for host, body := range cases {
+			raw := newScene(t, "flowchart "+dir+"\n"+body)
+			s0 := mustScene(t, raw)
+			out, _, err := Apply(raw, mustParse(t, "flowchart "+dir+"\nsubgraph "+host+"\n  x\nend"), nil, later)
+			if err != nil {
+				t.Fatalf("%s %s: %v", dir, host, err)
+			}
+			if bad := grownMemberOverlaps(t, out, host, "x"); len(bad) > 0 {
+				t.Errorf("%s %s: %v", dir, host, bad)
+			}
+			s := mustScene(t, out)
+			if !contains(box(yel(s, host)), box(yel(s, "x"))) {
+				t.Errorf("%s %s: x %v outside %v", dir, host, box(yel(s, "x")), box(yel(s, host)))
+			}
+			for _, id := range []string{"a", "b", "c"} {
+				if box(yel(s, id)) != box(yel(s0, id)) {
+					t.Errorf("%s %s: %s moved", dir, host, id)
+				}
+			}
+			if host == "I" {
+				i, tt := yel(s, "I"), yel(s, "T")
+				if !contains(box(tt), box(i)) {
+					t.Errorf("%s: T %v does not hold I %v", dir, box(tt), box(i))
+				}
+				// I is a rectangle (T, at the top, a frame): its title rides on its top
+				if l := label(s, i); l == nil || l.Y() != i.Y()+8 || l.X() != i.X()+i.W()/2-l.W()/2 {
+					t.Errorf("%s: title of I at %v, box %v", dir, box(l), box(i))
+				}
 			}
 		}
 	}
