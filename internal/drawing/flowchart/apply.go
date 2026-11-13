@@ -608,27 +608,41 @@ func (a *applier) spot(b Box, m map[string]bool, placed []Box) (float64, float64
 		case "RL":
 			x, y = u.X-rankGap-b.W, u.Y+u.H/2-b.H/2
 		}
-		for i := 0; i < 100; i++ {
-			step := float64((i+1)/2) * 40
-			if i%2 == 0 {
-				step = -step
-			}
-			c := Box{x + step, y, b.W, b.H}
-			if horiz {
-				c = Box{x, y + step, b.W, b.H}
-			}
-			free := true
-			for _, o := range obstacles {
-				if hits(Box{c.X - 20, c.Y - 20, c.W + 40, c.H + 40}, o) {
-					free = false
-					break
-				}
-			}
-			if free {
-				return c.X, c.Y
-			}
+		if fx, fy, ok := freeSpot(obstacles, x, y, b, horiz); ok {
+			return fx, fy
 		}
 	}
+	return pastAll(obstacles, horiz)
+}
+
+// freeSpot looks for a place for b near (x,y), stepping along the cross axis
+// (y when horiz) until a 20-margin around it overlaps no obstacle.
+func freeSpot(obstacles []Box, x, y float64, b Box, horiz bool) (float64, float64, bool) {
+	for i := 0; i < 100; i++ {
+		step := float64((i+1)/2) * 40
+		if i%2 == 0 {
+			step = -step
+		}
+		c := Box{x + step, y, b.W, b.H}
+		if horiz {
+			c = Box{x, y + step, b.W, b.H}
+		}
+		free := true
+		for _, o := range obstacles {
+			if hits(Box{c.X - 20, c.Y - 20, c.W + 40, c.H + 40}, o) {
+				free = false
+				break
+			}
+		}
+		if free {
+			return c.X, c.Y, true
+		}
+	}
+	return 0, 0, false
+}
+
+// pastAll is the corner past all obstacles: right of them when horiz, else below.
+func pastAll(obstacles []Box, horiz bool) (float64, float64) {
 	if len(obstacles) == 0 {
 		return 0, 0
 	}
