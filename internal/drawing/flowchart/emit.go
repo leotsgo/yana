@@ -19,16 +19,24 @@ func New(g Graph, now time.Time) ([]byte, error) {
 	return s.JSON()
 }
 
-func shapeElement(n Node, b Box, now time.Time) El {
-	typ, round := "rectangle", 0.0
-	switch n.Shape {
+// primitive is the Excalidraw type a shape token is drawn as, and its
+// roundness type (0 = sharp corners).
+func primitive(shape string) (typ string, round float64) {
+	switch shape {
 	case "round", "stadium", "cylinder", "subroutine":
-		round = 3
+		return "rectangle", 3
 	case "diamond", "hexagon":
-		typ, round = "diamond", 2
+		return "diamond", 2
 	case "circle", "double-circle":
-		typ, round = "ellipse", 2
+		return "ellipse", 2
 	}
+	return "rectangle", 0
+}
+
+func rounded(e El) bool { r, _ := e["roundness"].(map[string]any); return r != nil }
+
+func shapeElement(n Node, b Box, now time.Time) El {
+	typ, round := primitive(n.Shape)
 	e := newShape(typ, b.X, b.Y, b.W, b.H, now)
 	e["roundness"] = nil
 	if round != 0 {
@@ -46,7 +54,11 @@ func shapeElement(n Node, b Box, now time.Time) El {
 	return e
 }
 
-func emit(g Graph, now time.Time) []El {
+func emit(g Graph, now time.Time) []El { return emitIn(g, now, true) }
+
+// emitIn is emit; useFrames=false draws every subgraph as a nested rectangle,
+// for content that goes inside an existing subgraph.
+func emitIn(g Graph, now time.Time, useFrames bool) []El {
 	g = normalize(g)
 	nodes, sgs, routes := layoutRoutes(g)
 	sgParent := map[string]string{}
@@ -55,6 +67,9 @@ func emit(g Graph, now time.Time) []El {
 	}
 	// top returns the top-level subgraph containing subgraph id ("" = none).
 	top := func(id string) string {
+		if !useFrames {
+			return ""
+		}
 		for id != "" && sgParent[id] != "" {
 			id = sgParent[id]
 		}
@@ -73,7 +88,7 @@ func emit(g Graph, now time.Time) []El {
 	}
 	frameID := map[string]string{}
 	for _, s := range g.Subgraphs {
-		if s.Parent == "" {
+		if s.Parent == "" && useFrames {
 			frameID[s.ID] = NewID()
 		}
 	}
@@ -89,7 +104,7 @@ func emit(g Graph, now time.Time) []El {
 	frames := map[string]El{}
 	for _, s := range g.Subgraphs {
 		b := sgs[s.ID]
-		if s.Parent == "" {
+		if s.Parent == "" && useFrames {
 			f := newFrame(s.Title, b.X, b.Y, b.W, b.H, now)
 			f["id"] = frameID[s.ID]
 			f["customData"] = map[string]any{"yana": map[string]any{"id": s.ID, "kind": "subgraph"}}
@@ -130,30 +145,7 @@ func emit(g Graph, now time.Time) []El {
 		if from == nil || to == nil {
 			continue
 		}
-		line := "solid"
-		if ed.Line == "dotted" {
-			line = "dashed"
-		}
-		a := newArrow(from, to, ed.Label != "", line, ed.Arrow, now)
-		if ed.From == ed.To {
-			selfLoop(a, from)
-		}
-		if r := routes[ei]; len(r) > 0 && ed.From != ed.To {
-			throughRoute(a, from, to, r)
-		}
-		if ed.Line == "thick" {
-			a["strokeWidth"] = 4.0
-		}
-		els := []El{a}
-		if ed.Label != "" {
-			t := newText(a, ed.Label, "middle", now)
-			if pts, _ := a["points"].([]any); len(pts) > 2 { // label on the middle bend
-				p, _ := pts[len(pts)/2].([]any)
-				t["x"] = a.X() + p[0].(float64) - t.W()/2
-				t["y"] = a.Y() + p[1].(float64) - t.H()/2
-			}
-			els = append(els, t)
-		}
+		els := edgeEls(ed, from, to, routes[ei], now)
 		gk := ""
 		if nodeTop[ed.From] == nodeTop[ed.To] {
 			gk = nodeTop[ed.From]
@@ -165,7 +157,7 @@ func emit(g Graph, now time.Time) []El {
 	// Outside nodes first, then each frame after its children, loose arrows last.
 	out := append([]El{}, groups[""].shapes...)
 	for _, s := range g.Subgraphs {
-		if s.Parent != "" {
+		if s.Parent != "" || !useFrames {
 			continue
 		}
 		grp := groups[s.ID]
@@ -174,6 +166,35 @@ func emit(g Graph, now time.Time) []El {
 		out = append(out, frames[s.ID])
 	}
 	return append(out, groups[""].arrows...)
+}
+
+// edgeEls is the arrow for ed from from to to, and its label if any. A
+// non-empty route (dummy-node centres) bends the arrow through it.
+func edgeEls(ed Edge, from, to El, route []pt, now time.Time) []El {
+	line := "solid"
+	if ed.Line == "dotted" {
+		line = "dashed"
+	}
+	a := newArrow(from, to, ed.Label != "", line, ed.Arrow, now)
+	if from.ID() == to.ID() {
+		selfLoop(a, from)
+	} else if len(route) > 0 {
+		throughRoute(a, from, to, route)
+	}
+	if ed.Line == "thick" {
+		a["strokeWidth"] = 4.0
+	}
+	els := []El{a}
+	if ed.Label != "" {
+		t := newText(a, ed.Label, "middle", now)
+		if pts, _ := a["points"].([]any); len(pts) > 2 { // label on the middle bend
+			p, _ := pts[len(pts)/2].([]any)
+			t["x"] = a.X() + p[0].(float64) - t.W()/2
+			t["y"] = a.Y() + p[1].(float64) - t.H()/2
+		}
+		els = append(els, t)
+	}
+	return els
 }
 
 // throughRoute makes a an arrow that runs from the border of from, through the

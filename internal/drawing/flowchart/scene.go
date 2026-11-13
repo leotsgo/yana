@@ -215,6 +215,19 @@ func bind(container El, id string) {
 // and registers it in the container's boundElements.
 func newText(container El, text string, valign string, now time.Time) El {
 	w, h := TextSize(text, 20)
+	x, y := labelPos(container, w, h, valign)
+	e := base("text", x, y, w, h, now)
+	e["text"], e["originalText"] = text, text
+	e["fontSize"], e["fontFamily"], e["lineHeight"] = 20.0, 5.0, 1.25
+	e["textAlign"], e["verticalAlign"] = "center", valign
+	e["autoResize"], e["containerId"] = true, container.ID()
+	bind(container, e.ID())
+	return e
+}
+
+// labelPos is where a w×h label of container goes: centred (on an arrow's
+// midpoint), or at the top for valign "top".
+func labelPos(container El, w, h float64, valign string) (x, y float64) {
 	cx, cy := container.X()+container.W()/2, container.Y()+container.H()/2
 	if container.Type() == "arrow" {
 		pts, _ := container["points"].([]any)
@@ -225,17 +238,11 @@ func newText(container El, text string, valign string, now time.Time) El {
 			cx, cy = container.X()+dx/2, container.Y()+dy/2
 		}
 	}
-	y := cy - h/2
+	y = cy - h/2
 	if valign == "top" {
 		y = container.Y() + 8
 	}
-	e := base("text", cx-w/2, y, w, h, now)
-	e["text"], e["originalText"] = text, text
-	e["fontSize"], e["fontFamily"], e["lineHeight"] = 20.0, 5.0, 1.25
-	e["textAlign"], e["verticalAlign"] = "center", valign
-	e["autoResize"], e["containerId"] = true, container.ID()
-	bind(container, e.ID())
-	return e
+	return cx - w/2, y
 }
 
 // clip returns the point where the segment from the centre of b towards (tx,ty) leaves b.

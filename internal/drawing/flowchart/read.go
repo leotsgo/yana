@@ -44,9 +44,15 @@ func sanitize(s string) string {
 	return b.String()
 }
 
+// shapeToken is the stored shape token while the element is still drawn as
+// that token's primitive; once the owner changes its type or corners in
+// Excalidraw, the token is derived from the element.
 func shapeToken(e El) string {
 	if s := e.YanaShape(); s != "" {
-		return s
+		typ, round := primitive(s)
+		if typ == e.Type() && (typ != "rectangle" || (round != 0) == rounded(e)) {
+			return s
+		}
 	}
 	switch e.Type() {
 	case "diamond":
@@ -54,10 +60,22 @@ func shapeToken(e El) string {
 	case "ellipse":
 		return "circle"
 	}
-	if r, _ := e["roundness"].(map[string]any); r != nil {
+	if rounded(e) {
 		return "round"
 	}
 	return "rect"
+}
+
+// lineOf is the Mermaid line of an arrow: thick wins over dotted.
+func lineOf(e El) string {
+	if e.num("strokeWidth") >= 4 {
+		return "thick"
+	}
+	switch e.str("strokeStyle") {
+	case "dashed", "dotted":
+		return "dotted"
+	}
+	return "solid"
 }
 
 func isNodeEl(e El) bool {
@@ -232,14 +250,7 @@ func Read(sceneJSON []byte) (View, error) {
 				if edgeN[k] > 1 {
 					it.ID = k + "#" + strconv.Itoa(edgeN[k])
 				}
-				it.Line = "solid"
-				switch e.str("strokeStyle") {
-				case "dashed", "dotted":
-					it.Line = "dotted"
-				}
-				if e.num("strokeWidth") >= 4 {
-					it.Line = "thick"
-				}
+				it.Line = lineOf(e)
 				it.arrow = e["endArrowhead"] != nil
 				it.Type = "arrow"
 			} else {

@@ -1,0 +1,445 @@
+package flowchart
+
+import (
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/leotsgo/yana/internal/drawing"
+)
+
+var later = now.Add(time.Hour)
+
+func newScene(t *testing.T, src string) []byte {
+	t.Helper()
+	raw, err := New(mustParse(t, src), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func mustApply(t *testing.T, scene []byte, src string, remove ...string) ([]byte, Stats) {
+	t.Helper()
+	out, st, err := Apply(scene, mustParse(t, src), remove, later)
+	if err != nil {
+		t.Fatalf("Apply(%q): %v", src, err)
+	}
+	return out, st
+}
+
+func mustScene(t *testing.T, raw []byte) *Scene {
+	t.Helper()
+	s, err := ParseScene(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// yel is the live node or subgraph element with Mermaid id id.
+func yel(s *Scene, id string) El {
+	for _, e := range s.Live() {
+		if e.YanaID() == id && e.Type() != "text" {
+			return e
+		}
+	}
+	return nil
+}
+
+func label(s *Scene, c El) El {
+	for _, id := range c.BoundIDs("text") {
+		if t := s.ByID(id); t != nil && !t.Deleted() {
+			return t
+		}
+	}
+	return nil
+}
+
+// arrowBetween is the live arrow from a to b.
+func arrowBetween(s *Scene, a, b El) El {
+	for _, e := range s.Live() {
+		if e.Type() == "arrow" && e.StartID() == a.ID() && e.EndID() == b.ID() {
+			return e
+		}
+	}
+	return nil
+}
+
+func editScene(t *testing.T, raw []byte, f func(s *Scene)) []byte {
+	t.Helper()
+	s := mustScene(t, raw)
+	f(s)
+	out, err := s.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestApplyIdempotent(t *testing.T) {
+	scenes := map[string][]byte{"emit": newScene(t, emitSrc), "hand": handScene()}
+	for name, src := range roundTrip {
+		scenes[name] = newScene(t, src)
+	}
+	scenes["noCustomData"] = editScene(t, newScene(t, emitSrc), func(s *Scene) {
+		for _, e := range s.Elements {
+			delete(e, "customData")
+		}
+	})
+	// the owner turned a stadium into a diamond and squared off a round box
+	scenes["ownerShapes"] = editScene(t, newScene(t, "flowchart TB\nA([s]) --> B(r)"), func(s *Scene) {
+		yel(s, "A")["type"] = "diamond"
+		yel(s, "B")["roundness"] = nil
+	})
+	for name, raw := range scenes {
+		t.Run(name, func(t *testing.T) {
+			v, err := Read(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, st := mustApply(t, raw, v.Mermaid())
+			if st != (Stats{}) {
+				t.Errorf("stats = %+v\n%s", st, v.Mermaid())
+			}
+			before, after := mustScene(t, raw).Elements, mustScene(t, out).Elements
+			if len(before) != len(after) {
+				t.Fatalf("elements %d -> %d", len(before), len(after))
+			}
+			for i := range before {
+				if !reflect.DeepEqual(before[i], after[i]) {
+					t.Errorf("element %d changed:\n%v\n%v", i, before[i], after[i])
+				}
+			}
+		})
+	}
+}
+
+func TestApplyKeepsOwnerLayout(t *testing.T) {
+	for _, dir := range []string{"TB", "LR"} {
+		raw := editScene(t, newScene(t, "flowchart "+dir+"\nA --> B\nB --> C"), func(s *Scene) {
+			b := yel(s, "B")
+			b["x"] = b.X() + 300
+		})
+		s0 := mustScene(t, raw)
+		out, st := mustApply(t, raw, "flowchart "+dir+"\nB --> N")
+		s := mustScene(t, out)
+		for _, id := range []string{"A", "B", "C"} {
+			if box(yel(s0, id)) != box(yel(s, id)) {
+				t.Errorf("%s moved: %v -> %v", id, box(yel(s0, id)), box(yel(s, id)))
+			}
+		}
+		n, b := yel(s, "N"), yel(s, "B")
+		if n == nil {
+			t.Fatal("no N")
+		}
+		if l := label(s, n); l == nil || l.Text() != "N" {
+			t.Error("N label")
+		}
+		if arrowBetween(s, b, n) == nil {
+			t.Error("no arrow B->N")
+		}
+		if dir == "TB" && n.Y() < b.Y()+b.H() || dir == "LR" && n.X() < b.X()+b.W() {
+			t.Errorf("%s: N %v not past B %v", dir, box(n), box(b))
+		}
+		for _, e := range s.Live() {
+			if e.ID() == n.ID() || e.ContainerID() == n.ID() || e.EndID() == n.ID() {
+				continue
+			}
+			if overlap(box(n), bbox(e)) {
+				t.Errorf("%s: N %v overlaps %s %v", dir, box(n), e.Type(), bbox(e))
+			}
+		}
+		if st != (Stats{NodesAdded: 1, EdgesAdded: 1}) {
+			t.Errorf("stats = %+v", st)
+		}
+		if b["version"] != yel(s0, "B")["version"].(float64)+1 {
+			t.Error("B not bumped for its new binding")
+		}
+	}
+}
+
+func TestApplyDisconnectedGoesBelow(t *testing.T) {
+	raw := newScene(t, "flowchart TB\nA --> B")
+	out, _ := mustApply(t, raw, "flowchart TB\nX --> Y")
+	s := mustScene(t, out)
+	x, b := yel(s, "X"), yel(s, "B")
+	if x == nil || yel(s, "Y") == nil || x.Y() < b.Y()+b.H() {
+		t.Errorf("X %v B %v", x, b)
+	}
+}
+
+func TestApplyMissingNodeSurvives(t *testing.T) {
+	raw := newScene(t, "flowchart TB\nA --> B --> C")
+	out, st := mustApply(t, raw, "flowchart TB\nA --> B")
+	if yel(mustScene(t, out), "C") == nil || st != (Stats{}) {
+		t.Errorf("C gone or stats %+v", st)
+	}
+}
+
+func TestApplyRemove(t *testing.T) {
+	raw := newScene(t, "flowchart TB\nA --> B --> C\nA -->|x| C")
+	s0 := mustScene(t, raw)
+	out, st := mustApply(t, raw, "flowchart TB\nA", "C")
+	s := mustScene(t, out)
+	c0 := yel(s0, "C")
+	gone := map[string]bool{c0.ID(): true, label(s0, c0).ID(): true}
+	for _, e := range s0.Elements {
+		if e.Type() == "arrow" && e.EndID() == c0.ID() {
+			gone[e.ID()] = true
+			for _, id := range e.BoundIDs("text") {
+				gone[id] = true
+			}
+		}
+	}
+	if len(gone) != 5 {
+		t.Fatalf("setup: %d", len(gone))
+	}
+	for id := range gone {
+		e := s.ByID(id)
+		if !e.Deleted() || e["version"] != s0.ByID(id)["version"].(float64)+1 {
+			t.Errorf("%s %s not deleted with a bump", e.Type(), id)
+		}
+	}
+	for _, e := range s.Live() {
+		for _, typ := range []string{"text", "arrow"} {
+			for _, id := range e.BoundIDs(typ) {
+				if gone[id] {
+					t.Errorf("%s still bound to %s", e.Type(), id)
+				}
+			}
+		}
+	}
+	if st != (Stats{NodesRemoved: 1, EdgesRemoved: 2}) {
+		t.Errorf("stats = %+v", st)
+	}
+
+	out, st = mustApply(t, raw, "flowchart TB\nA", "A->B")
+	s = mustScene(t, out)
+	if arrowBetween(s, yel(s, "A"), yel(s, "B")) != nil || arrowBetween(s, yel(s, "B"), yel(s, "C")) == nil || st != (Stats{EdgesRemoved: 1}) {
+		t.Errorf("edge removal: %+v", st)
+	}
+
+	// a removal wins over the Mermaid naming the same node or edge
+	out, st = mustApply(t, raw, "flowchart TB\nA --> C\nB --> N --> C\nC[new]\nA -->|y| B", "C", "A->B")
+	s = mustScene(t, out)
+	for _, e := range s.Live() {
+		if e.Type() == "arrow" && (e.StartID() == "" || e.EndID() == "") {
+			t.Errorf("loose arrow left: %v", e)
+		}
+		if e.Text() == "new" || e.Text() == "y" {
+			t.Errorf("text %q added to a removed item", e.Text())
+		}
+	}
+	if st != (Stats{NodesAdded: 1, EdgesAdded: 1, NodesRemoved: 1, EdgesRemoved: 3}) {
+		t.Errorf("stats = %+v", st)
+	}
+
+	_, _, err := Apply(raw, mustParse(t, "flowchart TB\nA[changed]"), []string{"nope", "C", "zz"}, later)
+	var u *UnknownIDsError
+	if !errors.As(err, &u) || err.Error() != "unknown ids: nope, zz" {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestApplyRemoveFrameAndFree(t *testing.T) {
+	v, _ := Read(handScene())
+	var frame, free string
+	for _, it := range v.Items {
+		if it.Kind == "subgraph" {
+			frame = it.ID
+		}
+		if it.Kind == "free" && it.Type == "image" {
+			free = it.ID
+		}
+	}
+	out, st := mustApply(t, handScene(), "flowchart TB", frame, free)
+	s := mustScene(t, out)
+	if !s.ByID("frameFFFF1").Deleted() || !s.ByID("imgIIII1").Deleted() || s.ByID("rectBBBBBBBB2").Deleted() {
+		t.Error("deletions")
+	}
+	if s.ByID("rectBBBBBBBB2").FrameID() != "" || s.ByID("rectBBBBBBBB2")["version"] != 1.0 {
+		t.Errorf("member frameId not cleared with a bump: %v", s.ByID("rectBBBBBBBB2"))
+	}
+	if st != (Stats{OtherRemoved: 2}) {
+		t.Errorf("stats = %+v", st)
+	}
+}
+
+func TestApplyLabelAndStyle(t *testing.T) {
+	raw := newScene(t, "flowchart TB\nA[a] --> B[b]\nB -->|lbl| C")
+	s0 := mustScene(t, raw)
+	ver := func(s *Scene, e El) float64 { return s.ByID(e.ID())["version"].(float64) }
+	a0, b0 := yel(s0, "A"), yel(s0, "B")
+
+	out, st := mustApply(t, raw, "flowchart TB\nA[\"new\"]")
+	s := mustScene(t, out)
+	if l := label(s, yel(s, "A")); l.Text() != "new" || l["originalText"] != "new" || ver(s, l) != ver(s0, label(s0, a0))+1 {
+		t.Errorf("label %v", l)
+	}
+	if ver(s, a0) != ver(s0, a0) || st != (Stats{NodesUpdated: 1}) {
+		t.Errorf("A bumped without growing, stats %+v", st)
+	}
+
+	long := strings.Repeat("wide label ", 6)
+	out, _ = mustApply(t, raw, "flowchart TB\nA[\""+long+"\"]")
+	s = mustScene(t, out)
+	if a := yel(s, "A"); a.W() <= a0.W() || a.X() != a0.X() || a.Y() != a0.Y() || ver(s, a) != ver(s0, a0)+1 {
+		t.Errorf("A did not grow: %v", box(a))
+	}
+
+	out, st = mustApply(t, raw, "flowchart TB\nA")
+	if st != (Stats{}) || string(out) != string(mustScene(t, raw).mustJSON(t)) {
+		t.Error("bare reference changed something")
+	}
+
+	out, _ = mustApply(t, raw, "flowchart TB\nA[\"\"]")
+	s = mustScene(t, out)
+	if label(s, yel(s, "A")) != nil {
+		t.Error("label not cleared")
+	}
+
+	out, _ = mustApply(t, raw, "flowchart TB\nA\nstyle A fill:#f00")
+	s = mustScene(t, out)
+	if yel(s, "A")["backgroundColor"] != "#ff0000" || ver(s, a0) != ver(s0, a0)+1 {
+		t.Error("fill")
+	}
+
+	// shape change keeps geometry, bindings and text
+	out, _ = mustApply(t, raw, "flowchart TB\nA{a}")
+	s = mustScene(t, out)
+	a := yel(s, "A")
+	if a.Type() != "diamond" || a.YanaShape() != "diamond" || box(a) != box(a0) || a.ID() != a0.ID() || !reflect.DeepEqual(a["boundElements"], a0["boundElements"]) {
+		t.Errorf("shape change: %v", a)
+	}
+
+	out, st = mustApply(t, raw, "flowchart TB\nA -.-> B\nB --> C")
+	s = mustScene(t, out)
+	ab, bc := arrowBetween(s, a0, b0), arrowBetween(s, b0, yel(s0, "C"))
+	if ab["strokeStyle"] != "dashed" || ab["version"] != arrowBetween(s0, a0, b0)["version"].(float64)+1 {
+		t.Error("edge line")
+	}
+	if label(s, bc) != nil {
+		t.Error("edge label not cleared")
+	}
+	if st != (Stats{EdgesUpdated: 2}) {
+		t.Errorf("stats = %+v", st)
+	}
+
+	out, _ = mustApply(t, raw, "flowchart TB\nA -->|hi| B")
+	s = mustScene(t, out)
+	if l := label(s, arrowBetween(s, a0, b0)); l == nil || l.Text() != "hi" {
+		t.Error("edge label not added")
+	}
+}
+
+func (s *Scene) mustJSON(t *testing.T) []byte {
+	b, err := s.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestApplyHandDrawnIDs(t *testing.T) {
+	v, _ := Read(handScene())
+	var id string
+	for _, it := range v.Items {
+		if it.Kind == "node" && it.Elements[0] == "diamDDDDDDDD3" {
+			id = it.ID
+		}
+	}
+	out, st := mustApply(t, handScene(), "flowchart TB\n"+id+" --> N[new]")
+	s := mustScene(t, out)
+	n := yel(s, "N")
+	if n == nil || arrowBetween(s, s.ByID("diamDDDDDDDD3"), n) == nil || st != (Stats{NodesAdded: 1, EdgesAdded: 1}) {
+		t.Errorf("stats %+v", st)
+	}
+}
+
+func TestApplyIntoSubgraph(t *testing.T) {
+	raw := newScene(t, emitSrc)
+	s0 := mustScene(t, raw)
+	f0 := yel(s0, "F")
+	out, _ := mustApply(t, raw, "flowchart LR\nsubgraph F [Frame]\n  A --> Z[zed]\nend\nsubgraph N [Nested]\n  Q\nend")
+	s := mustScene(t, out)
+	f, z, q, n := yel(s, "F"), yel(s, "Z"), yel(s, "Q"), yel(s, "N")
+	if z == nil || q == nil {
+		t.Fatal("nodes not added")
+	}
+	if !contains(box(f), box(z)) || !contains(box(n), box(q)) || !contains(box(f), box(n)) {
+		t.Errorf("not contained: F %v Z %v N %v Q %v", box(f), box(z), box(n), box(q))
+	}
+	if f.W() < f0.W() || f.H() < f0.H() || f.X() != f0.X() || f.Y() != f0.Y() || f["version"] != f0["version"].(float64)+1 {
+		t.Errorf("frame did not grow: %v -> %v", box(f0), box(f))
+	}
+	idx := map[string]int{}
+	for i, e := range s.Elements {
+		idx[e.ID()] = i
+	}
+	prev := ""
+	for _, e := range s.Elements {
+		if ix := e.str("index"); ix <= prev {
+			t.Errorf("index %q not after %q", ix, prev)
+		} else {
+			prev = ix
+		}
+	}
+	for _, e := range []El{z, q, label(s, z)} {
+		if e.FrameID() != f.ID() || idx[e.ID()] > idx[f.ID()] {
+			t.Errorf("%s not in frame F", e.Type())
+		}
+	}
+	if err := drawing.Validate(out); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestApplyNewSubgraph(t *testing.T) {
+	raw := newScene(t, "flowchart TB\nA --> B")
+	out, _ := mustApply(t, raw, "flowchart TB\nsubgraph G [Group]\n  A --> X\n  X --> Y\nend")
+	s := mustScene(t, out)
+	g, x := yel(s, "G"), yel(s, "X")
+	if g == nil || g.Type() != "frame" || g["name"] != "Group" || x.FrameID() != g.ID() || yel(s, "A").FrameID() != "" {
+		t.Errorf("frame %v", g)
+	}
+	if contains(box(g), box(yel(s, "A"))) {
+		t.Error("frame wraps an existing node")
+	}
+}
+
+func TestApplyOldSceneNoIndex(t *testing.T) {
+	raw := editScene(t, newScene(t, "flowchart TB\nsubgraph F\n  A --> B\nend"), func(s *Scene) {
+		for _, e := range s.Elements {
+			delete(e, "index")
+		}
+	})
+	out, _ := mustApply(t, raw, "flowchart TB\nsubgraph F\n  B --> C\nend\nA --> D")
+	s := mustScene(t, out)
+	for _, e := range s.Elements {
+		if _, ok := e["index"]; ok {
+			t.Errorf("%s got an index", e.Type())
+		}
+	}
+	merged, _, err := drawing.Merge(raw, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct{ Elements []map[string]any }
+	_ = json.Unmarshal(merged, &m)
+	if len(m.Elements) != len(s.Elements) {
+		t.Errorf("merge kept %d of %d", len(m.Elements), len(s.Elements))
+	}
+}
+
+func TestApplyLeavesInputAlone(t *testing.T) {
+	raw := newScene(t, "flowchart TB\nA --> B")
+	keep := string(raw)
+	mustApply(t, raw, "flowchart TB\nA[x] --> C", "B")
+	if string(raw) != keep {
+		t.Error("input mutated")
+	}
+}

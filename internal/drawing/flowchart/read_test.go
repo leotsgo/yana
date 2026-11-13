@@ -203,3 +203,22 @@ func TestReadSkipsDeleted(t *testing.T) {
 		t.Errorf("items = %d\n%s", len(v.Items), v.Text())
 	}
 }
+
+func TestReadShapeFollowsOwnerType(t *testing.T) {
+	raw := newScene(t, "flowchart TB\nA([s]) --> B(r) --> C[(db)]")
+	s := mustScene(t, raw)
+	yel(s, "A")["type"] = "diamond"
+	yel(s, "B")["roundness"] = nil
+	raw, _ = s.JSON()
+	v, err := Read(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, n := range v.Graph.Nodes {
+		got[n.ID] = n.Shape
+	}
+	if want := map[string]string{"A": "diamond", "B": "rect", "C": "cylinder"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("shapes = %v", got)
+	}
+}
