@@ -1,15 +1,18 @@
 // The tool surface: list_spaces, list_tree, read_note, write_note,
-// append_note, search_notes, move_note, upload_asset. Tool results are plain text or
+// append_note, search_notes, move_note, upload_asset, draw_flowchart,
+// add_drawing_image. Tool results are plain text or
 // JSON strings; a tool that fails answers isError=true with the reason,
 // which the agent reads and can act on, rather than a protocol error.
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -19,6 +22,7 @@ import (
 
 	"github.com/leotsgo/yana/internal/auth"
 	"github.com/leotsgo/yana/internal/drawing"
+	"github.com/leotsgo/yana/internal/drawing/flowchart"
 	"github.com/leotsgo/yana/internal/frontmatter"
 	"github.com/leotsgo/yana/internal/fsutil"
 	"github.com/leotsgo/yana/internal/index"
@@ -96,7 +100,7 @@ func toolList() []map[string]any {
 			"inputSchema": req(
 				map[string]any{
 					"space":       str("space name"),
-					"path":        str("note path inside the space, ending in .md or .html (drawings, .excalidraw.md, are read-only here)"),
+					"path":        str("note path inside the space, ending in .md or .html (drawings, .excalidraw.md, are changed with draw_flowchart and add_drawing_image)"),
 					"content":     str("the full note content"),
 					"agent_label": str("optional author label; defaults to this token's label"),
 				},
@@ -147,6 +151,35 @@ func toolList() []map[string]any {
 				},
 				"space", "note", "filename", "data"),
 		},
+		{
+			"name":        "draw_flowchart",
+			"description": "Draw a Mermaid flowchart as an Excalidraw drawing (*.excalidraw.md) the user can rearrange by hand. Use it when the user asks for a drawing; a mermaid block in a note is still fine otherwise. New path: laid out automatically. Existing drawing: pass base from read_note; nodes and edges you send are added or updated by id, nothing moves, and nothing is deleted unless listed in remove. Put the returned embed in a note to show the drawing there. Flowcharts only.",
+			"inputSchema": req(
+				map[string]any{
+					"space":       str("space name"),
+					"path":        str("drawing path inside the space, ending in .excalidraw.md"),
+					"mermaid":     str("the flowchart, starting with a line like \"flowchart LR\""),
+					"base":        str("the drawing's base from read_note; required when the drawing exists"),
+					"remove":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "ids from read_note's layout to delete (nodes, edges like a->b, subgraphs, free items)"},
+					"agent_label": str("optional author label; defaults to this token's label"),
+				},
+				"space", "path", "mermaid"),
+		},
+		{
+			"name":        "add_drawing_image",
+			"description": "Add a PNG, JPEG or GIF picture to a drawing, beside a node or below everything else, never on top of anything. Pass base from read_note.",
+			"inputSchema": req(
+				map[string]any{
+					"drawing":     str("drawing id or path"),
+					"asset":       str("path of an image file already in the drawing's space; give this or data"),
+					"data":        str("the image, base64-encoded (a data: URL is accepted too); give this or asset"),
+					"near":        str("optional node id to put the picture beside"),
+					"width":       map[string]any{"type": "number", "description": "optional width in drawing units; default the image's own, at most 400", "exclusiveMinimum": 0},
+					"base":        str("the drawing's base from read_note"),
+					"agent_label": str("optional author label; defaults to this token's label"),
+				},
+				"drawing", "base"),
+		},
 	}
 }
 
@@ -188,6 +221,25 @@ func (h *Handler) callTool(ctx context.Context, agent auth.AgentIdentity, name s
 		return h.toolMoveNote(ctx, agent, arg("note"), arg("new_path"))
 	case "upload_asset":
 		return h.toolUploadAsset(ctx, agent, author, arg("space"), arg("note"), arg("filename"), arg("data"))
+	case "draw_flowchart":
+		var remove []string
+		if v := a["remove"]; v != nil {
+			list, ok := v.([]any)
+			if !ok {
+				return errResult("remove must be a list of ids")
+			}
+			for _, x := range list {
+				id, ok := x.(string)
+				if !ok {
+					return errResult("remove must be a list of ids")
+				}
+				remove = append(remove, id)
+			}
+		}
+		return h.toolDrawFlowchart(ctx, agent, author, arg("space"), arg("path"), arg("mermaid"), arg("base"), remove)
+	case "add_drawing_image":
+		width, _ := a["width"].(float64)
+		return h.toolAddDrawingImage(ctx, agent, author, arg("drawing"), arg("asset"), arg("data"), arg("near"), arg("base"), width)
 	}
 	return nil // unreachable: dispatch refuses unknown names
 }
@@ -195,7 +247,8 @@ func (h *Handler) callTool(ctx context.Context, agent auth.AgentIdentity, name s
 // knownTool reports whether name is on the surface.
 func knownTool(name string) bool {
 	switch name {
-	case "list_spaces", "list_tree", "read_note", "write_note", "append_note", "search_notes", "move_note", "upload_asset":
+	case "list_spaces", "list_tree", "read_note", "write_note", "append_note", "search_notes", "move_note", "upload_asset",
+		"draw_flowchart", "add_drawing_image":
 		return true
 	}
 	return false
@@ -428,41 +481,86 @@ func (h *Handler) toolReadNote(ctx context.Context, agent auth.AgentIdentity, re
 	if res != nil {
 		return res
 	}
-	content, err := h.noteText(ctx, n)
-	if err != nil {
-		return errResult("the note's content could not be read")
-	}
-	if isDrawing(n) {
-		content = drawingSummary(content)
-	}
 	tags, _ := h.DB.Tags(ctx, n.ID)
 	if tags == nil {
 		tags = []string{}
 	}
-	return textResult(map[string]any{
+	out := map[string]any{
 		"id": n.ID, "space": n.Space, "path": n.RelPath, "title": n.Title,
-		"kind": n.Kind, "created": n.Created, "updated": n.UpdatedAt,
-		"tags": tags, "content": content,
-	})
+		"kind": n.Kind, "created": n.Created, "updated": n.UpdatedAt, "tags": tags,
+	}
+	if !isDrawing(n) {
+		content, err := h.noteText(ctx, n)
+		if err != nil {
+			return errResult("the note's content could not be read")
+		}
+		out["content"] = content
+		return textResult(out)
+	}
+	abs, _, err := h.Root.Resolve(n.RelPath)
+	if err != nil {
+		return errResult("the note's content could not be read")
+	}
+	file, err := os.ReadFile(abs)
+	if err != nil {
+		return errResult("the note's content could not be read")
+	}
+	_, scene, err := drawing.Parse(frontmatter.Parse(file).Body)
+	var v flowchart.View
+	if err == nil {
+		v, err = flowchart.Read(scene)
+	}
+	if err != nil {
+		out["content"] = "Excalidraw drawing (could not be read)."
+		return textResult(out)
+	}
+	out["base"] = drawing.Hash(file)
+	content, images := drawingContent(v, scene)
+	out["content"] = content
+	r := textResult(out)
+	r.Content = append(r.Content, images...)
+	return r
+}
+
+// Caps on the pictures read_note hands back with a drawing.
+const (
+	maxDrawingImages     = 5
+	maxDrawingImageBytes = 4 << 20
+)
+
+// drawingContent is what an agent reads of a drawing: the flowchart as
+// Mermaid plus the layout of every item, never the scene JSON, and its
+// pictures as image blocks. A picture past the caps is marked
+// "(not included)" on its layout line.
+func drawingContent(v flowchart.View, scene []byte) (string, []map[string]string) {
+	files, _ := flowchart.Files(scene) // a bad file reads as not included
+	var images []map[string]string
+	included := map[string]bool{}
+	total := 0
+	for _, f := range files {
+		if len(images) == maxDrawingImages || total+len(f.Data) > maxDrawingImageBytes {
+			continue
+		}
+		total += len(f.Data)
+		included[f.ID] = true
+		images = append(images, map[string]string{
+			"type": "image", "data": base64.StdEncoding.EncodeToString(f.Data), "mimeType": f.MimeType,
+		})
+	}
+	// Text ends with one layout line per item, in item order.
+	lines := strings.Split(strings.TrimSuffix(v.Text(), "\n"), "\n")
+	first := len(lines) - len(v.Items)
+	for i, it := range v.Items {
+		if it.Type == "image" && !included[it.FileID] {
+			lines[first+i] += " (not included)"
+		}
+	}
+	return strings.Join(lines, "\n") + "\n", images
 }
 
 func isDrawing(n index.Note) bool { return n.Kind == drawing.Kind || drawing.Is(n.RelPath) }
 
-const errDrawingTool = "drawings are edited in the yana web app, not through this tool"
-
-// drawingSummary is what an agent reads of a drawing: its text and links,
-// never the scene JSON.
-func drawingSummary(body string) string {
-	sc, _, err := drawing.Parse([]byte(body))
-	if err != nil {
-		return "Excalidraw drawing (could not be read)."
-	}
-	out := "Excalidraw drawing.\n\nText:\n" + sc.Text() + "\n\nLinks:"
-	for _, l := range sc.Links() {
-		out += "\n- [[" + l + "]]"
-	}
-	return out
-}
+const errDrawingTool = "drawings are changed with draw_flowchart and add_drawing_image, not this tool"
 
 // noteText returns the note's current text: the document when the
 // reconciliation loop is running (it holds edits not yet written back),
@@ -716,10 +814,7 @@ func (h *Handler) toolUploadAsset(ctx context.Context, agent auth.AgentIdentity,
 	if scanner.KindOf(name) != "" {
 		return errResult("notes are written with write_note, not uploaded")
 	}
-	if strings.HasPrefix(data, "data:") {
-		data = data[strings.IndexByte(data, ',')+1:]
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(data))
+	raw, err := decodeData(data)
 	if err != nil {
 		return errResult("data is not valid base64")
 	}
@@ -773,4 +868,275 @@ func spaceOfRel(rel string) string {
 		return rel[:i]
 	}
 	return ""
+}
+
+// decodeData decodes a base64 argument, accepting a data: URL too.
+func decodeData(data string) ([]byte, error) {
+	if strings.HasPrefix(data, "data:") {
+		data = data[strings.IndexByte(data, ',')+1:]
+	}
+	return base64.StdEncoding.DecodeString(strings.TrimSpace(data))
+}
+
+// --- drawings --------------------------------------------------------------
+
+// toolError is a refusal whose text the agent reads as it is.
+type toolError string
+
+func (e toolError) Error() string { return string(e) }
+
+const (
+	errStale      toolError = "the drawing changed since you read it; read it again"
+	errUnreadable toolError = "the drawing on disk could not be read; open it in yana first"
+	errNoBase     toolError = "base is required to change an existing drawing; read_note returns it"
+)
+
+// drawingError words a flowchart error for the agent.
+func drawingError(err error) toolError {
+	var pe *flowchart.ParseError
+	switch {
+	case errors.Is(err, flowchart.ErrNotFlowchart):
+		return "only flowcharts can be drawn for now; write a mermaid block in the note instead"
+	case errors.As(err, &pe):
+		return toolError("mermaid: " + pe.Error())
+	case errors.Is(err, flowchart.ErrImageType):
+		return "only PNG, JPEG and GIF images can be added"
+	}
+	// UnknownIDsError, a node id naming a subgraph, and the like: their
+	// text is already meant for the agent.
+	return toolError(err.Error())
+}
+
+// editDrawing changes the drawing at abs under the lock browser saves
+// take. base must be the hash of the file as it is now; change gets the
+// scene JSON. Any error writes nothing. It returns the file as it is
+// afterwards and whether it changed.
+func (h *Handler) editDrawing(abs, base string, change func(scene []byte) ([]byte, error)) ([]byte, bool, error) {
+	if base == "" {
+		return nil, false, errNoBase
+	}
+	prev, next, err := drawing.Rewrite(abs, func(file []byte) ([]byte, error) {
+		if drawing.Hash(file) != base {
+			return nil, errStale
+		}
+		fm := frontmatter.Parse(file)
+		_, scene, err := drawing.Parse(fm.Body)
+		if err != nil {
+			return nil, errUnreadable
+		}
+		out, err := change(scene)
+		if err != nil {
+			return nil, drawingError(err)
+		}
+		if bytes.Equal(out, scene) {
+			return nil, nil
+		}
+		file = append(append([]byte{}, fm.Head...), drawing.Encode(out)...)
+		if int64(len(file)) > h.Root.Limits().MaxNoteSize {
+			return nil, toolError(fmt.Sprintf("the drawing would be over the note size limit (%d bytes)", h.Root.Limits().MaxNoteSize))
+		}
+		return file, nil
+	})
+	return next, err == nil && !bytes.Equal(prev, next), err
+}
+
+// drawingWritten indexes a drawing an agent wrote and records the author
+// for git. The file watcher tells open editors.
+func (h *Handler) drawingWritten(ctx context.Context, rel, author string) {
+	if h.Scanner != nil {
+		if err := h.Scanner.ScanOne(ctx, rel); err != nil && !scanner.IsDeferred(err) {
+			h.Log.Warn("drawing is not indexed yet", "path", rel, "err", err)
+		}
+	}
+	if h.Git != nil {
+		h.Git.Author(rel, author)
+	}
+}
+
+// writeFailed answers an editDrawing error: the agent's own refusals as
+// they are, anything else (disk trouble) without its details.
+func writeFailed(err error) *toolResult {
+	var te toolError
+	if errors.As(err, &te) {
+		return errResult("%s", te)
+	}
+	return errResult("the drawing could not be written")
+}
+
+// embedText is what a note writes to show the drawing at rel: its name
+// when that resolves to it from the space root, else its path.
+func (h *Handler) embedText(ctx context.Context, space, rel string) string {
+	name, _ := drawing.SplitExt(path.Base(rel))
+	if r, err := h.DB.SpaceResolver(ctx, space); err == nil {
+		target, err := h.DB.GetNoteByPath(ctx, rel)
+		if res := r.Resolve(name, space+"/note.md"); err == nil && res.OK && res.ToID == target.ID {
+			return "![[" + name + "]]"
+		}
+	}
+	return "![[" + strings.TrimSuffix(strings.TrimPrefix(rel, space+"/"), ".md") + "]]"
+}
+
+func (h *Handler) toolDrawFlowchart(ctx context.Context, agent auth.AgentIdentity, author, space, p, mermaid, base string, remove []string) *toolResult {
+	sp, res := h.spaceScope(agent, space)
+	if res != nil {
+		return res
+	}
+	if !scopeOf(agent).mayWrite(sp) {
+		return errResult("this token cannot write to space %q", sp)
+	}
+	clean, res := h.withinSpace(sp, p)
+	if res != nil {
+		return res
+	}
+	if !drawing.Is(clean) {
+		return errResult("the path must end in .excalidraw.md")
+	}
+	if scanner.IsAsset(clean) {
+		return errResult("the path sits under _assets; drawings live outside it")
+	}
+	g, err := flowchart.Parse(mermaid)
+	if err != nil {
+		return errResult("%s", drawingError(err))
+	}
+	if h.Limit != nil && !h.Limit.Allow(author) {
+		return errResult("the agent write rate is exceeded; slow down and retry")
+	}
+	abs, _, err := h.Root.Resolve(clean)
+	if err != nil {
+		return errResult("that path is not allowed")
+	}
+	now := time.Now()
+	stats := map[string]int{}
+	var file []byte
+	created, changed := false, true
+	if _, err := os.Lstat(abs); errors.Is(err, fs.ErrNotExist) {
+		if len(remove) > 0 {
+			return errResult("remove is for an existing drawing; this path has none")
+		}
+		if file, res = h.createDrawing(abs, clean, g, now); res != nil {
+			return res
+		}
+		created = true
+		stats["nodes_added"], stats["edges_added"] = len(g.Nodes), len(g.Edges)
+	} else {
+		var st flowchart.Stats
+		file, changed, err = h.editDrawing(abs, base, func(scene []byte) ([]byte, error) {
+			out, s, err := flowchart.Apply(scene, g, remove, now)
+			st = s
+			return out, err
+		})
+		if err != nil {
+			return writeFailed(err)
+		}
+		stats = map[string]int{
+			"nodes_added": st.NodesAdded, "nodes_updated": st.NodesUpdated, "nodes_removed": st.NodesRemoved,
+			"edges_added": st.EdgesAdded, "edges_updated": st.EdgesUpdated, "edges_removed": st.EdgesRemoved,
+			"other_removed": st.OtherRemoved,
+		}
+	}
+	if changed {
+		h.drawingWritten(ctx, clean, author)
+	}
+	return textResult(map[string]any{
+		"id": frontmatter.Parse(file).Meta.ID, "path": clean, "created": created,
+		"embed": h.embedText(ctx, sp, clean), "stats": stats, "base": drawing.Hash(file),
+	})
+}
+
+// createDrawing writes a new drawing of g at abs, the way write_note
+// creates a note: frontmatter id, exclusive create.
+func (h *Handler) createDrawing(abs, rel string, g flowchart.Graph, now time.Time) ([]byte, *toolResult) {
+	if err := h.Root.CheckCollision(rel); err != nil {
+		return nil, errResult("a file with a name equal after case folding exists at that path")
+	}
+	scene, err := flowchart.New(g, now)
+	if err != nil {
+		return nil, errResult("the drawing could not be made")
+	}
+	file, _, _ := frontmatter.EnsureID(drawing.Encode(scene), scanner.NewID(now), now)
+	if int64(len(file)) > h.Root.Limits().MaxNoteSize {
+		return nil, errResult("the drawing would be over the note size limit (%d bytes)", h.Root.Limits().MaxNoteSize)
+	}
+	if err := fsutil.MkdirInherit(filepath.Dir(abs)); err != nil {
+		return nil, errResult("the folder could not be created")
+	}
+	f, err := os.OpenFile(abs, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil, errResult("a file already exists at that path; read it and pass base")
+		}
+		return nil, errResult("the drawing file could not be created")
+	}
+	_, err = f.Write(file)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(abs)
+		return nil, errResult("the drawing file could not be written")
+	}
+	return file, nil
+}
+
+func (h *Handler) toolAddDrawingImage(ctx context.Context, agent auth.AgentIdentity, author, ref, asset, data, near, base string, width float64) *toolResult {
+	n, res := h.resolveNote(ctx, agent, ref)
+	if res != nil {
+		return res
+	}
+	if !scopeOf(agent).mayWrite(n.Space) {
+		return errResult("this token cannot write to space %q", n.Space)
+	}
+	if !isDrawing(n) {
+		return errResult("that note is not a drawing")
+	}
+	if (asset == "") == (data == "") {
+		return errResult("give one of asset or data")
+	}
+	limit := h.Root.Limits().MaxAssetSize
+	var img []byte
+	if asset != "" {
+		clean, res := h.withinSpace(n.Space, asset)
+		if res != nil {
+			return res
+		}
+		abs, _, err := h.Root.Resolve(clean)
+		if err != nil {
+			return errResult("that path is not allowed")
+		}
+		fi, err := os.Stat(abs)
+		if err != nil || !fi.Mode().IsRegular() {
+			return errResult("no file at %s", clean)
+		}
+		if fi.Size() > limit {
+			return errResult("file is over the asset size limit (%d bytes)", limit)
+		}
+		if img, err = os.ReadFile(abs); err != nil {
+			return errResult("the file could not be read")
+		}
+	} else {
+		var err error
+		if img, err = decodeData(data); err != nil {
+			return errResult("data is not valid base64")
+		}
+		if int64(len(img)) > limit {
+			return errResult("file is over the asset size limit (%d bytes)", limit)
+		}
+	}
+	if h.Limit != nil && !h.Limit.Allow(author) {
+		return errResult("the agent write rate is exceeded; slow down and retry")
+	}
+	abs, _, err := h.Root.Resolve(n.RelPath)
+	if err != nil {
+		return errResult("that path is not allowed")
+	}
+	file, changed, err := h.editDrawing(abs, base, func(scene []byte) ([]byte, error) {
+		return flowchart.AddImage(scene, img, near, width, time.Now())
+	})
+	if err != nil {
+		return writeFailed(err)
+	}
+	if changed {
+		h.drawingWritten(ctx, n.RelPath, author)
+	}
+	return textResult(map[string]any{"path": n.RelPath, "base": drawing.Hash(file)})
 }

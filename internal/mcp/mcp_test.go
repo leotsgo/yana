@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,11 +15,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/leotsgo/yana/internal/auth"
 	"github.com/leotsgo/yana/internal/drawing"
+	"github.com/leotsgo/yana/internal/drawing/flowchart"
+	"github.com/leotsgo/yana/internal/frontmatter"
 	"github.com/leotsgo/yana/internal/index"
 	"github.com/leotsgo/yana/internal/pathsafe"
 	"github.com/leotsgo/yana/internal/reconcile"
@@ -204,7 +209,7 @@ func TestInitializeAndToolList(t *testing.T) {
 	if err := json.Unmarshal(raw, &list); err != nil {
 		t.Fatalf("tools/list result is not the expected shape: %v (%s)", err, raw)
 	}
-	want := []string{"list_spaces", "list_tree", "read_note", "write_note", "append_note", "search_notes", "move_note", "upload_asset"}
+	want := []string{"list_spaces", "list_tree", "read_note", "write_note", "append_note", "search_notes", "move_note", "upload_asset", "draw_flowchart", "add_drawing_image"}
 	if len(list.Tools) != len(want) {
 		t.Fatalf("expected %d tools, got %d", len(want), len(list.Tools))
 	}
@@ -734,7 +739,7 @@ func TestUploadAsset(t *testing.T) {
 	}
 }
 
-const drawingRefused = "drawings are edited in the yana web app, not through this tool"
+const drawingRefused = "drawings are changed with draw_flowchart and add_drawing_image, not this tool"
 
 const testScene = `{"type":"excalidraw","version":2,"source":"yana","elements":[` +
 	`{"type":"text","text":"Router","originalText":"Router","link":"[[Target]]"},` +
@@ -749,11 +754,17 @@ func TestMCPReadDrawing(t *testing.T) {
 	if isErr {
 		t.Fatalf("read failed: %s", txt)
 	}
-	if !strings.Contains(txt, "Router") || !strings.Contains(txt, "- [[Target]]") || strings.Contains(txt, `"elements"`) {
+	raw, _ := os.ReadFile(filepath.Join(f.dir, "homelab", "Map.excalidraw.md"))
+	var res struct{ Base, Content string }
+	if err := json.Unmarshal([]byte(txt), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Base != drawing.Hash(raw) || !strings.Contains(res.Content, `text="Router"`) ||
+		!strings.Contains(res.Content, "layout:") || strings.Contains(txt, `"elements"`) {
 		t.Fatalf("drawing read wrong: %s", txt)
 	}
 	txt, isErr = f.call(t, "read_note", map[string]any{"note": "homelab/Bad.excalidraw.md"})
-	if isErr || !strings.Contains(txt, "Excalidraw drawing (could not be read).") {
+	if isErr || !strings.Contains(txt, "Excalidraw drawing (could not be read).") || strings.Contains(txt, `"base"`) {
 		t.Fatalf("unreadable drawing: %v %s", isErr, txt)
 	}
 	// A drawing is read from its file: no CRDT document is made for it.
@@ -784,5 +795,344 @@ func TestMCPAppendDrawingRefused(t *testing.T) {
 	}
 	if after, _ := os.ReadFile(abs); !bytes.Equal(before, after) {
 		t.Fatal("drawing file changed")
+	}
+}
+
+// callAll is call returning every content block.
+func (f *fixture) callAll(t *testing.T, tool string, args map[string]any) ([]map[string]string, bool) {
+	t.Helper()
+	raw, _ := json.Marshal(args)
+	body, isErr := f.rpc(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": tool, "arguments": json.RawMessage(raw)},
+	})
+	if isErr {
+		t.Fatalf("%s: %s", tool, body)
+	}
+	var res toolResult
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatal(err)
+	}
+	return res.Content, res.IsError
+}
+
+type drawResult struct {
+	ID, Path, Embed, Base string
+	Created               bool
+	Stats                 map[string]int
+}
+
+// draw calls draw_flowchart and fails the test on an error.
+func (f *fixture) draw(t *testing.T, args map[string]any) drawResult {
+	t.Helper()
+	if args["space"] == nil {
+		args["space"] = "homelab"
+	}
+	txt, isErr := f.call(t, "draw_flowchart", args)
+	if isErr {
+		t.Fatalf("draw_flowchart failed: %s", txt)
+	}
+	var r drawResult
+	if err := json.Unmarshal([]byte(txt), &r); err != nil {
+		t.Fatalf("bad result: %s", txt)
+	}
+	return r
+}
+
+func (f *fixture) readFile(t *testing.T, rel string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(f.dir, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// nodeAt reads a drawing file and returns the layout item for id.
+func nodeAt(t *testing.T, file []byte, id string) flowchart.Item {
+	t.Helper()
+	_, scene, err := drawing.Parse(frontmatter.Parse(file).Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := flowchart.Read(scene)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range v.Items {
+		if it.ID == id {
+			return it
+		}
+	}
+	t.Fatalf("no item %s", id)
+	return flowchart.Item{}
+}
+
+const archMermaid = "flowchart LR\n  a[Router] --> b[Switch]\n"
+
+func TestDrawFlowchartCreates(t *testing.T) {
+	f := newFixture(t)
+	r := f.draw(t, map[string]any{"path": "arch.excalidraw.md", "mermaid": archMermaid})
+	if !r.Created || r.Path != "homelab/arch.excalidraw.md" || len(r.ID) != 26 || r.Embed != "![[arch]]" {
+		t.Fatalf("bad result: %+v", r)
+	}
+	if r.Stats["nodes_added"] != 2 || r.Stats["edges_added"] != 1 {
+		t.Fatalf("bad stats: %+v", r.Stats)
+	}
+	raw := f.readFile(t, r.Path)
+	fm := frontmatter.Parse(raw)
+	if fm.Meta.ID != r.ID {
+		t.Fatalf("frontmatter id %q", fm.Meta.ID)
+	}
+	if _, _, err := drawing.Parse(fm.Body); err != nil {
+		t.Fatalf("file does not parse: %v", err)
+	}
+	if r.Base != drawing.Hash(raw) {
+		t.Fatal("base is not the file's hash")
+	}
+	txt, isErr := f.call(t, "read_note", map[string]any{"note": r.Path})
+	var read struct{ Base, Content string }
+	if isErr || json.Unmarshal([]byte(txt), &read) != nil {
+		t.Fatalf("read failed: %s", txt)
+	}
+	if read.Base != r.Base || !strings.Contains(read.Content, "flowchart") || !strings.Contains(read.Content, "layout:") {
+		t.Fatalf("read wrong: %s", txt)
+	}
+	// A drawing in a folder embeds by name too.
+	if r := f.draw(t, map[string]any{"path": "sub/deep.excalidraw.md", "mermaid": archMermaid}); r.Embed != "![[deep]]" {
+		t.Fatalf("embed %q", r.Embed)
+	}
+	// Two drawings with one name: the name is ambiguous, so the path is used.
+	if r := f.draw(t, map[string]any{"path": "other/deep.excalidraw.md", "mermaid": archMermaid}); r.Embed != "![[other/deep.excalidraw]]" {
+		t.Fatalf("embed %q", r.Embed)
+	}
+}
+
+func TestDrawFlowchartUpdatesWithBase(t *testing.T) {
+	f := newFixture(t)
+	r := f.draw(t, map[string]any{"path": "arch.excalidraw.md", "mermaid": archMermaid})
+	before := f.readFile(t, r.Path)
+	a := nodeAt(t, before, "a")
+
+	r2 := f.draw(t, map[string]any{"path": "arch.excalidraw.md", "mermaid": "flowchart LR\n  a --> c[Server]\n", "base": r.Base})
+	if r2.Created || r2.ID != r.ID || r2.Stats["nodes_added"] != 1 || r2.Base == r.Base {
+		t.Fatalf("bad update: %+v", r2)
+	}
+	after := f.readFile(t, r.Path)
+	if r2.Base != drawing.Hash(after) {
+		t.Fatal("base is not the new file's hash")
+	}
+	if a2 := nodeAt(t, after, "a"); a2.X != a.X || a2.Y != a.Y {
+		t.Fatalf("node a moved: %+v -> %+v", a, a2)
+	}
+	nodeAt(t, after, "c")
+	nodeAt(t, after, "b")
+
+	// A stale base writes nothing.
+	txt, isErr := f.call(t, "draw_flowchart", map[string]any{"space": "homelab", "path": "arch.excalidraw.md", "mermaid": "flowchart LR\n  d[New]\n", "base": r.Base})
+	if !isErr || txt != "the drawing changed since you read it; read it again" {
+		t.Fatalf("stale base accepted: %v %s", isErr, txt)
+	}
+	// No base on an existing drawing is an error too.
+	if txt, isErr := f.call(t, "draw_flowchart", map[string]any{"space": "homelab", "path": "arch.excalidraw.md", "mermaid": "flowchart LR\n  d[New]\n"}); !isErr {
+		t.Fatalf("missing base accepted: %s", txt)
+	}
+	if !bytes.Equal(after, f.readFile(t, r.Path)) {
+		t.Fatal("a refused write changed the file")
+	}
+}
+
+func TestDrawFlowchartRefusals(t *testing.T) {
+	f := newFixture(t)
+	refused := func(args map[string]any, want string) {
+		t.Helper()
+		if args["space"] == nil {
+			args["space"] = "homelab"
+		}
+		txt, isErr := f.call(t, "draw_flowchart", args)
+		if !isErr || !strings.Contains(txt, want) {
+			t.Fatalf("%v: want error %q, got %v %s", args, want, isErr, txt)
+		}
+	}
+	refused(map[string]any{"path": "s.excalidraw.md", "mermaid": "sequenceDiagram\n  A->>B: hi\n"},
+		"only flowcharts can be drawn for now; write a mermaid block in the note instead")
+	refused(map[string]any{"path": "s.excalidraw.md", "mermaid": "flowchart LR\n  a[oops --> b\n"}, "mermaid: line")
+	refused(map[string]any{"path": "s.md", "mermaid": archMermaid}, ".excalidraw.md")
+	refused(map[string]any{"space": "secret", "path": "s.excalidraw.md", "mermaid": archMermaid}, "not scoped")
+	if _, err := os.Stat(filepath.Join(f.dir, "homelab", "s.excalidraw.md")); err == nil {
+		t.Fatal("a refused draw created the file")
+	}
+
+	r := f.draw(t, map[string]any{"path": "arch.excalidraw.md", "mermaid": archMermaid})
+	before := f.readFile(t, r.Path)
+	refused(map[string]any{"path": "arch.excalidraw.md", "mermaid": archMermaid, "base": r.Base, "remove": []string{"nope"}}, "unknown ids: nope")
+	if !bytes.Equal(before, f.readFile(t, r.Path)) {
+		t.Fatal("an unknown removal changed the file")
+	}
+
+	owner := auth.Identity{UserID: "u1", Owner: true}
+	ro, err := f.as.CreateAgentToken(context.Background(), owner, "reader", []string{"homelab"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.token = ro.Secret
+	refused(map[string]any{"path": "ro.excalidraw.md", "mermaid": archMermaid}, "cannot write")
+	if txt, isErr := f.call(t, "add_drawing_image", map[string]any{"drawing": r.Path, "data": "x", "base": r.Base}); !isErr || !strings.Contains(txt, "cannot write") {
+		t.Fatalf("read-only add accepted: %v %s", isErr, txt)
+	}
+}
+
+func TestDrawFlowchartUnreadableUntouched(t *testing.T) {
+	f := newFixture(t)
+	f.dropNote(t, "homelab/bad.excalidraw.md", "not a scene\n")
+	before := f.readFile(t, "homelab/bad.excalidraw.md")
+	txt, isErr := f.call(t, "draw_flowchart", map[string]any{
+		"space": "homelab", "path": "bad.excalidraw.md", "mermaid": archMermaid, "base": drawing.Hash(before),
+	})
+	if !isErr || txt != "the drawing on disk could not be read; open it in yana first" {
+		t.Fatalf("unreadable drawing written: %v %s", isErr, txt)
+	}
+	if !bytes.Equal(before, f.readFile(t, "homelab/bad.excalidraw.md")) {
+		t.Fatal("the unreadable drawing changed")
+	}
+}
+
+func TestDrawingWriteReachesWatchers(t *testing.T) {
+	f := newFixture(t)
+	r := f.draw(t, map[string]any{"path": "arch.excalidraw.md", "mermaid": archMermaid})
+	events := make(chan reconcile.Event, 16)
+	unsub := f.rec.Subscribe(func(ev reconcile.Event) {
+		if ev.Kind == reconcile.EventChanged {
+			select {
+			case events <- ev:
+			default:
+			}
+		}
+	})
+	defer unsub()
+	r2 := f.draw(t, map[string]any{"path": "arch.excalidraw.md", "mermaid": "flowchart LR\n  a --> c[Server]\n", "base": r.Base})
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case ev := <-events:
+			if ev.Path == r.Path && ev.Hash == r2.Base {
+				return
+			}
+		case <-deadline:
+			t.Fatal("no change notice for the drawing write")
+		}
+	}
+}
+
+type fakeGit struct {
+	mu    sync.Mutex
+	calls [][2]string
+}
+
+func (g *fakeGit) Author(path, author string) {
+	g.mu.Lock()
+	g.calls = append(g.calls, [2]string{path, author})
+	g.mu.Unlock()
+}
+
+func TestDrawingGitAuthor(t *testing.T) {
+	f := newFixture(t)
+	g := &fakeGit{}
+	f.h.Git = g
+	r := f.draw(t, map[string]any{"path": "arch.excalidraw.md", "mermaid": archMermaid})
+	f.draw(t, map[string]any{"path": "arch.excalidraw.md", "mermaid": "flowchart LR\n  a --> c[Server]\n", "base": r.Base, "agent_label": "night"})
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	want := [][2]string{{r.Path, "agent:docs"}, {r.Path, "agent:night"}}
+	if fmt.Sprint(g.calls) != fmt.Sprint(want) {
+		t.Fatalf("git authors %v, want %v", g.calls, want)
+	}
+}
+
+func pngBytes(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 40, 20))); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestAddDrawingImage(t *testing.T) {
+	f := newFixture(t)
+	r := f.draw(t, map[string]any{"path": "arch.excalidraw.md", "mermaid": archMermaid})
+	pic := base64.StdEncoding.EncodeToString(pngBytes(t))
+
+	txt, isErr := f.call(t, "add_drawing_image", map[string]any{"drawing": r.Path, "data": "data:image/png;base64," + pic, "near": "a", "base": r.Base})
+	var res struct{ Path, Base string }
+	if isErr || json.Unmarshal([]byte(txt), &res) != nil {
+		t.Fatalf("add failed: %s", txt)
+	}
+	if res.Path != r.Path || res.Base != drawing.Hash(f.readFile(t, r.Path)) {
+		t.Fatalf("bad result: %s", txt)
+	}
+	blocks, isErr := f.callAll(t, "read_note", map[string]any{"note": r.Path})
+	if isErr || len(blocks) != 2 || blocks[1]["type"] != "image" || blocks[1]["mimeType"] != "image/png" || blocks[1]["data"] != pic {
+		t.Fatalf("read_note blocks wrong: %v", blocks)
+	}
+
+	// From a file already in the space.
+	if err := os.MkdirAll(filepath.Join(f.dir, "homelab", "_assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.dir, "homelab", "_assets", "pic.png"), pngBytes(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	txt, isErr = f.call(t, "add_drawing_image", map[string]any{"drawing": r.ID, "asset": "_assets/pic.png", "base": res.Base})
+	if isErr {
+		t.Fatalf("add from asset failed: %s", txt)
+	}
+	_ = json.Unmarshal([]byte(txt), &res)
+	before := f.readFile(t, r.Path)
+
+	refused := func(args map[string]any, want string) {
+		t.Helper()
+		args["drawing"], args["base"] = r.Path, res.Base
+		txt, isErr := f.call(t, "add_drawing_image", args)
+		if !isErr || !strings.Contains(txt, want) {
+			t.Fatalf("%v: want error %q, got %v %s", args, want, isErr, txt)
+		}
+	}
+	webp := base64.StdEncoding.EncodeToString([]byte("RIFF\x1a\x00\x00\x00WEBPVP8 \x0e\x00\x00\x00"))
+	refused(map[string]any{"data": webp}, "only PNG, JPEG and GIF images can be added")
+	refused(map[string]any{"asset": "../secret/x.png"}, "not allowed")
+	refused(map[string]any{"asset": "_assets/missing.png"}, "no file")
+	refused(map[string]any{"data": pic, "asset": "_assets/pic.png"}, "one of asset or data")
+	refused(map[string]any{"data": pic, "near": "zzz"}, "unknown ids: zzz")
+	if txt, isErr := f.call(t, "add_drawing_image", map[string]any{"drawing": r.Path, "data": pic, "base": r.Base}); !isErr ||
+		txt != "the drawing changed since you read it; read it again" {
+		t.Fatalf("stale base accepted: %v %s", isErr, txt)
+	}
+	if !bytes.Equal(before, f.readFile(t, r.Path)) {
+		t.Fatal("a refused add changed the file")
+	}
+}
+
+// TestDrawingContentCaps: past five pictures, read_note marks the rest
+// "(not included)" on their layout lines instead of sending them.
+func TestDrawingContentCaps(t *testing.T) {
+	scene := []byte(drawing.EmptyScene)
+	for i := 1; i <= 6; i++ {
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 10*i, 10))); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		if scene, err = flowchart.AddImage(scene, buf.Bytes(), "", 0, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v, err := flowchart.Read(scene)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, images := drawingContent(v, scene)
+	if len(images) != 5 || strings.Count(content, " image (not included)\n") != 1 {
+		t.Fatalf("got %d images:\n%s", len(images), content)
 	}
 }

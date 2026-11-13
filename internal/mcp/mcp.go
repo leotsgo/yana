@@ -49,7 +49,10 @@ type Deps struct {
 	Auth *auth.Service
 	// Limit bounds writes per author; nil allows everything (tests).
 	Limit *pathsafe.RateLimiter
-	Log   *slog.Logger
+	// Git records who wrote a file that changes outside the reconciliation
+	// loop (drawings); nil when there is no git layer.
+	Git interface{ Author(path, author string) }
+	Log *slog.Logger
 	// Version is reported in serverInfo.
 	Version string
 }
@@ -231,6 +234,7 @@ func (h *Handler) initialize(requested string) map[string]any {
 			"Write through write_note or append_note so edits merge with concurrent human typing instead of overwriting it.",
 			"Link notes with [[wikilinks]] within one space; the conventions file in each space describes its structure.",
 			"Every write is attributed to agent:<label> in the note history and git.",
+			"draw_flowchart turns a Mermaid flowchart into an Excalidraw drawing the user can rearrange by hand; use it when they ask for a drawing — a mermaid block in a note is still fine otherwise.",
 		}, " "),
 	}
 }

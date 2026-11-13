@@ -117,15 +117,43 @@ Point an MCP client at the server with the token as a bearer header:
 | `search_notes(query, space?, limit?)` | full-text search within the token's scope |
 | `move_note(note, new_path)` | move or rename, rewriting inbound links |
 | `upload_asset(space, note, filename, data, agent_label?)` | store a base64 file (e.g. an image) in the note's `_assets/`; returns the markdown link to put in the note |
+| `draw_flowchart(space, path, mermaid, base?, remove?, agent_label?)` | draw a Mermaid flowchart as an Excalidraw drawing (`*.excalidraw.md`), or add to one; returns the embed to put in a note |
+| `add_drawing_image(drawing, asset? \| data?, near?, width?, base, agent_label?)` | add a PNG, JPEG or GIF to a drawing, from a file in the space or base64 |
 
-`read_note` on a drawing returns a text summary instead of the scene:
-the text written on the canvas and the links it holds, which is what an
-agent can use of it. `write_note` and `append_note` refuse drawings with
-"drawings are edited in the yana web app, not through this tool". Search
-finds the text on a drawing, `move_note` renames one and rewrites links
-to it, and `list_tree` lists it with the other notes. An agent on the
-filesystem path should leave `.excalidraw.md` files alone for the same
-reason ([file-format.md](file-format.md#drawings)).
+Drawings are optional. An agent asked for a diagram can still write a
+```` ```mermaid ```` block in a note; `draw_flowchart` is for when the user
+wants a drawing they will rearrange by hand. On a new path it lays the
+flowchart out and creates the drawing; put the `embed` it returns
+(`![[arch]]`) in a note to show the drawing there. Only flowcharts are
+drawn: anything else is refused.
+
+`read_note` on a drawing returns, instead of the scene JSON, the
+flowchart as Mermaid with an id on every node (hand-drawn boxes too),
+then a `layout:` section with one line per item: nodes with shape,
+position, size, subgraph and colours; edges as `from->to` (a second
+parallel edge is `from->to#2`) with line style and label; subgraphs;
+and free items (loose text, lines, pictures, other shapes) with derived
+ids. Pictures in the drawing come as image content blocks, at most 5
+and 4 MiB together; the rest say `(not included)` on their layout line.
+The result also carries `base`, the hash of the file as read.
+
+Changing an existing drawing needs that `base`. `draw_flowchart`
+upserts the nodes and edges it is sent by id, places new nodes next to
+the ones they connect to, moves nothing that is there, and deletes only
+the ids listed in `remove`; `add_drawing_image` puts a picture beside
+the `near` node or below everything. If the drawing changed since the
+read, the write is refused with "the drawing changed since you read it;
+read it again", and any refusal writes nothing. A drawing the server
+cannot read is never written. Writes go through the same lock as a save
+from the app, so an open editor picks them up, and git attributes them
+to `agent:<label>`.
+
+`write_note` and `append_note` refuse drawings with "drawings are
+changed with draw_flowchart and add_drawing_image, not this tool".
+Search finds the text on a drawing, `move_note` renames one and
+rewrites links to it, and `list_tree` lists it with the other notes. An
+agent on the filesystem path should leave `.excalidraw.md` files alone
+([file-format.md](file-format.md#drawings)).
 
 `agent_label` defaults to the token's label. It lets one token name the
 job in front of it, and it is what lands in the note's history and git:

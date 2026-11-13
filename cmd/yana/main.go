@@ -322,12 +322,16 @@ func run(cmd string, cfg config.Config, base, log *slog.Logger) error {
 	// The agent surface: MCP over the same loop, the same path safety,
 	// and its own write rate.
 	agentRate := pathsafe.Rate{N: cfg.AgentRate, Window: time.Minute}
-	agents := mcp.New(mcp.Deps{
+	agentDeps := mcp.Deps{
 		DB: db, Root: root, Sync: rec, Scanner: sc, Auth: as,
 		Limit:   pathsafe.NewRateLimiter(agentRate, agentRate),
 		Log:     base,
 		Version: version,
-	})
+	}
+	if gl != nil { // a nil *git.Layer in the interface would not be nil
+		agentDeps.Git = gl
+	}
+	agents := mcp.New(agentDeps)
 
 	srv := server.New(server.Deps{
 		DB: db, Root: root, Ripgrep: rg, Web: web.Dist(), Log: base, Version: version, Sync: rec, RT: hub, Scanner: sc, Git: gl, Auth: as, MCP: agents,
