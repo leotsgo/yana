@@ -13,6 +13,9 @@ func New(g Graph, now time.Time) ([]byte, error) {
 		return nil, err
 	}
 	els := emit(g, now)
+	for _, e := range els {
+		stamp(e)
+	}
 	if err := s.Append(els...); err != nil {
 		return nil, err
 	}

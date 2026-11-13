@@ -533,7 +533,7 @@ func TestApplyIntoSubgraphNoRoom(t *testing.T) {
 	})
 	keep := string(raw)
 	_, _, err := Apply(raw, mustParse(t, "flowchart LR\nsubgraph FE\n  Cache\nend"), nil, later)
-	if err == nil || err.Error() != "no free room in subgraph FE; add the new nodes one per call, or ask the user to make room" {
+	if err == nil || err.Error() != "no free room in subgraph FE: the boxes in the way were placed by the user; add the new nodes one per call, or ask the user to make room" {
 		t.Errorf("err = %v", err)
 	}
 	if string(raw) != keep {
@@ -602,6 +602,142 @@ func TestApplyIntoSubgraphGrowsAnyWay(t *testing.T) {
 					t.Errorf("%s: title of I at %v, box %v", dir, box(l), box(i))
 				}
 			}
+		}
+	}
+}
+
+// placedAt is the placement an agent recorded on e, or nil.
+func placedAt(e El) []any {
+	cd, _ := e["customData"].(map[string]any)
+	y, _ := cd["yana"].(map[string]any)
+	l, _ := y["at"].([]any)
+	return l
+}
+
+func TestAgentPlacementRecorded(t *testing.T) {
+	raw := newScene(t, "flowchart LR\nsubgraph F\n  a --> b\nend")
+	check := func(what string, e El) {
+		t.Helper()
+		if e == nil {
+			t.Fatalf("%s missing", what)
+		}
+		if want := []any{e.X(), e.Y(), e.W(), e.H()}; !reflect.DeepEqual(placedAt(e), want) {
+			t.Errorf("%s at = %v, want %v", what, placedAt(e), want)
+		}
+	}
+	s := mustScene(t, raw)
+	a := yel(s, "a")
+	check("node", a)
+	check("text", label(s, a))
+	check("arrow", arrowBetween(s, a, yel(s, "b")))
+	check("frame", yel(s, "F"))
+
+	out, _ := mustApply(t, raw, "flowchart LR\nsubgraph F\n  a --> n\nend")
+	s = mustScene(t, out)
+	n := yel(s, "n")
+	check("new node", n)
+	check("new text", label(s, n))
+	check("new arrow", arrowBetween(s, yel(s, "a"), n))
+	check("grown frame", yel(s, "F"))
+}
+
+const pipeline = "subgraph A\n  a\nend\nsubgraph B\n  b\nend\nsubgraph C\n  c\nend\na --> b --> c"
+
+const noRoomPlaced = "no free room in subgraph B: the boxes in the way were placed by the user; add the new nodes one per call, or ask the user to make room"
+
+// absPt is the drawing position of point i of line e (negative i counts from the end).
+func absPt(e El, i int) [2]float64 {
+	pts := e["points"].([]any)
+	if i < 0 {
+		i += len(pts)
+	}
+	p := pts[i].([]any)
+	return [2]float64{e.X() + p[0].(float64), e.Y() + p[1].(float64)}
+}
+
+// A subgraph with no room left shifts the boxes past it, if no one but an
+// agent placed them.
+func TestApplyMakesRoom(t *testing.T) {
+	// TB needs three new nodes: two fit beside b without moving anything
+	for dir, add := range map[string]string{"LR": "x --> y", "TB": "x --> y --> z"} {
+		raw := newScene(t, "flowchart "+dir+"\n"+pipeline)
+		s0 := mustScene(t, raw)
+		out, _, err := Apply(raw, mustParse(t, "flowchart "+dir+"\nsubgraph B\n  "+add+"\nend"), nil, later)
+		if err != nil {
+			t.Fatalf("%s: %v", dir, err)
+		}
+		s := mustScene(t, out)
+		for _, id := range []string{"A", "a", "b"} {
+			if box(yel(s, id)) != box(yel(s0, id)) {
+				t.Errorf("%s: %s moved", dir, id)
+			}
+		}
+		c0, c := yel(s0, "c"), yel(s, "c")
+		dx, dy := c.X()-c0.X(), c.Y()-c0.Y()
+		if dir == "LR" && (dx <= 0 || dy != 0) || dir == "TB" && (dy <= 0 || dx != 0) {
+			t.Errorf("%s: c shifted by %v,%v", dir, dx, dy)
+		}
+		for what, p := range map[string][2]El{"C": {yel(s0, "C"), yel(s, "C")}, "c label": {label(s0, c0), label(s, c)}} {
+			if p[1].X()-p[0].X() != dx || p[1].Y()-p[0].Y() != dy || p[1].W() != p[0].W() || p[1].H() != p[0].H() {
+				t.Errorf("%s: %s %v -> %v, want shift %v,%v", dir, what, box(p[0]), box(p[1]), dx, dy)
+			}
+		}
+		end0, end := absPt(arrowBetween(s0, yel(s0, "b"), c0), -1), absPt(arrowBetween(s, yel(s, "b"), c), -1)
+		if end[0]-end0[0] != dx || end[1]-end0[1] != dy {
+			t.Errorf("%s: b->c ends at %v, was %v", dir, end, end0)
+		}
+		var solid []El
+		for _, e := range s.Live() {
+			if e.Type() != "arrow" && e.Type() != "text" {
+				solid = append(solid, e)
+			}
+		}
+		for i, e := range solid {
+			for _, o := range solid[i+1:] {
+				if hits(box(e), box(o)) && !contains(box(e), box(o)) && !contains(box(o), box(e)) {
+					t.Errorf("%s: %s %s %v overlaps %s %s %v", dir, e.Type(), e.YanaID(), box(e), o.Type(), o.YanaID(), box(o))
+				}
+			}
+		}
+		if err := drawing.Validate(out); err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+// Only boxes no one has moved since an agent placed them make room.
+func TestApplyMakeRoomRespectsOwner(t *testing.T) {
+	cases := map[string]struct {
+		edit func(s *Scene)
+		ok   bool
+	}{
+		"owner moved c": {func(s *Scene) { c := yel(s, "c"); c["x"] = c.X() + 10 }, false},
+		"owner recoloured c": {func(s *Scene) {
+			c := yel(s, "c")
+			c["strokeColor"], c["version"] = "#e03131", c.num("version")+1
+		}, true},
+		"no record": {func(s *Scene) {
+			for _, e := range s.Elements {
+				if cd, _ := e["customData"].(map[string]any); cd != nil {
+					if y, _ := cd["yana"].(map[string]any); y != nil {
+						delete(y, "at")
+					}
+				}
+			}
+		}, false},
+	}
+	for name, tc := range cases {
+		raw := editScene(t, newScene(t, "flowchart LR\n"+pipeline), tc.edit)
+		keep := string(raw)
+		_, _, err := Apply(raw, mustParse(t, "flowchart LR\nsubgraph B\n  x --> y\nend"), nil, later)
+		if tc.ok && err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		if !tc.ok && (err == nil || err.Error() != noRoomPlaced) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+		if string(raw) != keep {
+			t.Errorf("%s: input mutated", name)
 		}
 	}
 }

@@ -220,7 +220,7 @@ func TestInitializeAndToolList(t *testing.T) {
 			t.Fatalf("tool %d is %s, want %s", i, list.Tools[i].Name, w)
 		}
 	}
-	if d := list.Tools[8].Description; !strings.HasSuffix(d, " An edge you send replaces that edge's label and line style; send only the edges you mean to change.") {
+	if d := list.Tools[8].Description; !strings.HasSuffix(d, " An edge you send replaces that edge's label and line style; send only the edges you mean to change. Boxes the user has moved or drawn never move; boxes nobody has touched since an agent placed them may shift to make room.") {
 		t.Fatalf("draw_flowchart description: %s", d)
 	}
 

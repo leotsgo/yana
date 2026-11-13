@@ -2,6 +2,7 @@ package flowchart
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"sort"
@@ -65,12 +66,15 @@ func Apply(sceneJSON []byte, g Graph, remove []string, now time.Time) ([]byte, S
 
 	a := &applier{s: s, g: g, items: items, now: now, byID: map[string]El{}, orig: map[string]bool{},
 		dirty: map[string]bool{}, killed: map[string]bool{}, adds: map[string][]El{}, newNode: map[string]El{},
-		removing: map[string]bool{}}
+		removing: map[string]bool{}, fresh: map[string]bool{}}
 	for _, id := range remove {
 		a.removing[id] = true // a removal wins over the Mermaid naming the same item
 	}
 	for _, e := range s.Elements {
 		a.byID[e.ID()], a.orig[e.ID()] = e, true
+	}
+	for _, e := range s.Elements {
+		a.fresh[e.ID()] = agentPlaced(e, a.byID)
 	}
 	for _, n := range g.Nodes {
 		if it, ok := items[n.ID]; ok && !a.removing[n.ID] {
@@ -105,6 +109,9 @@ func Apply(sceneJSON []byte, g Graph, remove []string, now time.Time) ([]byte, S
 	}
 	a.unlink()
 	for _, e := range s.Elements {
+		if !a.orig[e.ID()] || a.dirty[e.ID()] && a.fresh[e.ID()] {
+			stamp(e) // what the owner moved stays theirs
+		}
 		if a.dirty[e.ID()] && a.orig[e.ID()] {
 			e.Bump(now)
 		}
@@ -129,7 +136,57 @@ type applier struct {
 	order    []string        // keys of adds in first-use order
 	newNode  map[string]El   // new node elements by Mermaid id
 	removing map[string]bool // ids in the remove list
+	fresh    map[string]bool // ids still where an agent put them, before Apply
 	st       Stats
+}
+
+// mine reports whether an agent placed e and no one has moved it since.
+func (a *applier) mine(e El) bool { return !a.orig[e.ID()] || a.fresh[e.ID()] }
+
+// solid reports whether e is in the way of a box: not an arrow, a line or
+// an arrow's label.
+func (a *applier) solid(e El) bool {
+	line := func(e El) bool { return e != nil && (e.Type() == "arrow" || e.Type() == "line") }
+	return !line(e) && !(e.Type() == "text" && line(a.byID[e.ContainerID()]))
+}
+
+// yanaData is e's customData.yana, created when missing.
+func yanaData(e El) map[string]any {
+	cd, _ := e["customData"].(map[string]any)
+	if cd == nil {
+		cd = map[string]any{}
+		e["customData"] = cd
+	}
+	y, _ := cd["yana"].(map[string]any)
+	if y == nil {
+		y = map[string]any{}
+		cd["yana"] = y
+	}
+	return y
+}
+
+// stamp records e's geometry as where an agent put it (customData.yana.at).
+func stamp(e El) { yanaData(e)["at"] = []any{e.X(), e.Y(), e.W(), e.H()} }
+
+// agentPlaced reports whether e still has the geometry an agent recorded for
+// it (within 0.5); a bound text goes by its container. Version bumps alone
+// (re-measured text, colours, labels) do not count as moving it.
+func agentPlaced(e El, byID map[string]El) bool {
+	if c := byID[e.ContainerID()]; c != nil {
+		e = c
+	}
+	cd, _ := e["customData"].(map[string]any)
+	y, _ := cd["yana"].(map[string]any)
+	at, _ := y["at"].([]any)
+	if len(at) != 4 {
+		return false
+	}
+	for i, v := range []float64{e.X(), e.Y(), e.W(), e.H()} {
+		if f, ok := at[i].(float64); !ok || abs(f-v) > 0.5 {
+			return false
+		}
+	}
+	return true
 }
 
 // set changes e[k] to v when it differs.
@@ -209,15 +266,7 @@ func (a *applier) updateNode(n Node, it Item) {
 			a.set(e, "type", typ)
 			a.set(e, "roundness", rv)
 		}
-		cd, _ := e["customData"].(map[string]any)
-		if cd == nil {
-			cd = map[string]any{}
-		}
-		y, _ := cd["yana"].(map[string]any)
-		if y == nil {
-			y = map[string]any{}
-		}
-		y["shape"], cd["yana"], e["customData"] = n.Shape, y, cd
+		yanaData(e)["shape"] = n.Shape
 		a.dirty[e.ID()], changed = true, true
 	}
 	if n.Label != nil && a.setLabel(e, *n.Label, "middle", true) {
@@ -678,7 +727,8 @@ func box(e El) Box { return Box{e.X(), e.Y(), e.W(), e.H()} }
 // the flow (below for LR/RL, right for TB/BT), else before them across it,
 // else against the flow, stepping outward like freeSpot. A spot counts only
 // if the group overlaps nothing and growing h and its ancestors (any way) to
-// hold it covers nothing solid that was not in them already.
+// hold it covers nothing solid that was not in them already. With no such
+// spot it makes room (see makeRoom) and looks again.
 // ponytail: ignores edges to existing nodes; anchor like spot if crowded subgraphs need it.
 func (a *applier) inside(h string, b Box) (float64, float64, error) {
 	it := a.items[h]
@@ -706,55 +756,6 @@ func (a *applier) inside(h string, b Box) (float64, float64, error) {
 		}
 	}
 
-	// Obstacles: everything drawn so far but the boxes of h and its ancestors.
-	// Those boxes may grow over arrows and their labels (an arrow crossing a
-	// frame is normal) and over what they already overlap, nothing else.
-	shell := map[string]bool{}
-	for s := h; s != ""; s = a.items[s].Parent {
-		for _, id := range a.items[s].Elements {
-			shell[id] = true
-		}
-	}
-	all := a.s.Live()
-	for _, els := range a.adds {
-		all = append(all, els...)
-	}
-	line := func(e El) bool { return e != nil && (e.Type() == "arrow" || e.Type() == "line") }
-	var obstacles, solid []Box
-	for _, e := range all {
-		if shell[e.ID()] {
-			continue
-		}
-		obstacles = append(obstacles, bbox(e))
-		if !line(e) && !(e.Type() == "text" && line(a.byID[e.ContainerID()])) {
-			solid = append(solid, bbox(e))
-		}
-	}
-	var outside [][]Box // per box from h outward: solid obstacles it does not overlap yet
-	for s := h; s != ""; s = a.items[s].Parent {
-		cur := box(a.byID[a.items[s].Elements[0]])
-		var obs []Box
-		for _, o := range solid {
-			if !hits(o, cur) {
-				obs = append(obs, o)
-			}
-		}
-		outside = append(outside, obs)
-	}
-	free := func(c Box) bool {
-		if !roomFor(obstacles, c) {
-			return false
-		}
-		for i, g := range a.growth(h, c) {
-			for _, o := range outside[i] {
-				if hits(g, o) {
-					return false
-				}
-			}
-		}
-		return true
-	}
-
 	// Anchors beside the members, each walked like freeSpot: across the
 	// flow for the flow sides, along it for the cross sides.
 	type anchor struct {
@@ -778,12 +779,259 @@ func (a *applier) inside(h string, b Box) (float64, float64, error) {
 			order = []anchor{below, right, left, above}
 		}
 	}
-	for _, an := range order {
-		if x, y, ok := stepOut(an.x, an.y, b, an.horiz, free); ok {
-			return x, y, nil
+
+	// Obstacles: everything drawn so far but the boxes of h and its ancestors.
+	// Those boxes may grow over arrows and their labels (an arrow crossing a
+	// frame is normal) and over what they already overlap, nothing else.
+	shell := map[string]bool{}
+	for s := h; s != ""; s = a.items[s].Parent {
+		for _, id := range a.items[s].Elements {
+			shell[id] = true
 		}
 	}
-	return 0, 0, fmt.Errorf("no free room in subgraph %s; add the new nodes one per call, or ask the user to make room", h)
+	all := a.s.Live()
+	for _, els := range a.adds {
+		all = append(all, els...)
+	}
+	search := func() (float64, float64, bool) {
+		var obstacles, solid []Box
+		for _, e := range all {
+			if shell[e.ID()] {
+				continue
+			}
+			obstacles = append(obstacles, bbox(e))
+			if a.solid(e) {
+				solid = append(solid, bbox(e))
+			}
+		}
+		var outside [][]Box // per box from h outward: solid obstacles it does not overlap yet
+		for s := h; s != ""; s = a.items[s].Parent {
+			cur := box(a.byID[a.items[s].Elements[0]])
+			var obs []Box
+			for _, o := range solid {
+				if !hits(o, cur) {
+					obs = append(obs, o)
+				}
+			}
+			outside = append(outside, obs)
+		}
+		free := func(c Box) bool {
+			if !roomFor(obstacles, c) {
+				return false
+			}
+			for i, g := range a.growth(h, c) {
+				for _, o := range outside[i] {
+					if hits(g, o) {
+						return false
+					}
+				}
+			}
+			return true
+		}
+		for _, an := range order {
+			if x, y, ok := stepOut(an.x, an.y, b, an.horiz, free); ok {
+				return x, y, true
+			}
+		}
+		return 0, 0, false
+	}
+	if x, y, ok := search(); ok {
+		return x, y, nil
+	}
+	// No room: push what lies past h aside, along the flow from the flow
+	// side anchor, else across it from the next one.
+	horiz, sign := a.g.Dir == "LR" || a.g.Dir == "RL", 1.0
+	if a.g.Dir == "RL" || a.g.Dir == "BT" {
+		sign = -1
+	}
+	for i, ax := range []struct {
+		horiz bool
+		sign  float64
+	}{{horiz, sign}, {!horiz, 1}} {
+		an := order[i]
+		if undo, ok := a.makeRoom(h, Box{an.x, an.y, b.W, b.H}, all, shell, ax.horiz, ax.sign); ok {
+			if x, y, ok := search(); ok {
+				return x, y, nil
+			}
+			undo()
+		}
+	}
+	return 0, 0, fmt.Errorf("no free room in subgraph %s: the boxes in the way were placed by the user; add the new nodes one per call, or ask the user to make room", h)
+}
+
+// makeRoom opens a gap past subgraph h, along x when horiz (else y), on the
+// side sign points to, so that h can grow to hold c. Let L be h's far edge
+// on that side. Everything wholly past L shifts by the gap, subgraph boxes
+// crossing L stretch by it, and arrows follow: points past L move, and an
+// end bound to a shifted box always does. Only what lies across from the
+// grown h, or in turn from what moves, is affected. It changes nothing and
+// returns false when something to shift or stretch (other than h's
+// ancestors, which grow anyway) was not placed by an agent, or would land
+// on something it did not cover before. undo puts everything back.
+func (a *applier) makeRoom(h string, c Box, all []El, shell map[string]bool, horiz bool, sign float64) (undo func(), ok bool) {
+	// along is a box's extent on the shift axis, negated when sign < 0 so
+	// that "past" is always higher; across is its extent on the other axis.
+	along := func(b Box) (float64, float64) {
+		lo, hi := b.Y, b.Y+b.H
+		if horiz {
+			lo, hi = b.X, b.X+b.W
+		}
+		if sign < 0 {
+			return -hi, -lo
+		}
+		return lo, hi
+	}
+	across := func(b Box) (float64, float64) {
+		if horiz {
+			return b.Y, b.Y + b.H
+		}
+		return b.X, b.X + b.W
+	}
+	grown := a.growth(h, c)
+	_, L := along(box(a.byID[a.items[h].Elements[0]]))
+	_, far := along(grown[0])
+	d := far - L
+	if d <= 0 {
+		return nil, false
+	}
+	blo, bhi := across(union(grown))
+	inBand := func(b Box) bool { lo, hi := across(b); return lo < bhi && hi > blo }
+
+	// ponytail: O(n²) fixed point over the scene; fine at the 300-node cap.
+	shift, stretch := map[string]bool{}, map[string]bool{}
+	for grew := true; grew; {
+		grew = false
+		for _, e := range all {
+			id, b := e.ID(), bbox(e)
+			if shift[id] || stretch[id] || !a.solid(e) || e.ContainerID() != "" || !inBand(b) {
+				continue
+			}
+			lo, hi := along(b)
+			switch {
+			case lo >= L:
+				shift[id] = true
+			case hi > L && (e.Type() == "frame" || e.YanaKind() == "subgraph"):
+				stretch[id] = true
+			default:
+				continue
+			}
+			if !shell[id] && !a.mine(e) {
+				return nil, false
+			}
+			lo, hi = across(b)
+			blo, bhi, grew = min(blo, lo), max(bhi, hi), true
+		}
+	}
+
+	old := map[string]El{}
+	for _, e := range all {
+		old[e.ID()] = maps.Clone(e)
+	}
+	dirty := maps.Clone(a.dirty)
+	undo = func() {
+		for _, e := range all {
+			clear(e)
+			maps.Copy(e, old[e.ID()])
+		}
+		a.dirty = dirty
+	}
+	k, size, ax, D := "y", "height", 1, sign*d
+	if horiz {
+		k, size, ax = "x", "width", 0
+	}
+	for _, e := range all {
+		id := e.ID()
+		if a.solid(e) && e.ContainerID() != "" {
+			id = e.ContainerID() // a label goes with its box
+		}
+		if shift[id] {
+			a.set(e, k, e.num(k)+D)
+		} else if stretch[id] && id == e.ID() {
+			a.set(e, size, e.num(size)+d)
+			if sign < 0 {
+				a.set(e, k, e.num(k)-d)
+			}
+			a.retitle(e)
+		}
+	}
+	for _, e := range all {
+		p := linePts(e)
+		if a.solid(e) || len(p) == 0 {
+			continue
+		}
+		q, moved := slices.Clone(p), false
+		for i := range q {
+			end, pt := "", Box{q[i][0], q[i][1], 0, 0}
+			if i == 0 {
+				end = e.StartID()
+			} else if i == len(q)-1 {
+				end = e.EndID()
+			}
+			if lo, _ := along(pt); end != "" && shift[end] || end == "" && a.mine(e) && lo >= L && inBand(pt) {
+				q[i][ax] += D
+				moved = true
+			}
+		}
+		if moved {
+			a.setLinePts(e, q)
+			if t := a.boundText(e); t != nil {
+				m0, m1 := midPt(p), midPt(q)
+				a.set(t, "x", t.X()+m1[0]-m0[0])
+				a.set(t, "y", t.Y()+m1[1]-m0[1])
+			}
+		}
+	}
+
+	for _, e := range all {
+		was, now := bbox(old[e.ID()]), bbox(e)
+		if was == now || !a.solid(e) || e.ContainerID() != "" {
+			continue
+		}
+		for _, o := range all {
+			if ob := bbox(o); a.solid(o) && bbox(old[o.ID()]) == ob && hits(now, ob) && !hits(was, ob) {
+				undo()
+				return nil, false
+			}
+		}
+	}
+	return undo, true
+}
+
+// linePts is the drawing position of each point of a line or arrow.
+func linePts(e El) [][2]float64 {
+	pts, _ := e["points"].([]any)
+	var out [][2]float64
+	for _, p := range pts {
+		q, _ := p.([]any)
+		if len(q) < 2 {
+			continue
+		}
+		px, _ := q[0].(float64)
+		py, _ := q[1].(float64)
+		out = append(out, [2]float64{e.X() + px, e.Y() + py})
+	}
+	return out
+}
+
+// setLinePts redraws line e through the drawing positions p.
+func (a *applier) setLinePts(e El, p [][2]float64) {
+	x0, y0, x1, y1 := p[0][0], p[0][1], p[0][0], p[0][1]
+	rel := make([]any, len(p))
+	for i, q := range p {
+		rel[i] = []any{q[0] - p[0][0], q[1] - p[0][1]}
+		x0, y0, x1, y1 = min(x0, q[0]), min(y0, q[1]), max(x1, q[0]), max(y1, q[1])
+	}
+	for k, v := range map[string]any{"x": p[0][0], "y": p[0][1], "points": rel, "width": x1 - x0, "height": y1 - y0} {
+		a.set(e, k, v)
+	}
+}
+
+// midPt is where a line's label sits: its midpoint, or its middle bend.
+func midPt(p [][2]float64) [2]float64 {
+	if len(p) == 2 {
+		return [2]float64{(p[0][0] + p[1][0]) / 2, (p[0][1] + p[1][1]) / 2}
+	}
+	return p[len(p)/2]
 }
 
 // growth is the box of subgraph h and of each of its ancestors, inner first,
@@ -809,12 +1057,19 @@ func (a *applier) grow(h string, b Box) {
 		for k, v := range map[string]float64{"x": g.X, "y": g.Y, "width": g.W, "height": g.H} {
 			changed = a.set(e, k, v) || changed
 		}
-		if t := a.boundText(e); changed && t != nil && e.Type() != "frame" {
-			x, y := labelPos(e, t.W(), t.H(), "top")
-			a.set(t, "x", x)
-			a.set(t, "y", y)
+		if changed {
+			a.retitle(e)
 		}
 		h = a.items[h].Parent
+	}
+}
+
+// retitle puts the title of subgraph rectangle e back on its top edge.
+func (a *applier) retitle(e El) {
+	if t := a.boundText(e); t != nil && e.Type() != "frame" {
+		x, y := labelPos(e, t.W(), t.H(), "top")
+		a.set(t, "x", x)
+		a.set(t, "y", y)
 	}
 }
 

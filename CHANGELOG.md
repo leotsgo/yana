@@ -18,6 +18,9 @@ under Unreleased until the next tag; see
   layout of everything on the canvas, and its pictures. An agent working
   from an old read is refused rather than undoing your changes.
   Flowcharts over 300 nodes or 1000 edges stay mermaid blocks.
+- An agent adding to a full subgraph shifts the boxes past it to make
+  room, but only boxes nobody has touched since an agent placed them;
+  boxes you moved or drew yourself never move.
 - Backup remotes work over SSH. Each remote has its own key, made by
   the server: Settings → Data → Backups shows the public key first, to
   add to the repository as a deploy key with write access, then asks for

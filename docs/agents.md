@@ -144,8 +144,11 @@ the ones they connect to, moves nothing that is there, and deletes only
 the ids listed in `remove`. An edge it is sent replaces that edge's
 label and line style, so send only the edges you mean to change. A
 flowchart over 300 nodes or 1000 edges is refused; write a mermaid
-block instead. A new node in a subgraph with no free room around it is
-refused rather than put on top of something. `add_drawing_image` puts
+block instead. Boxes the user has moved or drawn never move; boxes
+nobody has touched since an agent placed them may shift to make room.
+A new node in a subgraph with no free room around it, where only the
+user's boxes are in the way, is refused rather than put on top of
+something. `add_drawing_image` puts
 a picture beside the `near` node or below everything. If the drawing changed since the
 read, the write is refused with "the drawing changed since you read it;
 read it again", and any refusal writes nothing. A drawing the server

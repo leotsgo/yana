@@ -153,7 +153,7 @@ func toolList() []map[string]any {
 		},
 		{
 			"name":        "draw_flowchart",
-			"description": "Draw a Mermaid flowchart as an Excalidraw drawing (*.excalidraw.md) the user can rearrange by hand. Use it when the user asks for a drawing; a mermaid block in a note is still fine otherwise. New path: laid out automatically. Existing drawing: pass base from read_note; nodes and edges you send are added or updated by id, nothing moves, and nothing is deleted unless listed in remove. Put the returned embed in a note to show the drawing there. Flowcharts only. An edge you send replaces that edge's label and line style; send only the edges you mean to change.",
+			"description": "Draw a Mermaid flowchart as an Excalidraw drawing (*.excalidraw.md) the user can rearrange by hand. Use it when the user asks for a drawing; a mermaid block in a note is still fine otherwise. New path: laid out automatically. Existing drawing: pass base from read_note; nodes and edges you send are added or updated by id, nothing moves, and nothing is deleted unless listed in remove. Put the returned embed in a note to show the drawing there. Flowcharts only. An edge you send replaces that edge's label and line style; send only the edges you mean to change. Boxes the user has moved or drawn never move; boxes nobody has touched since an agent placed them may shift to make room.",
 			"inputSchema": req(
 				map[string]any{
 					"space":       str("space name"),
