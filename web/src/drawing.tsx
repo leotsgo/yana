@@ -485,6 +485,8 @@ export function renderDrawingEmbeds(root: HTMLElement, onOpen: OpenNote): void {
     const id = block.dataset['id'] ?? ''
     const put = (got: Embed | null) => {
       if (!got) return
+      // A refresh swaps the old image; two never stack.
+      block.querySelector(':scope > svg')?.remove()
       block.prepend(got.svg.cloneNode(true))
       block.classList.add('drawn')
       block.title = `Open ${got.title}`
@@ -539,8 +541,6 @@ export function refreshDrawingEmbeds(root: HTMLElement, id: string, onOpen: Open
   forgetEmbed(id)
   for (const block of root.querySelectorAll<HTMLElement>('.drawing-embed[data-id]')) {
     if (block.dataset['id'] !== id) continue
-    block.querySelector(':scope > svg')?.remove()
-    block.classList.remove('drawn')
     delete block.dataset['drawn']
   }
   renderDrawingEmbeds(root, onOpen)

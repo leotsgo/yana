@@ -890,13 +890,27 @@ function Reader({ html, sync, note, readOnly, cls, onOpen, onLinkMenu, onTag, hi
       stopEmbedWatch()
       return
     }
-    if (embedWatch.current) return
+    if (embedWatch.current) {
+      embedWatch.current.watch.watch([note.space])
+      return
+    }
+    // Changed ids gather until the timer fires (it is not restarted, so
+    // steady edits elsewhere cannot starve it); only embedded ones redraw.
+    const pending = new Set<string>()
     const state: { watch: SpaceWatch; timer?: number } = {
       watch: new SpaceWatch('user:embeds', (id) => {
-        window.clearTimeout(state.timer)
+        pending.add(id)
+        if (state.timer !== undefined) return
         state.timer = window.setTimeout(() => {
+          state.timer = undefined
           const root = host.current
-          if (root) refreshDrawingEmbeds(root, id, latest.current.onOpen)
+          const ids = [...pending]
+          pending.clear()
+          if (!root) return
+          for (const d of ids) {
+            if ([...root.querySelectorAll<HTMLElement>('.drawing-embed[data-id]')].some((b) => b.dataset['id'] === d))
+              refreshDrawingEmbeds(root, d, latest.current.onOpen)
+          }
         }, 300)
       }),
     }
