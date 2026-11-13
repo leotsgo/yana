@@ -706,7 +706,8 @@ func (a *applier) inside(h string, b Box) (float64, float64, error) {
 	}
 
 	// Obstacles: everything drawn so far but the boxes of h and its ancestors.
-	// Each of those boxes may grow over only what it already overlaps.
+	// Those boxes may grow over arrows and their labels (an arrow crossing a
+	// frame is normal) and over what they already overlap, nothing else.
 	shell := map[string]bool{}
 	for s := h; s != ""; s = a.items[s].Parent {
 		for _, id := range a.items[s].Elements {
@@ -717,17 +718,22 @@ func (a *applier) inside(h string, b Box) (float64, float64, error) {
 	for _, els := range a.adds {
 		all = append(all, els...)
 	}
-	var obstacles []Box
+	line := func(e El) bool { return e != nil && (e.Type() == "arrow" || e.Type() == "line") }
+	var obstacles, solid []Box
 	for _, e := range all {
-		if !shell[e.ID()] {
-			obstacles = append(obstacles, bbox(e))
+		if shell[e.ID()] {
+			continue
+		}
+		obstacles = append(obstacles, bbox(e))
+		if !line(e) && !(e.Type() == "text" && line(a.byID[e.ContainerID()])) {
+			solid = append(solid, bbox(e))
 		}
 	}
-	var outside [][]Box // per box from h outward: obstacles it does not overlap yet
+	var outside [][]Box // per box from h outward: solid obstacles it does not overlap yet
 	for s := h; s != ""; s = a.items[s].Parent {
 		cur := box(a.byID[a.items[s].Elements[0]])
 		var obs []Box
-		for _, o := range obstacles {
+		for _, o := range solid {
 			if !hits(o, cur) {
 				obs = append(obs, o)
 			}

@@ -537,3 +537,28 @@ func TestApplyIntoSubgraphNoRoom(t *testing.T) {
 		t.Error("input mutated")
 	}
 }
+
+// An arrow (and its label) crossing past the host is not in the way: the
+// host may grow over it.
+func TestApplyIntoSubgraphGrowsOverArrows(t *testing.T) {
+	for _, dir := range []string{"LR", "TB"} {
+		raw := newScene(t, "flowchart "+dir+"\n  subgraph FE [Frontend]\n    UI[Web UI]\n  end\n  subgraph BE [Backend]\n    API[API server]\n  end\n  agent([Claude via MCP]) -->|Bearer token| UI\n  UI -->|REST over HTTPS| API")
+		out, _, err := Apply(raw, mustParse(t, "flowchart "+dir+"\n  subgraph FE\n    Cache[Local cache]\n  end\n  UI --> Cache"), nil, later)
+		if err != nil {
+			t.Fatalf("%s: %v", dir, err)
+		}
+		s := mustScene(t, out)
+		fe, c := yel(s, "FE"), yel(s, "Cache")
+		if !contains(box(fe), box(c)) {
+			t.Errorf("%s: Cache %v outside FE %v", dir, box(c), box(fe))
+		}
+		for _, e := range s.Live() {
+			if e.Type() == "arrow" || e.Type() == "text" && s.ByID(e.ContainerID()) != nil && s.ByID(e.ContainerID()).Type() == "arrow" {
+				continue
+			}
+			if id := e.YanaID(); e.FrameID() != fe.ID() && e.ID() != fe.ID() && hits(box(fe), bbox(e)) {
+				t.Errorf("%s: FE %v over %s %s %v", dir, box(fe), e.Type(), id, bbox(e))
+			}
+		}
+	}
+}
